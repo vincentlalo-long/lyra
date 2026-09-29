@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Output and temporary files
+output/
+*.mp3
+*.lrc
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.vtt
+
+# Environments
+.env
+.venv
+env/
+venv/
