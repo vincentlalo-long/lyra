@@ -18,7 +18,7 @@ class LyraPipeline:
         self.cover_mode = cover_mode
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def process_url(self, url: str) -> Dict[str, Any]:
+    def process_url(self, url: str , name : str |None = None , album : str |None = None ,singer : str |None = None) -> Dict[str, Any]:
         print(f"Fetching: {url}")
 
         with tempfile.TemporaryDirectory(prefix="lyra_") as temp_dir:
@@ -50,6 +50,8 @@ class LyraPipeline:
             raw_title = info.get("title", "Unknown Title")
             uploader = info.get("uploader", "")
             artist, title = clean_title_and_artist(raw_title, uploader)
+            if singer:
+                artist = singer.strip()
             print(f"Track:    {artist} - {title}")
 
             # Locate converted audio
@@ -88,15 +90,25 @@ class LyraPipeline:
                 file_path=raw_mp3_path,
                 title=title,
                 artist=artist,
-                album=f"{title} - Single",
+                album = album if album else f"{title} - Single",
                 cover_path=processed_cover_path if has_cover else None,
                 lrc_text=lrc_content if lrc_content else None,
             )
 
             # Export to target directory
-            base_filename = sanitize_filename(f"{artist} - {title}")
-            dest_mp3 = os.path.join(self.output_dir, f"{base_filename}.mp3")
-            dest_lrc = os.path.join(self.output_dir, f"{base_filename}.lrc")
+            if album : 
+                clean_album = sanitize_filename(album)
+                target_dir = os.path.join(self.output_dir, clean_album)
+                os.makedirs(target_dir , exist_ok=True)
+            else :
+                target_dir = self.output_dir
+            if(name) :
+                clean_name = os.path.splitext(name)[0]
+                base_filename = sanitize_filename(clean_name)
+            else :
+                base_filename = sanitize_filename(f"{artist} - {title}")
+            dest_mp3 = os.path.join(target_dir, f"{base_filename}.mp3")
+            dest_lrc = os.path.join(target_dir, f"{base_filename}.lrc")
 
             shutil.copy2(raw_mp3_path, dest_mp3)
             print(f"Audio:    {dest_mp3}")

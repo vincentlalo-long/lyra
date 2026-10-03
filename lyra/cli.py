@@ -24,6 +24,24 @@ def main():
         default="blur_pad",
         help="Cover art mode: blur_pad (default) or center_crop",
     )
+    get_parser.add_argument(
+        "-n" ,"--name" ,
+        type=str,
+        default = None ,
+        help="Name the video (default : <Artist> - <Title>)",
+    )
+    get_parser.add_argument(
+        "-a" ,"--album" ,
+        type=str ,
+        default = None,
+        help="Album of the song (default : single track)",
+    )
+    get_parser.add_argument(
+        "-s","--singer" ,
+        type=str,
+        default=None,
+        help="Author of the song (default : name of album)"
+    )
 
     args = parser.parse_args()
 
@@ -34,7 +52,7 @@ def main():
     if args.command == "get":
         try:
             pipeline = LyraPipeline(output_dir=args.output, cover_mode=args.cover_mode)
-            pipeline.process_url(args.url)
+            pipeline.process_url(args.url , name = args.name , album = args.album,singer = args.singer)
         except KeyboardInterrupt:
             print("\nAborted.", file=sys.stderr)
             sys.exit(130)
