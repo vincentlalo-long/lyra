@@ -5,6 +5,7 @@ pub struct FileBrowser {
     pub current_dir: PathBuf,
     pub entries: Vec<PathBuf>,
     pub selected: usize,
+    pub show_hidden: bool, // Toggle hidden files/folders (starting with .)
 }
 
 impl FileBrowser {
@@ -18,16 +19,22 @@ impl FileBrowser {
             current_dir,
             entries: Vec::new(),
             selected: 0,
+            show_hidden: false, // Default: hide dotfiles
         };
 
         browser.refresh();
         browser
     }
 
+    pub fn toggle_hidden(&mut self) {
+        self.show_hidden = !self.show_hidden;
+        self.refresh();
+    }
+
     pub fn refresh(&mut self) {
         self.entries.clear();
 
-        // Add parent directory entry if available
+        // Always add parent directory entry if available
         if let Some(parent_dir) = self.current_dir.parent() {
             self.entries.push(parent_dir.to_path_buf());
         }
@@ -38,6 +45,16 @@ impl FileBrowser {
 
             for entry in read_dir.flatten() {
                 let path = entry.path();
+                let file_name = match path.file_name() {
+                    Some(name) => name.to_string_lossy(),
+                    None => continue,
+                };
+
+                // Filter out dotfiles if show_hidden is false
+                if !self.show_hidden && file_name.starts_with('.') {
+                    continue;
+                }
+
                 if path.is_dir() {
                     list_folder.push(path);
                 } else if path.is_file() {

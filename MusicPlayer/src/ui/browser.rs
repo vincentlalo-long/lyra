@@ -41,7 +41,8 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     let current_path_display = app.browser.current_dir.to_string_lossy();
-    let box_title = format!(" File Browser: {current_path_display} ");
+    let hidden_status = if app.browser.show_hidden { "Hidden: ON" } else { "Hidden: OFF" };
+    let box_title = format!(" File Browser: {current_path_display} [{hidden_status}] ");
     let list_widget = List::new(list_items).block(
         Block::default()
             .title(box_title)

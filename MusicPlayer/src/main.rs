@@ -1,20 +1,22 @@
 mod app;
 mod audio;
 mod browser;
+mod input;
+mod playlist;
+mod scanner;
 mod terminal;
 mod ui;
 
 use std::{path::PathBuf, time::Duration};
 use anyhow::Result;
-use app::{App, ViewMode};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use app::App;
+use crossterm::event::{self, Event, KeyEventKind};
 
 fn main() -> Result<()> {
-    // Read optional directory argument (e.g. `cargo run -- ~/Music`)
-    // Defaults to `../output` if omitted
+    // Read directory from CLI argument, default strictly to current working directory (.)
     let music_directory = match std::env::args().nth(1) {
         Some(custom_path) => PathBuf::from(custom_path),
-        None => PathBuf::from("../output"),
+        None => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     };
 
     let mut app = App::new(&music_directory)?;
@@ -32,21 +34,19 @@ fn main() -> Result<()> {
 
 fn run_loop(terminal: &mut terminal::Tui, app: &mut App) -> Result<()> {
     loop {
+        // Auto-advance to next track when current song finishes
+        app.check_auto_advance();
+
+        // Update background scan animation and receive results
+        app.check_scan();
+
         terminal.draw(|frame| ui::render(frame, app))?;
 
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key_event) = event::read()? {
                 if key_event.kind == KeyEventKind::Press {
-                    match key_event.code {
-                        KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                        KeyCode::Tab => app.toggle_view(),
-                        KeyCode::Char('1') => app.view_mode = ViewMode::Playlist,
-                        KeyCode::Char('2') => app.view_mode = ViewMode::Browser,
-                        KeyCode::Up | KeyCode::Char('k') => app.previous(),
-                        KeyCode::Down | KeyCode::Char('j') => app.next(),
-                        KeyCode::Enter => app.on_enter(),
-                        KeyCode::Char(' ') => app.audio.toggle_pause(),
-                        _ => {}
+                    if !input::handle_key(app, key_event.code) {
+                        return Ok(());
                     }
                 }
             }

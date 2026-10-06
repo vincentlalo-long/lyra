@@ -1,6 +1,11 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::path::{Path, PathBuf};
 use anyhow::Result;
-use crate::{audio::AudioPlayer, browser::FileBrowser};
+use crate::{
+    audio::AudioPlayer,
+    browser::FileBrowser,
+    playlist::Playlist,
+    scanner::Scanner,
+};
 
 #[derive(PartialEq, Eq)]
 pub enum ViewMode {
@@ -11,103 +16,114 @@ pub enum ViewMode {
 pub struct App {
     pub view_mode: ViewMode,
     pub browser: FileBrowser,
+    pub playlist: Playlist,
     pub audio: AudioPlayer,
-    pub songs: Vec<PathBuf>,
-    pub selected: usize,
-    pub playing_index: Option<usize>,
+    pub scanner: Scanner,
 }
 
 impl App {
     pub fn new(music_folder: &Path) -> Result<Self> {
-        let mut songs = Vec::new();
-
-        if music_folder.exists() {
-            if let Ok(entries) = fs::read_dir(music_folder) {
-                for entry in entries.flatten() {
-                    let file_path = entry.path();
-                    if file_path.is_file() {
-                        if let Some(extension) = file_path.extension() {
-                            if extension.eq_ignore_ascii_case("mp3") {
-                                songs.push(file_path);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        songs.sort();
-
         Ok(Self {
             view_mode: ViewMode::Playlist,
             browser: FileBrowser::new(music_folder),
+            playlist: Playlist::new(music_folder),
             audio: AudioPlayer::new()?,
-            songs,
-            selected: 0,
-            playing_index: None,
+            scanner: Scanner::new(),
         })
     }
 
     pub fn toggle_view(&mut self) {
-        match self.view_mode {
-            ViewMode::Playlist => self.view_mode = ViewMode::Browser,
-            ViewMode::Browser => self.view_mode = ViewMode::Playlist,
-        }
+        self.view_mode = match self.view_mode {
+            ViewMode::Playlist => ViewMode::Browser,
+            ViewMode::Browser => ViewMode::Playlist,
+        };
     }
 
     pub fn next(&mut self) {
         match self.view_mode {
-            ViewMode::Playlist => {
-                if !self.songs.is_empty() {
-                    self.selected = (self.selected + 1) % self.songs.len();
-                }
-            }
-            ViewMode::Browser => {
-                self.browser.next();
-            }
+            ViewMode::Playlist => self.playlist.next(),
+            ViewMode::Browser => self.browser.next(),
         }
     }
 
     pub fn previous(&mut self) {
         match self.view_mode {
-            ViewMode::Playlist => {
-                if !self.songs.is_empty() {
-                    if self.selected == 0 {
-                        self.selected = self.songs.len() - 1;
-                    } else {
-                        self.selected -= 1;
-                    }
-                }
-            }
-            ViewMode::Browser => {
-                self.browser.previous();
-            }
+            ViewMode::Playlist => self.playlist.previous(),
+            ViewMode::Browser => self.browser.previous(),
         }
     }
 
-    pub fn play_file(&mut self, song_path: &Path) {
+    pub fn play_track(&mut self, song_path: &Path) {
         if self.audio.play(song_path).is_ok() {
-            if let Some(index) = self.songs.iter().position(|p| p == song_path) {
-                self.playing_index = Some(index);
-            } else {
-                self.songs.push(song_path.to_path_buf());
-                self.playing_index = Some(self.songs.len() - 1);
-            }
+            self.playlist.select_and_mark_playing(song_path);
         }
     }
 
     pub fn on_enter(&mut self) {
         match self.view_mode {
             ViewMode::Playlist => {
-                if !self.songs.is_empty() {
-                    let song_path = self.songs[self.selected].clone();
-                    self.play_file(&song_path);
+                if let Some(song_path) = self.playlist.current_selected_song() {
+                    self.play_track(&song_path);
                 }
             }
             ViewMode::Browser => {
-                if let Some(song_path) = self.browser.enter() {
-                    self.play_file(&song_path);
+                if let Some(selected_song) = self.browser.enter() {
+                    // Populate playlist with all mp3 files found in this browser folder
+                    let folder_songs: Vec<PathBuf> = self
+                        .browser
+                        .entries
+                        .iter()
+                        .filter(|p| {
+                            p.is_file()
+                                && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("mp3"))
+                        })
+                        .cloned()
+                        .collect();
+
+                    if !folder_songs.is_empty() {
+                        self.playlist.set_songs(folder_songs);
+                    }
+
+                    self.play_track(&selected_song);
                 }
+            }
+        }
+    }
+
+    pub fn play_next_track(&mut self) {
+        if let Some(next_path) = self.playlist.next_track_path() {
+            let _ = self.audio.play(&next_path);
+        }
+    }
+
+    pub fn play_prev_track(&mut self) {
+        if let Some(prev_path) = self.playlist.prev_track_path() {
+            let _ = self.audio.play(&prev_path);
+        }
+    }
+
+    pub fn check_auto_advance(&mut self) {
+        if self.playlist.playing_index.is_some()
+            && !self.audio.is_paused
+            && self.audio.is_finished()
+        {
+            if self.playlist.songs.len() > 1 {
+                self.play_next_track();
+            }
+        }
+    }
+
+    pub fn start_scan(&mut self) {
+        let target_dir = self.browser.current_dir.clone();
+        let include_hidden = self.browser.show_hidden;
+        self.scanner.start(target_dir, include_hidden);
+    }
+
+    pub fn check_scan(&mut self) {
+        if let Some(found_songs) = self.scanner.tick() {
+            if !found_songs.is_empty() {
+                self.playlist.set_songs(found_songs);
+                self.view_mode = ViewMode::Playlist;
             }
         }
     }

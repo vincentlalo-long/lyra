@@ -1,5 +1,6 @@
 mod browser;
 mod controls;
+mod loading;
 mod playlist;
 
 use ratatui::{
@@ -50,4 +51,9 @@ pub fn render(frame: &mut Frame, app: &App) {
     }
 
     controls::render(frame, app, layout_chunks[2]);
+
+    // If scanning in background, render animated loading dialog on top
+    if app.scanner.is_scanning {
+        loading::render(frame, &app.scanner);
+    }
 }
