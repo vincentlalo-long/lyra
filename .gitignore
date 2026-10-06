@@ -1,3 +1,4 @@
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -17,3 +18,15 @@ output/
 .venv
 env/
 venv/
+
+# Rust build artifacts
+target/
+**/target/
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
