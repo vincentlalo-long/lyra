@@ -3,6 +3,7 @@ use anyhow::Result;
 use crate::{
     audio::AudioPlayer,
     browser::FileBrowser,
+    cover::AlbumArt,
     lyrics::Lyrics,
     playlist::Playlist,
     scanner::Scanner,
@@ -32,6 +33,10 @@ pub struct App {
     pub is_searching: bool,
     pub show_help: bool,
     pub repeat_mode: RepeatMode,
+    pub cover: Option<AlbumArt>,
+    pub current_playing_path: Option<PathBuf>,
+    pub kitty_cover_rect: Option<ratatui::layout::Rect>,
+    pub last_kitty_rendered: Option<(Option<PathBuf>, ratatui::layout::Rect)>,
 }
 
 impl App {
@@ -47,6 +52,10 @@ impl App {
             is_searching: false,
             show_help: false,
             repeat_mode: RepeatMode::Playlist,
+            cover: None,
+            current_playing_path: None,
+            kitty_cover_rect: None,
+            last_kitty_rendered: None,
         })
     }
 
@@ -89,8 +98,10 @@ impl App {
 
     pub fn play_track(&mut self, song_path: &Path) {
         if self.audio.play(song_path).is_ok() {
+            self.current_playing_path = Some(song_path.to_path_buf());
             self.playlist.select_and_mark_playing(song_path);
             self.lyrics = Lyrics::load_for_song(song_path);
+            self.cover = Some(AlbumArt::load_for_song(song_path));
         }
     }
 

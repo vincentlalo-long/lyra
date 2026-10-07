@@ -1,5 +1,6 @@
 mod browser;
 mod controls;
+mod cover;
 mod help;
 mod loading;
 mod lyrics;
@@ -18,7 +19,7 @@ use crate::{
     theme,
 };
 
-pub fn render(frame: &mut Frame, app: &App) {
+pub fn render(frame: &mut Frame, app: &mut App) {
     let layout_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -89,20 +90,29 @@ pub fn render(frame: &mut Frame, app: &App) {
         );
     frame.render_widget(header_widget, layout_chunks[0]);
 
-    // Dual Panel Body: 40% Left, 60% Right
+    // Dual Panel Body: 35% Left (Track List + Album Art), 65% Right (Lyrics)
     let body_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(40), // Left: Playlist or Browser
-            Constraint::Percentage(60), // Right: Lyrics Karaoke
+            Constraint::Percentage(35), // Left: Playlist/Browser + Album Art
+            Constraint::Percentage(65), // Right: Lyrics Karaoke
         ])
         .split(layout_chunks[1]);
 
+    let left_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(55), // Upper: Playlist or Browser
+            Constraint::Percentage(45), // Lower: 1:1 Album Art
+        ])
+        .split(body_chunks[0]);
+
     match app.view_mode {
-        ViewMode::Playlist => playlist::render(frame, app, body_chunks[0]),
-        ViewMode::Browser => browser::render(frame, app, body_chunks[0]),
+        ViewMode::Playlist => playlist::render(frame, app, left_chunks[0]),
+        ViewMode::Browser => browser::render(frame, app, left_chunks[0]),
     }
 
+    cover::render(frame, app, left_chunks[1]);
     lyrics::render(frame, app, body_chunks[1]);
 
     controls::render(frame, app, layout_chunks[2]);
@@ -115,4 +125,48 @@ pub fn render(frame: &mut Frame, app: &App) {
     if app.show_help {
         help::render(frame);
     }
+}
+
+pub fn post_render(app: &mut App) -> std::io::Result<()> {
+    if !crate::cover::is_kitty_supported() {
+        return Ok(());
+    }
+
+    let mut stdout = std::io::stdout();
+
+    // If modal overlay is active, hide cover art to prevent overlapping
+    if app.show_help || app.scanner.is_scanning {
+        if app.last_kitty_rendered.is_some() {
+            crate::cover::clear_kitty_image(&mut stdout)?;
+            app.last_kitty_rendered = None;
+        }
+        return Ok(());
+    }
+
+    if let (Some(rect), Some(cover_art)) = (app.kitty_cover_rect, &app.cover) {
+        if let Some(b64) = &cover_art.png_base64 {
+            let current_state = (app.current_playing_path.clone(), rect);
+            if app.last_kitty_rendered.as_ref() != Some(&current_state) {
+                crate::cover::clear_kitty_image(&mut stdout)?;
+                crate::cover::write_kitty_image(
+                    &mut stdout,
+                    b64,
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                )?;
+                app.last_kitty_rendered = Some(current_state);
+            }
+            return Ok(());
+        }
+    }
+
+    // No cover to display; clear any previous Kitty image
+    if app.last_kitty_rendered.is_some() {
+        crate::cover::clear_kitty_image(&mut stdout)?;
+        app.last_kitty_rendered = None;
+    }
+
+    Ok(())
 }

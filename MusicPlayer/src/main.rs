@@ -1,6 +1,7 @@
 mod app;
 mod audio;
 mod browser;
+mod cover;
 mod input;
 mod lyrics;
 mod playlist;
@@ -43,6 +44,7 @@ fn run_loop(terminal: &mut terminal::Tui, app: &mut App) -> Result<()> {
         app.check_scan();
 
         terminal.draw(|frame| ui::render(frame, app))?;
+        ui::post_render(app)?;
 
         if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key_event) = event::read()? {

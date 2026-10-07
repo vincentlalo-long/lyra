@@ -20,6 +20,7 @@ pub fn init() -> Result<Tui> {
 
 /// Restore terminal to its original state
 pub fn restore(mut terminal: Tui) -> Result<()> {
+    let _ = crate::cover::clear_kitty_image(terminal.backend_mut());
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
