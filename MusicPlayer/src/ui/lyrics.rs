@@ -1,31 +1,33 @@
 use ratatui::{
     layout::{Alignment, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
-use crate::app::App;
+use crate::{app::App, theme};
 
 pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
-        .title(" Lyrics (.lrc) ")
+        .title(" 󰎈 Lyrics ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Magenta));
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme::MAUVE));
 
     let lyrics = match &app.lyrics {
         Some(l) if !l.lines.is_empty() => l,
         _ => {
             let empty_msg = Paragraph::new(vec![
                 Line::raw(""),
+                Line::raw(""),
                 Line::from(Span::styled(
-                    "No synchronized lyrics (.lrc) found for this track.",
-                    Style::default().fg(Color::DarkGray),
+                    "󰎈  No synchronized lyrics (.lrc) found",
+                    Style::default().fg(theme::OVERLAY0),
                 )),
                 Line::raw(""),
                 Line::from(Span::styled(
-                    "Drop a matching .lrc file in the same folder to see lyrics here.",
-                    Style::default().fg(Color::DarkGray),
+                    "Drop a matching .lrc file in the same folder",
+                    Style::default().fg(theme::SURFACE2),
                 )),
             ])
             .alignment(Alignment::Center)
@@ -51,7 +53,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
 
     let mut text_lines = Vec::new();
 
-    // Pad top if needed so active line stays centered
+    // Pad top to center the active line
     let pad_top = half_height.saturating_sub(active_index);
     for _ in 0..pad_top {
         text_lines.push(Line::raw(""));
@@ -59,20 +61,26 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
 
     for i in start_idx..end_idx {
         let line_data = &lyrics.lines[i];
-        let is_active = i == active_index;
-
-        let style = if is_active {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else if i < active_index {
-            Style::default().fg(Color::White)
+        let distance = if i >= active_index {
+            i - active_index
         } else {
-            Style::default().fg(Color::DarkGray)
+            active_index - i
         };
 
-        let prefix = if is_active { "▶ " } else { "  " };
-        let formatted = format!("{prefix}{}", line_data.text);
+        // Depth of Field styling
+        let (style, prefix, suffix) = match distance {
+            0 => (
+                Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
+                "▶  ",
+                "  ◀",
+            ),
+            1 => (Style::default().fg(theme::TEXT), "   ", ""),
+            2 => (Style::default().fg(theme::SUBTEXT0), "   ", ""),
+            3 => (Style::default().fg(theme::OVERLAY0), "   ", ""),
+            _ => (Style::default().fg(theme::SURFACE2), "   ", ""),
+        };
+
+        let formatted = format!("{prefix}{}{suffix}", line_data.text);
         text_lines.push(Line::from(Span::styled(formatted, style)));
     }
 

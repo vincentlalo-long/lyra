@@ -8,11 +8,17 @@ use crate::{
     scanner::Scanner,
 };
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum RepeatMode {
+    Playlist, // Loop entire playlist
+    Track,    // Loop current single track
+    Off,      // Stop when reaching end of playlist
+}
+
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub enum ViewMode {
     Playlist,
     Browser,
-    Lyrics,
 }
 
 pub struct App {
@@ -22,6 +28,10 @@ pub struct App {
     pub audio: AudioPlayer,
     pub scanner: Scanner,
     pub lyrics: Option<Lyrics>,
+    pub search_query: String,
+    pub is_searching: bool,
+    pub show_help: bool,
+    pub repeat_mode: RepeatMode,
 }
 
 impl App {
@@ -33,30 +43,47 @@ impl App {
             audio: AudioPlayer::new()?,
             scanner: Scanner::new(),
             lyrics: None,
+            search_query: String::new(),
+            is_searching: false,
+            show_help: false,
+            repeat_mode: RepeatMode::Playlist,
         })
     }
 
     pub fn toggle_view(&mut self) {
         self.view_mode = match self.view_mode {
             ViewMode::Playlist => ViewMode::Browser,
-            ViewMode::Browser => ViewMode::Lyrics,
-            ViewMode::Lyrics => ViewMode::Playlist,
+            ViewMode::Browser => ViewMode::Playlist,
         };
+    }
+
+    pub fn toggle_repeat(&mut self) {
+        self.repeat_mode = match self.repeat_mode {
+            RepeatMode::Playlist => RepeatMode::Track,
+            RepeatMode::Track => RepeatMode::Off,
+            RepeatMode::Off => RepeatMode::Playlist,
+        };
+    }
+
+    pub fn replay_current_track(&mut self) {
+        if let Some(current_idx) = self.playlist.playing_index {
+            if let Some(song_path) = self.playlist.songs.get(current_idx).cloned() {
+                self.play_track(&song_path);
+            }
+        }
     }
 
     pub fn next(&mut self) {
         match self.view_mode {
-            ViewMode::Playlist => self.playlist.next(),
-            ViewMode::Browser => self.browser.next(),
-            ViewMode::Lyrics => {}
+            ViewMode::Playlist => self.playlist.next(&self.search_query),
+            ViewMode::Browser => self.browser.next(&self.search_query),
         }
     }
 
     pub fn previous(&mut self) {
         match self.view_mode {
-            ViewMode::Playlist => self.playlist.previous(),
-            ViewMode::Browser => self.browser.previous(),
-            ViewMode::Lyrics => {}
+            ViewMode::Playlist => self.playlist.previous(&self.search_query),
+            ViewMode::Browser => self.browser.previous(&self.search_query),
         }
     }
 
@@ -68,6 +95,11 @@ impl App {
     }
 
     pub fn on_enter(&mut self) {
+        if self.is_searching {
+            self.is_searching = false;
+            self.search_query.clear();
+        }
+
         match self.view_mode {
             ViewMode::Playlist => {
                 if let Some(song_path) = self.playlist.current_selected_song() {
@@ -94,7 +126,6 @@ impl App {
                     self.play_track(&selected_song);
                 }
             }
-            ViewMode::Lyrics => {}
         }
     }
 
@@ -115,8 +146,31 @@ impl App {
             && !self.audio.is_paused
             && self.audio.is_finished()
         {
-            if self.playlist.songs.len() > 1 {
-                self.play_next_track();
+            if self.playlist.songs.is_empty() {
+                return;
+            }
+
+            // If playlist only has 1 track: always repeat it
+            if self.playlist.songs.len() == 1 {
+                let song_path = self.playlist.songs[0].clone();
+                self.play_track(&song_path);
+                return;
+            }
+
+            match self.repeat_mode {
+                RepeatMode::Track => {
+                    self.replay_current_track();
+                }
+                RepeatMode::Playlist => {
+                    self.play_next_track();
+                }
+                RepeatMode::Off => {
+                    if let Some(current) = self.playlist.playing_index {
+                        if current + 1 < self.playlist.songs.len() {
+                            self.play_next_track();
+                        }
+                    }
+                }
             }
         }
     }

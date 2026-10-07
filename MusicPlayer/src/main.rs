@@ -6,6 +6,7 @@ mod lyrics;
 mod playlist;
 mod scanner;
 mod terminal;
+mod theme;
 mod ui;
 
 use std::{path::PathBuf, time::Duration};
@@ -43,10 +44,10 @@ fn run_loop(terminal: &mut terminal::Tui, app: &mut App) -> Result<()> {
 
         terminal.draw(|frame| ui::render(frame, app))?;
 
-        if event::poll(Duration::from_millis(100))? {
+        if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key_event) = event::read()? {
                 if key_event.kind == KeyEventKind::Press {
-                    if !input::handle_key(app, key_event.code) {
+                    if !input::handle_key(app, key_event) {
                         return Ok(());
                     }
                 }

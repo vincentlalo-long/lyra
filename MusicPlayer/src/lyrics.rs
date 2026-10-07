@@ -60,6 +60,7 @@ impl Lyrics {
     }
 
     /// Finds the currently active lyric line for the given playback position
+    #[allow(dead_code)]
     pub fn current_line(&self, position: Duration) -> Option<&LyricLine> {
         self.lines
             .iter()

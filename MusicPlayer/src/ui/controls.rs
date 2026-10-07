@@ -1,99 +1,151 @@
 use std::time::Duration;
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
-use crate::app::App;
+use crate::{app::{App, RepeatMode}, theme};
 
 pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .title(Span::styled(" 󰒓 Controls ", Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD)))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme::MAUVE));
+
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    if inner.height < 2 {
+        return;
+    }
+
     let sub_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // Line 1: Track Status & Volume Bar
-            Constraint::Length(1), // Line 2: Playback Progress & Seek Bar
-            Constraint::Length(1), // Line 3: Live Lyric line ticker
-            Constraint::Length(1), // Line 4: Keybindings help
+            Constraint::Length(1), // Line 1: Track title, Repeat, and Volume
+            Constraint::Length(1), // Line 2: Seamless Sub-block Seekbar
         ])
-        .split(Block::default().borders(Borders::ALL).title(" Controls ").inner(area));
+        .split(inner);
 
-    // 1. Status and Volume
-    let status_str = if let Some(playing_index) = app.playlist.playing_index {
-        let song_name = match app.playlist.songs.get(playing_index) {
-            Some(path) => path.file_name().and_then(|n| n.to_str()).unwrap_or("Unknown"),
-            None => "Unknown",
-        };
-        let play_status = if app.audio.is_paused { "[PAUSED]" } else { "[PLAYING]" };
-        format!("Status: {play_status}  Track: {song_name}")
+    // --- Line 1: Track Title, Repeat Mode, Volume ---
+    let (icon, label, track_name) = if let Some(playing_idx) = app.playlist.playing_index {
+        let name = app.playlist.songs.get(playing_idx)
+            .and_then(|p| p.file_stem())
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Unknown".to_string());
+
+        if app.audio.is_paused {
+            ("󰏤 ", "Paused: ", name)
+        } else {
+            ("󰐊 ", "Playing: ", name)
+        }
     } else {
-        "Status: [STOPPED]  No track selected".to_string()
+        ("󰓛 ", "Stopped: ", "No track selected".to_string())
     };
 
-    let vol_percent = (app.audio.volume * 100.0).round() as u32;
-    let filled_vol = (vol_percent / 10).min(10) as usize;
-    let empty_vol = 10 - filled_vol;
-    let volume_display = format!("Vol: {:>3}% [{}{}]", vol_percent, "=".repeat(filled_vol), " ".repeat(empty_vol));
-
-    let line1 = Line::from(vec![
-        Span::styled(status_str, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::raw("    "),
-        Span::styled(volume_display, Style::default().fg(if vol_percent == 0 { Color::Red } else { Color::Yellow })),
+    let title_line = Line::from(vec![
+        Span::styled(icon, Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
+        Span::styled(label, Style::default().fg(theme::SUBTEXT0)),
+        Span::styled(track_name, Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)),
     ]);
 
-    // 2. Playback Progress & Seek Bar
+    // Repeat mode display
+    let (repeat_icon, repeat_text, repeat_color) = match app.repeat_mode {
+        RepeatMode::Playlist => ("󰑖 ", "Loop: All", theme::BLUE),
+        RepeatMode::Track => ("󰑘 ", "Loop: One", theme::YELLOW),
+        RepeatMode::Off => ("󰑗 ", "Loop: Off", theme::OVERLAY0),
+    };
+
+    let repeat_line = Line::from(vec![
+        Span::styled(repeat_icon, Style::default().fg(repeat_color)),
+        Span::styled(repeat_text, Style::default().fg(repeat_color)),
+    ]);
+
+    // Volume bar: [━━━━━●───]
+    let vol_percent = (app.audio.volume * 100.0).round() as u32;
+    let vol_filled = (vol_percent / 10).min(10) as usize;
+    let vol_empty = 10 - vol_filled;
+    let vol_icon = if app.audio.volume == 0.0 { "󰖁 " } else { "󰕾 " };
+    let vol_bar = format!("[{}●{}]", "━".repeat(vol_filled), "─".repeat(vol_empty.saturating_sub(1)));
+
+    let vol_line = Line::from(vec![
+        Span::styled(vol_icon, Style::default().fg(theme::YELLOW)),
+        Span::styled(format!("{vol_percent:>3}% "), Style::default().fg(theme::TEXT)),
+        Span::styled(vol_bar, Style::default().fg(theme::MAUVE)),
+        Span::raw(" "),
+    ]);
+
+    let row1_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Min(20),
+            Constraint::Length(14),
+            Constraint::Length(24),
+        ])
+        .split(sub_chunks[0]);
+
+    frame.render_widget(Paragraph::new(title_line), row1_chunks[0]);
+    frame.render_widget(Paragraph::new(repeat_line).alignment(Alignment::Center), row1_chunks[1]);
+    frame.render_widget(Paragraph::new(vol_line).alignment(Alignment::Right), row1_chunks[2]);
+
+    // --- Line 2: Seamless Sub-block Seekbar (Zero Gap) ---
     let current_pos = app.audio.position();
     let duration_opt = app.audio.duration;
 
-    let time_str = match duration_opt {
-        Some(total) => format!("{} / {}", format_time(current_pos), format_time(total)),
-        None => format!("{} / --:--", format_time(current_pos)),
+    let time_left = format!(" {} ", format_time(current_pos));
+    let time_right = match duration_opt {
+        Some(total) => format!(" {} ", format_time(total)),
+        None => " --:-- ".to_string(),
     };
 
-    let progress_bar = match duration_opt {
-        Some(total) if total.as_secs() > 0 => {
-            let percent = (current_pos.as_secs_f32() / total.as_secs_f32()).clamp(0.0, 1.0);
-            let bar_len = 32;
-            let filled = ((percent * bar_len as f32).round() as usize).min(bar_len);
-            let marker = if filled < bar_len { ">" } else { "=" };
-            let head = "=".repeat(filled.saturating_sub(1));
-            let tail = "-".repeat(bar_len.saturating_sub(filled));
-            format!("[{head}{marker}{tail}] {:>3}%", (percent * 100.0) as u32)
+    let total_width = sub_chunks[1].width as usize;
+    let used_width = time_left.len() + time_right.len();
+    let bar_width = total_width.saturating_sub(used_width).max(4);
+
+    const SUB_BLOCKS: [&str; 8] = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
+
+    let (full_blocks, partial_char, empty_blocks) = match duration_opt {
+        Some(total) if total.as_secs_f32() > 0.0 => {
+            let ratio = (current_pos.as_secs_f32() / total.as_secs_f32()).clamp(0.0, 1.0);
+            let total_substeps = (ratio * (bar_width * 8) as f32).round() as usize;
+            let full = (total_substeps / 8).min(bar_width);
+            let remainder = total_substeps % 8;
+            let has_partial = remainder > 0 && full < bar_width;
+            let partial = if has_partial { SUB_BLOCKS[remainder] } else { "" };
+            let empty = bar_width.saturating_sub(full + if has_partial { 1 } else { 0 });
+            (full, partial, empty)
         }
-        _ => "[--------------------------------]   0%".to_string(),
+        _ => (0, "", bar_width),
     };
 
-    let line2 = Line::from(vec![
-        Span::styled(format!("Time: {time_str}  "), Style::default().fg(Color::Cyan)),
-        Span::styled(progress_bar, Style::default().fg(Color::Yellow)),
-    ]);
+    let filled_str = "█".repeat(full_blocks);
+    let empty_str = " ".repeat(empty_blocks);
 
-    // 3. Live Lyric Ticker
-    let active_lyric = app
-        .lyrics
-        .as_ref()
-        .and_then(|l| l.current_line(current_pos))
-        .map(|l| l.text.as_str());
+    let mut spans = vec![
+        Span::styled(time_left, Style::default().fg(theme::BLUE)),
+        Span::styled(filled_str, Style::default().fg(theme::MAUVE)),
+    ];
 
-    let line3 = match active_lyric {
-        Some(text) if !text.is_empty() => Line::from(vec![
-            Span::styled("💬 ", Style::default().fg(Color::Magenta)),
-            Span::styled(format!("\"{text}\""), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-        ]),
-        _ => Line::from(Span::styled("💬 (No synced lyrics)", Style::default().fg(Color::DarkGray))),
-    };
+    if !partial_char.is_empty() {
+        spans.push(Span::styled(
+            partial_char,
+            Style::default().fg(theme::MAUVE).bg(theme::SURFACE0),
+        ));
+    }
 
-    // 4. Keybindings Help
-    let keybindings_help = "[Tab] View [h/l, ←/→] Seek -/+5s [Space] Pause [n/p] Next/Prev [+/-] Vol [s] Scan [q] Quit";
-    let line4 = Line::from(Span::styled(keybindings_help, Style::default().fg(Color::DarkGray)));
+    if empty_blocks > 0 {
+        spans.push(Span::styled(
+            empty_str,
+            Style::default().bg(theme::SURFACE0),
+        ));
+    }
 
-    // Outer block
-    frame.render_widget(Block::default().borders(Borders::ALL).title(" Controls "), area);
-    frame.render_widget(Paragraph::new(line1), sub_chunks[0]);
-    frame.render_widget(Paragraph::new(line2), sub_chunks[1]);
-    frame.render_widget(Paragraph::new(line3), sub_chunks[2]);
-    frame.render_widget(Paragraph::new(line4), sub_chunks[3]);
+    spans.push(Span::styled(time_right, Style::default().fg(theme::BLUE)));
+
+    frame.render_widget(Paragraph::new(Line::from(spans)), sub_chunks[1]);
 }
 
 fn format_time(dur: Duration) -> String {
