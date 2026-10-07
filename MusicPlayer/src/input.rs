@@ -12,6 +12,7 @@ pub fn handle_key(app: &mut App, key: KeyCode) -> bool {
         KeyCode::Tab => app.toggle_view(),
         KeyCode::Char('1') => app.view_mode = ViewMode::Playlist,
         KeyCode::Char('2') => app.view_mode = ViewMode::Browser,
+        KeyCode::Char('3') => app.view_mode = ViewMode::Lyrics,
         KeyCode::Char('.') => app.browser.toggle_hidden(),
         KeyCode::Char('s') | KeyCode::Char('S') => app.start_scan(),
 
@@ -24,6 +25,10 @@ pub fn handle_key(app: &mut App, key: KeyCode) -> bool {
         KeyCode::Char(' ') => app.audio.toggle_pause(),
         KeyCode::Char('n') | KeyCode::Char('N') => app.play_next_track(),
         KeyCode::Char('p') | KeyCode::Char('P') => app.play_prev_track(),
+
+        // Seek forward / backward (5 seconds)
+        KeyCode::Left | KeyCode::Char('h') => app.audio.seek_backward(5),
+        KeyCode::Right | KeyCode::Char('l') => app.audio.seek_forward(5),
 
         // Volume control
         KeyCode::Char('+') | KeyCode::Char('=') => app.audio.volume_up(),

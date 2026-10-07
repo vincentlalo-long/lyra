@@ -3,6 +3,7 @@ use anyhow::Result;
 use crate::{
     audio::AudioPlayer,
     browser::FileBrowser,
+    lyrics::Lyrics,
     playlist::Playlist,
     scanner::Scanner,
 };
@@ -11,6 +12,7 @@ use crate::{
 pub enum ViewMode {
     Playlist,
     Browser,
+    Lyrics,
 }
 
 pub struct App {
@@ -19,6 +21,7 @@ pub struct App {
     pub playlist: Playlist,
     pub audio: AudioPlayer,
     pub scanner: Scanner,
+    pub lyrics: Option<Lyrics>,
 }
 
 impl App {
@@ -29,13 +32,15 @@ impl App {
             playlist: Playlist::new(music_folder),
             audio: AudioPlayer::new()?,
             scanner: Scanner::new(),
+            lyrics: None,
         })
     }
 
     pub fn toggle_view(&mut self) {
         self.view_mode = match self.view_mode {
             ViewMode::Playlist => ViewMode::Browser,
-            ViewMode::Browser => ViewMode::Playlist,
+            ViewMode::Browser => ViewMode::Lyrics,
+            ViewMode::Lyrics => ViewMode::Playlist,
         };
     }
 
@@ -43,6 +48,7 @@ impl App {
         match self.view_mode {
             ViewMode::Playlist => self.playlist.next(),
             ViewMode::Browser => self.browser.next(),
+            ViewMode::Lyrics => {}
         }
     }
 
@@ -50,12 +56,14 @@ impl App {
         match self.view_mode {
             ViewMode::Playlist => self.playlist.previous(),
             ViewMode::Browser => self.browser.previous(),
+            ViewMode::Lyrics => {}
         }
     }
 
     pub fn play_track(&mut self, song_path: &Path) {
         if self.audio.play(song_path).is_ok() {
             self.playlist.select_and_mark_playing(song_path);
+            self.lyrics = Lyrics::load_for_song(song_path);
         }
     }
 
@@ -68,7 +76,6 @@ impl App {
             }
             ViewMode::Browser => {
                 if let Some(selected_song) = self.browser.enter() {
-                    // Populate playlist with all mp3 files found in this browser folder
                     let folder_songs: Vec<PathBuf> = self
                         .browser
                         .entries
@@ -87,18 +94,19 @@ impl App {
                     self.play_track(&selected_song);
                 }
             }
+            ViewMode::Lyrics => {}
         }
     }
 
     pub fn play_next_track(&mut self) {
         if let Some(next_path) = self.playlist.next_track_path() {
-            let _ = self.audio.play(&next_path);
+            self.play_track(&next_path);
         }
     }
 
     pub fn play_prev_track(&mut self) {
         if let Some(prev_path) = self.playlist.prev_track_path() {
-            let _ = self.audio.play(&prev_path);
+            self.play_track(&prev_path);
         }
     }
 

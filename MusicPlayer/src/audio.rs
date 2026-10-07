@@ -1,6 +1,6 @@
-use std::{fs::File, io::BufReader, path::Path};
+use std::{fs::File, io::BufReader, path::Path, time::Duration};
 use anyhow::Result;
-use rodio::{Decoder, OutputStream, Sink};
+use rodio::{Decoder, OutputStream, Sink, Source};
 
 pub struct AudioPlayer {
     _stream: OutputStream,
@@ -9,6 +9,7 @@ pub struct AudioPlayer {
     pub volume: f32,
     previous_volume: f32,
     has_started: bool,
+    pub duration: Option<Duration>,
 }
 
 impl AudioPlayer {
@@ -25,6 +26,7 @@ impl AudioPlayer {
             volume: initial_volume,
             previous_volume: initial_volume,
             has_started: false,
+            duration: None,
         })
     }
 
@@ -32,6 +34,8 @@ impl AudioPlayer {
         let file = File::open(song_path)?;
         let buffered_reader = BufReader::new(file);
         let audio_source = Decoder::new(buffered_reader)?;
+
+        self.duration = audio_source.total_duration();
 
         self.sink.clear();
         self.sink.append(audio_source);
@@ -51,6 +55,28 @@ impl AudioPlayer {
             self.sink.pause();
             self.is_paused = true;
         }
+    }
+
+    pub fn position(&self) -> Duration {
+        self.sink.get_pos()
+    }
+
+    pub fn seek_forward(&mut self, seconds: u64) {
+        let current = self.sink.get_pos();
+        let target = current + Duration::from_secs(seconds);
+        if let Some(dur) = self.duration {
+            if target < dur {
+                let _ = self.sink.try_seek(target);
+            }
+        } else {
+            let _ = self.sink.try_seek(target);
+        }
+    }
+
+    pub fn seek_backward(&mut self, seconds: u64) {
+        let current = self.sink.get_pos();
+        let target = current.saturating_sub(Duration::from_secs(seconds));
+        let _ = self.sink.try_seek(target);
     }
 
     pub fn volume_up(&mut self) {

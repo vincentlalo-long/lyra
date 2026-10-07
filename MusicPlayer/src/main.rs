@@ -2,6 +2,7 @@ mod app;
 mod audio;
 mod browser;
 mod input;
+mod lyrics;
 mod playlist;
 mod scanner;
 mod terminal;
