@@ -349,9 +349,9 @@ fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
             return true;
         }
         KeyCode::Char('1') => { app.view_mode = ViewMode::Playlist; return true; }
-        KeyCode::Char('2') => { app.view_mode = ViewMode::Browser; return true; }
-        KeyCode::Char('3') => { app.view_mode = ViewMode::Download; return true; }
-        KeyCode::Char('4') => { app.view_mode = ViewMode::Queue; return true; }
+        KeyCode::Char('2') => { app.view_mode = ViewMode::Queue; return true; }
+        KeyCode::Char('3') => { app.view_mode = ViewMode::Browser; return true; }
+        KeyCode::Char('4') => { app.view_mode = ViewMode::Download; return true; }
         KeyCode::Char('q') | KeyCode::Char('Q') => return false,
         KeyCode::Char('?') => { app.show_help = true; return true; }
         KeyCode::Char(' ') => { app.audio.toggle_pause(); return true; }

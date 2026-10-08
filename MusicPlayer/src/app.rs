@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+use std::time::Instant;
 use anyhow::Result;
 use crate::{
     audio::AudioPlayer,
@@ -53,6 +54,17 @@ pub struct App {
     pub mpris: MprisHandle,
     /// Island / media-key presses, drained every main-loop tick.
     pub media_rx: mpsc::Receiver<MediaKey>,
+    /// Transient one-line feedback ("Queued #3: ..."), expires after a few seconds.
+    pub toast: Option<(String, Instant)>,
+}
+
+/// How long a toast stays visible.
+const TOAST_TTL_SECS: u64 = 3;
+
+fn short_name(path: &Path) -> String {
+    path.file_stem()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "Unknown".to_string())
 }
 
 impl App {
@@ -79,6 +91,23 @@ impl App {
             downloader: Downloader::new(),
             mpris,
             media_rx,
+            toast: None,
+        })
+    }
+
+    /// Shows a transient one-line feedback message in the header.
+    pub fn set_toast(&mut self, msg: String) {
+        self.toast = Some((msg, Instant::now()));
+    }
+
+    /// Current toast text, if still fresh.
+    pub fn toast_text(&self) -> Option<&str> {
+        self.toast.as_ref().and_then(|(msg, at)| {
+            if at.elapsed().as_secs() < TOAST_TTL_SECS {
+                Some(msg.as_str())
+            } else {
+                None
+            }
         })
     }
 
@@ -383,16 +412,20 @@ impl App {
     /// (a dumb list is predictable; `d` removes them one by one).
     pub fn enqueue_selected_back(&mut self) {
         if let Some(path) = self.selected_file() {
+            let name = short_name(&path);
             self.queue.enqueue_back(path);
             self.queue.persist();
+            self.set_toast(format!("Queued #{}: {name}", self.queue.len()));
         }
     }
 
     /// `A`: play cursor song next (queue head).
     pub fn enqueue_selected_front(&mut self) {
         if let Some(path) = self.selected_file() {
+            let name = short_name(&path);
             self.queue.enqueue_front(path);
             self.queue.persist();
+            self.set_toast(format!("Up next: {name}"));
         }
     }
 
@@ -419,8 +452,12 @@ impl App {
     ///   when absent).
     pub fn delete_queue_selected(&mut self) {
         if self.view_mode == ViewMode::Queue {
-            self.queue.remove(self.queue.selected);
-            self.queue.persist();
+            if let Some(removed) = self.queue.items.get(self.queue.selected).cloned() {
+                let name = short_name(&removed);
+                self.queue.remove(self.queue.selected);
+                self.queue.persist();
+                self.set_toast(format!("Unqueued: {name}"));
+            }
             return;
         }
         let Some(path) = self.selected_file() else {
@@ -429,22 +466,37 @@ impl App {
         let is_now_playing = self.current_playing_path.as_ref() == Some(&path);
         if is_now_playing && self.queue.now_from_queue {
             // Deleting what is playing = skip it.
+            let name = short_name(&path);
             self.queue.now_from_queue = false;
             self.play_next_track();
-        } else {
-            self.queue.remove_path(&path);
+            self.set_toast(format!("Skipped: {name}"));
+        } else if self.queue.remove_path(&path) {
             self.queue.persist();
+            self.set_toast(format!("Unqueued: {}", short_name(&path)));
+        } else {
+            self.set_toast("Not in queue".to_string());
         }
     }
 
     /// `c`: drop the whole scratchpad, back to plain library playback.
     pub fn clear_queue(&mut self) {
+        let n = self.queue.len();
         self.queue.clear();
         self.queue.persist();
+        self.set_toast(if n == 0 {
+            "Queue already empty".to_string()
+        } else {
+            format!("Queue cleared ({n} removed)")
+        });
     }
 
     /// `z`: shuffle upcoming queue items (now-playing untouched).
     pub fn shuffle_queue(&mut self) {
+        let n = self.queue.len();
+        if n < 2 {
+            self.set_toast("Nothing to shuffle".to_string());
+            return;
+        }
         let mut seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos() as u64)
@@ -454,13 +506,25 @@ impl App {
         }
         self.queue.shuffle(&mut seed);
         self.queue.persist();
+        self.set_toast(format!("Queue shuffled ({n} songs)"));
     }
 
     /// `w`: save upcoming queue as today's portable day-list.
     /// Returns the saved file for potential UI feedback.
     pub fn save_daylist(&mut self) -> Option<PathBuf> {
+        if self.queue.is_empty() {
+            self.set_toast("Queue empty, nothing to save".to_string());
+            return None;
+        }
         let saved = self.queue.save_daylist(&self.music_folder.clone());
         self.browser.refresh();
+        match &saved {
+            Some(p) => self.set_toast(format!(
+                "Day-list saved: {}",
+                p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+            )),
+            None => self.set_toast("Save failed".to_string()),
+        }
         saved
     }
 
@@ -468,7 +532,13 @@ impl App {
     /// Returns the number of tracks loaded.
     pub fn load_daylist(&mut self) -> usize {
         let folder = self.music_folder.clone();
-        self.queue.load_latest_daylist(&folder)
+        let n = self.queue.load_latest_daylist(&folder);
+        self.set_toast(if n == 0 {
+            "No day-list found".to_string()
+        } else {
+            format!("Loaded {n} songs from day-list")
+        });
+        n
     }
 
     pub fn check_auto_advance(&mut self) {

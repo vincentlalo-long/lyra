@@ -32,8 +32,15 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         ])
         .split(frame.area());
 
-    // Header block with help & search filter on the border
+    // Header block with help & search filter on the border.
+    // A fresh toast (queue ops, day-list saves) temporarily replaces the hints.
     let mut title_spans = Vec::new();
+    if let Some(toast) = app.toast_text() {
+        title_spans.push(Span::styled(
+            format!(" 󰇚 {toast} "),
+            Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
+        ));
+    }
     if !app.search_query.is_empty() {
         title_spans.push(Span::styled(
             format!(" 🔍 \"{}\" [Esc: Clear] ", app.search_query),
