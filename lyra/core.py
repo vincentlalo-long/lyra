@@ -31,6 +31,11 @@ def search_youtube(query: str, limit: int = 15) -> List[Dict[str, Any]]:
         "extract_flat": "in_playlist",
         "quiet": True,
         "no_warnings": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "web"],
+            }
+        },
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         res = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
@@ -61,6 +66,11 @@ def get_video_info(url: str) -> Dict[str, Any]:
         "extract_flat": True,
         "quiet": True,
         "no_warnings": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "web"],
+            }
+        },
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
@@ -109,6 +119,7 @@ class LyraPipeline:
         self,
         url: str,
         name: Optional[str] = None,
+        title: Optional[str] = None,
         album: Optional[str] = None,
         singer: Optional[str] = None,
         genre: Optional[str] = None,
@@ -149,6 +160,11 @@ class LyraPipeline:
                 "noplaylist": True,
                 "quiet": True,
                 "no_warnings": True,
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android", "ios", "web"],
+                    }
+                },
                 "progress_hooks": [ydl_progress_hook] if self.json_mode else [],
                 "postprocessors": [
                     {
@@ -167,11 +183,18 @@ class LyraPipeline:
 
             raw_title = info.get("title", "Unknown Title")
             uploader = info.get("uploader", "")
-            artist, title = clean_title_and_artist(raw_title, uploader)
-            if singer:
-                artist = singer.strip()
+            parsed_artist, parsed_title = clean_title_and_artist(raw_title, uploader)
+
+            artist = singer.strip() if (singer and singer.strip()) else parsed_artist
+            if title and title.strip():
+                song_title = title.strip()
+            elif name and name.strip():
+                song_title = name.strip()
+            else:
+                song_title = parsed_title
+
             if not self.json_mode:
-                print(f"Track:    {artist} - {title}")
+                print(f"Track:    {artist} - {song_title}")
 
             # Locate converted audio
             mp3_candidates = glob.glob(os.path.join(temp_dir, "*.mp3"))
@@ -243,7 +266,7 @@ class LyraPipeline:
                 self._emit({"type": "status", "stage": "Searching studio cover art..."})
                 try:
                     sources = COVER_SOURCES.get(self.cover_source, COVER_SOURCES["auto"])
-                    cover_candidates = search_candidates(artist, title, sources=sources)
+                    cover_candidates = search_candidates(artist, song_title, sources=sources)
                     for cand in cover_candidates:
                         urls = [cand.get("cover_url"), cand.get("cover_url_fallback")]
                         got = False
@@ -298,9 +321,9 @@ class LyraPipeline:
             effective_genre = (genre or "").strip() or (cover_genre or "").strip()
             tag_audio_file(
                 file_path=raw_mp3_path,
-                title=title,
+                title=song_title,
                 artist=artist,
-                album=album if album else f"{title} - Single",
+                album=album if album else f"{song_title} - Single",
                 cover_path=processed_cover_path if has_cover else None,
                 lrc_text=primary_lrc if primary_lrc else None,
                 genre=effective_genre or None,
@@ -318,7 +341,7 @@ class LyraPipeline:
                 clean_name = os.path.splitext(name)[0]
                 base_filename = sanitize_filename(clean_name)
             else:
-                base_filename = sanitize_filename(f"{artist} - {title}")
+                base_filename = sanitize_filename(f"{artist} - {song_title}")
 
             dest_mp3 = os.path.join(target_dir, f"{base_filename}.mp3")
             dest_lrc = os.path.join(target_dir, f"{base_filename}.lrc")
@@ -361,8 +384,8 @@ class LyraPipeline:
             result = {
                 "type": "done",
                 "artist": artist,
-                "title": title,
-                "album": album if album else f"{title} - Single",
+                "title": song_title,
+                "album": album if album else f"{song_title} - Single",
                 "audio_path": dest_mp3,
                 "lyric_path": dest_lrc if primary_lrc else None,
                 "all_lyric_paths": saved_lrc_paths,

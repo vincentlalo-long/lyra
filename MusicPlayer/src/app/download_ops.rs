@@ -43,9 +43,75 @@ impl App {
         self.downloader.start_download(req);
     }
 
+    pub fn collect_existing_albums(&self) -> Vec<String> {
+        let mut set = std::collections::BTreeSet::new();
+
+        // 1. Scanned songs in playlist
+        for p in &self.playlist.songs {
+            let meta = if let Some(cached) = self.meta_cache.get(p) {
+                cached.clone()
+            } else {
+                crate::meta::song_meta(p)
+            };
+            let alb = meta.album.trim();
+            if !alb.is_empty() && !alb.ends_with(" - Single") {
+                set.insert(alb.to_string());
+            }
+        }
+
+        // 2. Subdirectories in form_dir and music_folder
+        for dir in [&self.download.form_dir, &self.music_folder] {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    if let Ok(ft) = entry.file_type() {
+                        if ft.is_dir() {
+                            let name = entry.file_name().to_string_lossy().to_string();
+                            if !name.starts_with('.') {
+                                set.insert(name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        set.into_iter().collect()
+    }
+
+    pub fn collect_suggested_genres(&mut self) -> Vec<String> {
+        let mut list = Vec::new();
+
+        #[cfg(feature = "genre")]
+        {
+            let known = self.genre_db.all_known_genres(&self.playlist.songs);
+            for (g, _) in known {
+                if !list.iter().any(|existing: &String| existing.eq_ignore_ascii_case(&g)) {
+                    list.push(g);
+                }
+            }
+        }
+
+        let defaults = [
+            "Pop", "Anime", "Rock", "J-Pop", "V-Pop", "Ballad", "Lo-fi",
+            "Electronic", "R&B", "Hip-Hop", "Acoustic", "Jazz",
+        ];
+        for d in defaults {
+            if !list.iter().any(|existing: &String| existing.eq_ignore_ascii_case(d)) {
+                list.push(d.to_string());
+            }
+        }
+
+        list
+    }
+
     /// Open the metadata form and kick off background studio-cover search
     /// (termusic songtag-style: user reviews metadata while candidates load).
     fn open_metadata_form(&mut self, url: String, title: String, artist: String) {
+        self.download.existing_albums = self.collect_existing_albums();
+        self.download.selected_album_idx = None;
+        self.download.suggested_genres = self.collect_suggested_genres();
+        self.download.selected_genre_idx = None;
+
         self.download.form_url = url;
         self.download.form_title = title.clone();
         self.download.form_artist = artist.clone();

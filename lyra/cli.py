@@ -57,6 +57,12 @@ def main():
         help="Name of the file (default: <Artist> - <Title>)",
     )
     get_parser.add_argument(
+        "-t", "--title",
+        type=str,
+        default=None,
+        help="Song title for ID3 tag (overrides parsed YouTube title)",
+    )
+    get_parser.add_argument(
         "-a", "--album",
         type=str,
         default=None,
@@ -259,6 +265,7 @@ def main():
             pipeline.process_url(
                 args.url,
                 name=args.name,
+                title=args.title,
                 album=args.album,
                 singer=args.singer,
                 genre=args.genre,

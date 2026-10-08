@@ -181,8 +181,14 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
             match app.download.form_field_idx {
                 0 => { app.download.form_title.clear(); }
                 1 => { app.download.form_artist.clear(); }
-                2 => { app.download.form_album.clear(); }
-                3 => { app.download.form_genre.clear(); }
+                2 => {
+                    app.download.form_album.clear();
+                    app.download.selected_album_idx = None;
+                }
+                3 => {
+                    app.download.form_genre.clear();
+                    app.download.selected_genre_idx = None;
+                }
                 _ => {}
             }
             return true;
@@ -195,8 +201,14 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
             match app.download.form_field_idx {
                 0 => { delete_last_word(&mut app.download.form_title); }
                 1 => { delete_last_word(&mut app.download.form_artist); }
-                2 => { delete_last_word(&mut app.download.form_album); }
-                3 => { delete_last_word(&mut app.download.form_genre); }
+                2 => {
+                    delete_last_word(&mut app.download.form_album);
+                    app.download.selected_album_idx = None;
+                }
+                3 => {
+                    delete_last_word(&mut app.download.form_genre);
+                    app.download.selected_genre_idx = None;
+                }
                 _ => {}
             }
             return true;
@@ -233,14 +245,22 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
                 }
             }
             KeyCode::Left => {
-                if app.download.form_field_idx == 5 {
+                if app.download.form_field_idx == 2 {
+                    cycle_album(app, -1);
+                } else if app.download.form_field_idx == 3 {
+                    cycle_genre(app, -1);
+                } else if app.download.form_field_idx == 5 {
                     cycle_cover(app, -1);
                 } else if app.download.form_field_idx == 6 {
                     app.download.form_lyrics_mode = if app.download.form_lyrics_mode == 0 { 2 } else { app.download.form_lyrics_mode - 1 };
                 }
             }
             KeyCode::Right => {
-                if app.download.form_field_idx == 5 {
+                if app.download.form_field_idx == 2 {
+                    cycle_album(app, 1);
+                } else if app.download.form_field_idx == 3 {
+                    cycle_genre(app, 1);
+                } else if app.download.form_field_idx == 5 {
                     cycle_cover(app, 1);
                 } else if app.download.form_field_idx == 6 {
                     app.download.form_lyrics_mode = (app.download.form_lyrics_mode + 1) % 3;
@@ -250,8 +270,14 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
                 match app.download.form_field_idx {
                     0 => { app.download.form_title.pop(); }
                     1 => { app.download.form_artist.pop(); }
-                    2 => { app.download.form_album.pop(); }
-                    3 => { app.download.form_genre.pop(); }
+                    2 => {
+                        app.download.form_album.pop();
+                        app.download.selected_album_idx = None;
+                    }
+                    3 => {
+                        app.download.form_genre.pop();
+                        app.download.selected_genre_idx = None;
+                    }
                     5 => {
                         app.download.form_custom_cover = None;
                         app.download.selected_cover = None;
@@ -274,8 +300,14 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
                     match app.download.form_field_idx {
                         0 => { app.download.form_title.push(' '); }
                         1 => { app.download.form_artist.push(' '); }
-                        2 => { app.download.form_album.push(' '); }
-                        3 => { app.download.form_genre.push(' '); }
+                        2 => {
+                            app.download.form_album.push(' ');
+                            app.download.selected_album_idx = None;
+                        }
+                        3 => {
+                            app.download.form_genre.push(' ');
+                            app.download.selected_genre_idx = None;
+                        }
                         _ => {}
                     }
                 }
@@ -296,8 +328,14 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
                     match app.download.form_field_idx {
                         0 => { app.download.form_title.push(c); }
                         1 => { app.download.form_artist.push(c); }
-                        2 => { app.download.form_album.push(c); }
-                        3 => { app.download.form_genre.push(c); }
+                        2 => {
+                            app.download.form_album.push(c);
+                            app.download.selected_album_idx = None;
+                        }
+                        3 => {
+                            app.download.form_genre.push(c);
+                            app.download.selected_genre_idx = None;
+                        }
                         _ => {}
                     }
                 }
@@ -433,6 +471,38 @@ fn cycle_cover(app: &mut App, dir: i32) {
     app.download.update_cover_preview();
 }
 
+fn cycle_album(app: &mut App, dir: i32) {
+    let n = app.download.existing_albums.len();
+    if n == 0 {
+        return;
+    }
+    let total = n as i32;
+    let next = match app.download.selected_album_idx {
+        None => if dir > 0 { 0 } else { (total - 1) as usize },
+        Some(i) => (i as i32 + dir).rem_euclid(total) as usize,
+    };
+    app.download.selected_album_idx = Some(next);
+    if let Some(alb) = app.download.existing_albums.get(next) {
+        app.download.form_album = alb.clone();
+    }
+}
+
+fn cycle_genre(app: &mut App, dir: i32) {
+    let n = app.download.suggested_genres.len();
+    if n == 0 {
+        return;
+    }
+    let total = n as i32;
+    let next = match app.download.selected_genre_idx {
+        None => if dir > 0 { 0 } else { (total - 1) as usize },
+        Some(i) => (i as i32 + dir).rem_euclid(total) as usize,
+    };
+    app.download.selected_genre_idx = Some(next);
+    if let Some(g) = app.download.suggested_genres.get(next) {
+        app.download.form_genre = g.clone();
+    }
+}
+
 fn delete_last_word(s: &mut String) {
     while s.ends_with(' ') {
         s.pop();
@@ -498,6 +568,55 @@ mod tests {
             let key_5 = KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE);
             handle_download_key(&mut app, key_5);
             assert_eq!(app.view_mode, ViewMode::Plugins);
+        }
+    }
+
+    #[test]
+    fn test_cycle_album_and_genre() {
+        let temp_dir = std::env::temp_dir();
+        if let Ok(mut app) = App::new(&temp_dir) {
+            app.download.show_metadata_form = true;
+            app.download.form_field_idx = 2; // Album field
+            app.download.existing_albums = vec!["Album A".to_string(), "Album B".to_string()];
+            app.download.form_album = "Old Album".to_string();
+
+            // Right arrow cycles forward to Album A
+            let key_right = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
+            handle_download_key(&mut app, key_right);
+            assert_eq!(app.download.form_album, "Album A");
+            assert_eq!(app.download.selected_album_idx, Some(0));
+
+            // Right arrow cycles to Album B
+            handle_download_key(&mut app, key_right);
+            assert_eq!(app.download.form_album, "Album B");
+            assert_eq!(app.download.selected_album_idx, Some(1));
+
+            // Right arrow wraps back to Album A
+            handle_download_key(&mut app, key_right);
+            assert_eq!(app.download.form_album, "Album A");
+            assert_eq!(app.download.selected_album_idx, Some(0));
+
+            // Typing a char resets selected_album_idx
+            let key_char = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE);
+            handle_download_key(&mut app, key_char);
+            assert_eq!(app.download.form_album, "Album Ax");
+            assert_eq!(app.download.selected_album_idx, None);
+
+            // Now test Genre field (idx 3)
+            app.download.form_field_idx = 3;
+            app.download.suggested_genres = vec!["Pop".to_string(), "Rock".to_string()];
+            app.download.form_genre = String::new();
+
+            // Left arrow cycles backwards to Rock (last item)
+            let key_left = KeyEvent::new(KeyCode::Left, KeyModifiers::NONE);
+            handle_download_key(&mut app, key_left);
+            assert_eq!(app.download.form_genre, "Rock");
+            assert_eq!(app.download.selected_genre_idx, Some(1));
+
+            // Left arrow cycles backwards to Pop
+            handle_download_key(&mut app, key_left);
+            assert_eq!(app.download.form_genre, "Pop");
+            assert_eq!(app.download.selected_genre_idx, Some(0));
         }
     }
 }
