@@ -1,11 +1,13 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use ratatui::widgets::ListState;
 
 pub struct FileBrowser {
     pub current_dir: PathBuf,
     pub entries: Vec<PathBuf>,
     pub selected: usize,
     pub show_hidden: bool,
+    pub state: ListState,
 }
 
 impl FileBrowser {
@@ -20,6 +22,7 @@ impl FileBrowser {
             entries: Vec::new(),
             selected: 0,
             show_hidden: false,
+            state: ListState::default(),
         };
 
         browser.refresh();
@@ -116,6 +119,38 @@ impl FileBrowser {
         }
     }
 
+    pub fn page_down(&mut self, query: &str, step: usize) {
+        let indices = self.filtered_indices(query);
+        if !indices.is_empty() {
+            let current_pos = indices.iter().position(|&i| i == self.selected).unwrap_or(0);
+            let next_pos = (current_pos + step).min(indices.len() - 1);
+            self.selected = indices[next_pos];
+        }
+    }
+
+    pub fn page_up(&mut self, query: &str, step: usize) {
+        let indices = self.filtered_indices(query);
+        if !indices.is_empty() {
+            let current_pos = indices.iter().position(|&i| i == self.selected).unwrap_or(0);
+            let prev_pos = current_pos.saturating_sub(step);
+            self.selected = indices[prev_pos];
+        }
+    }
+
+    pub fn first(&mut self, query: &str) {
+        let indices = self.filtered_indices(query);
+        if let Some(&first) = indices.first() {
+            self.selected = first;
+        }
+    }
+
+    pub fn last(&mut self, query: &str) {
+        let indices = self.filtered_indices(query);
+        if let Some(&last) = indices.last() {
+            self.selected = last;
+        }
+    }
+
     pub fn enter(&mut self) -> Option<PathBuf> {
         if self.entries.is_empty() {
             return None;
@@ -126,6 +161,7 @@ impl FileBrowser {
         if target_path.is_dir() {
             self.current_dir = target_path;
             self.selected = 0;
+            self.state = ListState::default();
             self.refresh();
             None
         } else {

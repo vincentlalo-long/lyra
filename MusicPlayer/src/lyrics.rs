@@ -35,16 +35,29 @@ impl Lyrics {
                 continue;
             }
 
-            // Parse timestamp format: [mm:ss.xx]
+            // Parse timestamp format: e.g. [mm:ss.xx] or multiple [mm:ss.xx][mm:ss.xx]
             if trimmed.starts_with('[') {
-                if let Some(close_bracket) = trimmed.find(']') {
-                    let time_str = &trimmed[1..close_bracket];
-                    let text = trimmed[close_bracket + 1..].trim().to_string();
+                let mut timestamps = Vec::new();
+                let mut rest = trimmed;
 
-                    if let Some(duration) = parse_timestamp(time_str) {
+                while rest.starts_with('[') {
+                    if let Some(close_bracket) = rest.find(']') {
+                        let time_str = &rest[1..close_bracket];
+                        if let Some(duration) = parse_timestamp(time_str) {
+                            timestamps.push(duration);
+                        }
+                        rest = &rest[close_bracket + 1..];
+                    } else {
+                        break;
+                    }
+                }
+
+                let text = rest.trim().to_string();
+                if !timestamps.is_empty() && !text.is_empty() {
+                    for ts in timestamps {
                         lines.push(LyricLine {
-                            timestamp: duration,
-                            text,
+                            timestamp: ts,
+                            text: text.clone(),
                         });
                     }
                 }
@@ -75,21 +88,103 @@ fn parse_timestamp(tag: &str) -> Option<Duration> {
         return None;
     }
 
-    let minutes: u64 = parts[0].parse().ok()?;
-    let sec_parts: Vec<&str> = parts[1].split('.').collect();
-    let seconds: u64 = sec_parts[0].parse().ok()?;
+    let (hours, minutes, sec_str) = if parts.len() >= 3 {
+        let h: u64 = parts[0].trim().parse().ok()?;
+        let m: u64 = parts[1].trim().parse().ok()?;
+        (h, m, parts[2].trim())
+    } else {
+        let m: u64 = parts[0].trim().parse().ok()?;
+        (0, m, parts[1].trim())
+    };
+
+    let sec_parts: Vec<&str> = sec_str.split(|c| c == '.' || c == ',').collect();
+    let seconds: u64 = sec_parts[0].trim().parse().ok()?;
     let millis: u64 = if sec_parts.len() > 1 {
-        let ms_str = sec_parts[1];
-        if ms_str.len() == 2 {
-            ms_str.parse::<u64>().ok()? * 10
-        } else {
-            ms_str.parse::<u64>().ok()?
-        }
+        parse_fraction_to_millis(sec_parts[1].trim())
     } else {
         0
     };
 
     Some(Duration::from_millis(
-        minutes * 60_000 + seconds * 1_000 + millis,
+        hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + millis,
     ))
+}
+
+fn parse_fraction_to_millis(ms_str: &str) -> u64 {
+    let mut val = 0u64;
+    let mut multiplier = 100u64;
+    for c in ms_str.chars().take(3) {
+        if let Some(digit) = c.to_digit(10) {
+            val += (digit as u64) * multiplier;
+            multiplier /= 10;
+        } else {
+            break;
+        }
+    }
+    val
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_fraction_to_millis() {
+        assert_eq!(parse_fraction_to_millis("4"), 400);
+        assert_eq!(parse_fraction_to_millis("45"), 450);
+        assert_eq!(parse_fraction_to_millis("456"), 456);
+        assert_eq!(parse_fraction_to_millis("4567"), 456);
+        assert_eq!(parse_fraction_to_millis("456789"), 456);
+        assert_eq!(parse_fraction_to_millis("04"), 40);
+        assert_eq!(parse_fraction_to_millis("004"), 4);
+        assert_eq!(parse_fraction_to_millis(""), 0);
+    }
+
+    #[test]
+    fn test_parse_timestamp() {
+        // 1 digit: [01:23.4] -> 1m 23s 400ms = 83,400ms
+        assert_eq!(
+            parse_timestamp("01:23.4"),
+            Some(Duration::from_millis(83_400))
+        );
+
+        // 2 digits: [01:23.45] -> 1m 23s 450ms = 83,450ms
+        assert_eq!(
+            parse_timestamp("01:23.45"),
+            Some(Duration::from_millis(83_450))
+        );
+
+        // 3 digits: [01:23.456] -> 1m 23s 456ms = 83,456ms
+        assert_eq!(
+            parse_timestamp("01:23.456"),
+            Some(Duration::from_millis(83_456))
+        );
+
+        // 4+ digits microsecond: [01:23.4567] -> 1m 23s 456ms = 83,456ms (NOT 4567ms!)
+        assert_eq!(
+            parse_timestamp("01:23.4567"),
+            Some(Duration::from_millis(83_456))
+        );
+
+        // Comma separator: [01:23,50] -> 1m 23s 500ms = 83,500ms
+        assert_eq!(
+            parse_timestamp("01:23,50"),
+            Some(Duration::from_millis(83_500))
+        );
+
+        // With hours: [01:02:03.50] -> 1h 2m 3s 500ms = 3,723,500ms
+        assert_eq!(
+            parse_timestamp("01:02:03.50"),
+            Some(Duration::from_millis(3_723_500))
+        );
+
+        // No fractions: [01:23] -> 1m 23s = 83,000ms
+        assert_eq!(
+            parse_timestamp("01:23"),
+            Some(Duration::from_millis(83_000))
+        );
+
+        // Metadata tag should be None
+        assert_eq!(parse_timestamp("ar:Singer"), None);
+    }
 }

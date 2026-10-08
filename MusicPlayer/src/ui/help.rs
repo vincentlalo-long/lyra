@@ -10,7 +10,7 @@ use crate::theme;
 pub fn render(frame: &mut Frame) {
     let screen_area = frame.area();
 
-    let popup_height = 20.min(screen_area.height);
+    let popup_height = 22.min(screen_area.height);
     let popup_width = 58.min(screen_area.width);
 
     let vertical_chunks = Layout::default()
@@ -34,8 +34,8 @@ pub fn render(frame: &mut Frame) {
     let lines = vec![
         Line::from(Span::styled("  Navigation", Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD))),
         Line::from(vec![
-            Span::styled("    Tab        ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Switch Playlist / Browser", Style::default().fg(theme::TEXT)),
+            Span::styled("    Tab / 1,2,3", Style::default().fg(theme::YELLOW)),
+            Span::styled("Switch Playlist / Browser / Download", Style::default().fg(theme::TEXT)),
         ]),
         Line::from(vec![
             Span::styled("    ↑ / k      ", Style::default().fg(theme::YELLOW)),
@@ -44,6 +44,14 @@ pub fn render(frame: &mut Frame) {
         Line::from(vec![
             Span::styled("    ↓ / j      ", Style::default().fg(theme::YELLOW)),
             Span::styled("Move down", Style::default().fg(theme::TEXT)),
+        ]),
+        Line::from(vec![
+            Span::styled("    PgUp / PgDn", Style::default().fg(theme::YELLOW)),
+            Span::styled("Scroll page up / down", Style::default().fg(theme::TEXT)),
+        ]),
+        Line::from(vec![
+            Span::styled("    g / G      ", Style::default().fg(theme::YELLOW)),
+            Span::styled("Jump to top / bottom", Style::default().fg(theme::TEXT)),
         ]),
         Line::from(vec![
             Span::styled("    Enter      ", Style::default().fg(theme::YELLOW)),

@@ -2,11 +2,13 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
+use ratatui::widgets::ListState;
 
 pub struct Playlist {
     pub songs: Vec<PathBuf>,
     pub selected: usize,
     pub playing_index: Option<usize>,
+    pub state: ListState,
 }
 
 impl Playlist {
@@ -34,6 +36,7 @@ impl Playlist {
             songs,
             selected: 0,
             playing_index: None,
+            state: ListState::default(),
         }
     }
 
@@ -74,6 +77,38 @@ impl Playlist {
                 current_pos - 1
             };
             self.selected = indices[prev_pos];
+        }
+    }
+
+    pub fn page_down(&mut self, query: &str, step: usize) {
+        let indices = self.filtered_indices(query);
+        if !indices.is_empty() {
+            let current_pos = indices.iter().position(|&i| i == self.selected).unwrap_or(0);
+            let next_pos = (current_pos + step).min(indices.len() - 1);
+            self.selected = indices[next_pos];
+        }
+    }
+
+    pub fn page_up(&mut self, query: &str, step: usize) {
+        let indices = self.filtered_indices(query);
+        if !indices.is_empty() {
+            let current_pos = indices.iter().position(|&i| i == self.selected).unwrap_or(0);
+            let prev_pos = current_pos.saturating_sub(step);
+            self.selected = indices[prev_pos];
+        }
+    }
+
+    pub fn first(&mut self, query: &str) {
+        let indices = self.filtered_indices(query);
+        if let Some(&first) = indices.first() {
+            self.selected = first;
+        }
+    }
+
+    pub fn last(&mut self, query: &str) {
+        let indices = self.filtered_indices(query);
+        if let Some(&last) = indices.last() {
+            self.selected = last;
         }
     }
 
@@ -135,5 +170,53 @@ impl Playlist {
         self.songs = songs;
         self.selected = 0;
         self.playing_index = None;
+        self.state = ListState::default();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_playlist_navigation_and_paging() {
+        let mut playlist = Playlist {
+            songs: (0..50).map(|i| PathBuf::from(format!("song_{:02}.mp3", i))).collect(),
+            selected: 0,
+            playing_index: None,
+            state: ListState::default(),
+        };
+
+        assert_eq!(playlist.selected, 0);
+
+        // Next and previous
+        playlist.next("");
+        assert_eq!(playlist.selected, 1);
+        playlist.previous("");
+        assert_eq!(playlist.selected, 0);
+
+        // Previous from 0 wraps to last
+        playlist.previous("");
+        assert_eq!(playlist.selected, 49);
+
+        // Next from last wraps to 0
+        playlist.next("");
+        assert_eq!(playlist.selected, 0);
+
+        // Page down (jump 10)
+        playlist.page_down("", 10);
+        assert_eq!(playlist.selected, 10);
+        playlist.page_down("", 10);
+        assert_eq!(playlist.selected, 20);
+
+        // Page up
+        playlist.page_up("", 10);
+        assert_eq!(playlist.selected, 10);
+
+        // First and last
+        playlist.last("");
+        assert_eq!(playlist.selected, 49);
+        playlist.first("");
+        assert_eq!(playlist.selected, 0);
     }
 }

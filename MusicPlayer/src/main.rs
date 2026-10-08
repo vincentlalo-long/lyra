@@ -2,6 +2,7 @@ mod app;
 mod audio;
 mod browser;
 mod cover;
+mod downloader;
 mod input;
 mod lyrics;
 mod playlist;
@@ -37,11 +38,17 @@ fn main() -> Result<()> {
 
 fn run_loop(terminal: &mut terminal::Tui, app: &mut App) -> Result<()> {
     loop {
+        // Commit debounced seek when user finishes seeking
+        app.audio.check_pending_seek();
+
         // Auto-advance to next track when current song finishes
         app.check_auto_advance();
 
         // Update background scan animation and receive results
         app.check_scan();
+
+        // Check background YouTube download events
+        app.check_download_events();
 
         terminal.draw(|frame| ui::render(frame, app))?;
         ui::post_render(app)?;

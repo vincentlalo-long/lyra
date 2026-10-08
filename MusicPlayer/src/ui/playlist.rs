@@ -1,15 +1,16 @@
 use ratatui::{
-    layout::Rect,
+    layout::{Margin, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, List, ListItem},
+    widgets::{Block, BorderType, Borders, List, ListItem, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
 use crate::{app::App, theme};
 
-pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let filtered = app.playlist.filtered_indices(&app.search_query);
     let mut list_items = Vec::new();
+    let mut selected_pos = None;
 
     for (pos, &song_idx) in filtered.iter().enumerate() {
         let song_path = &app.playlist.songs[song_idx];
@@ -20,6 +21,9 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
 
         let is_playing = app.playlist.playing_index == Some(song_idx);
         let is_selected = song_idx == app.playlist.selected;
+        if is_selected {
+            selected_pos = Some(pos);
+        }
 
         let icon = if is_playing {
             if app.audio.is_paused { "⏸ " } else { "▶ " }
@@ -87,5 +91,21 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
             .border_style(Style::default().fg(theme::BLUE)),
     );
 
-    frame.render_widget(list_widget, area);
+    app.playlist.state.select(selected_pos);
+    frame.render_stateful_widget(list_widget, area, &mut app.playlist.state);
+
+    if filtered.len() > 1 {
+        let mut scrollbar_state = ScrollbarState::new(filtered.len())
+            .position(selected_pos.unwrap_or(0));
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .thumb_style(Style::default().fg(theme::BLUE))
+            .track_style(Style::default().fg(theme::SURFACE0));
+        frame.render_stateful_widget(
+            scrollbar,
+            area.inner(Margin { vertical: 1, horizontal: 0 }),
+            &mut scrollbar_state,
+        );
+    }
 }

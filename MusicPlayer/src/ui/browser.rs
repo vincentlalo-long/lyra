@@ -1,26 +1,30 @@
 use ratatui::{
-    layout::Rect,
+    layout::{Margin, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, List, ListItem},
+    widgets::{Block, BorderType, Borders, List, ListItem, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
 use crate::{app::App, theme};
 
-pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let filtered = app.browser.filtered_indices(&app.search_query);
     let mut list_items = Vec::new();
+    let mut selected_pos = None;
 
     let playing_path = app
         .playlist
         .playing_index
         .and_then(|idx| app.playlist.songs.get(idx));
 
-    for &entry_idx in &filtered {
+    for (pos, &entry_idx) in filtered.iter().enumerate() {
         let entry_path = &app.browser.entries[entry_idx];
         let is_parent = app.browser.current_dir.parent() == Some(entry_path.as_path());
         let is_playing = playing_path == Some(entry_path);
         let is_selected = entry_idx == app.browser.selected;
+        if is_selected {
+            selected_pos = Some(pos);
+        }
 
         let entry_name = match entry_path.file_name() {
             Some(name) => name.to_string_lossy().to_string(),
@@ -76,5 +80,21 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
             .border_style(Style::default().fg(theme::MAUVE)),
     );
 
-    frame.render_widget(list_widget, area);
+    app.browser.state.select(selected_pos);
+    frame.render_stateful_widget(list_widget, area, &mut app.browser.state);
+
+    if filtered.len() > 1 {
+        let mut scrollbar_state = ScrollbarState::new(filtered.len())
+            .position(selected_pos.unwrap_or(0));
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .thumb_style(Style::default().fg(theme::MAUVE))
+            .track_style(Style::default().fg(theme::SURFACE0));
+        frame.render_stateful_widget(
+            scrollbar,
+            area.inner(Margin { vertical: 1, horizontal: 0 }),
+            &mut scrollbar_state,
+        );
+    }
 }

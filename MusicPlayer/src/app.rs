@@ -4,6 +4,7 @@ use crate::{
     audio::AudioPlayer,
     browser::FileBrowser,
     cover::AlbumArt,
+    downloader::{DownloadEvent, DownloadRequest, DownloadState, Downloader},
     lyrics::Lyrics,
     playlist::Playlist,
     scanner::Scanner,
@@ -20,6 +21,7 @@ pub enum RepeatMode {
 pub enum ViewMode {
     Playlist,
     Browser,
+    Download,
 }
 
 pub struct App {
@@ -37,6 +39,8 @@ pub struct App {
     pub current_playing_path: Option<PathBuf>,
     pub kitty_cover_rect: Option<ratatui::layout::Rect>,
     pub last_kitty_rendered: Option<(Option<PathBuf>, ratatui::layout::Rect)>,
+    pub download: DownloadState,
+    pub downloader: Downloader,
 }
 
 impl App {
@@ -56,13 +60,16 @@ impl App {
             current_playing_path: None,
             kitty_cover_rect: None,
             last_kitty_rendered: None,
+            download: DownloadState::new(music_folder),
+            downloader: Downloader::new(),
         })
     }
 
     pub fn toggle_view(&mut self) {
         self.view_mode = match self.view_mode {
             ViewMode::Playlist => ViewMode::Browser,
-            ViewMode::Browser => ViewMode::Playlist,
+            ViewMode::Browser => ViewMode::Download,
+            ViewMode::Download => ViewMode::Playlist,
         };
     }
 
@@ -86,6 +93,15 @@ impl App {
         match self.view_mode {
             ViewMode::Playlist => self.playlist.next(&self.search_query),
             ViewMode::Browser => self.browser.next(&self.search_query),
+            ViewMode::Download => {
+                if self.download.show_dir_picker {
+                    self.download.dir_picker.next("");
+                } else if self.download.show_metadata_form {
+                    self.download.form_field_idx = (self.download.form_field_idx + 1) % 6;
+                } else if !self.download.search_results.is_empty() {
+                    self.download.selected_result = (self.download.selected_result + 1) % self.download.search_results.len();
+                }
+            }
         }
     }
 
@@ -93,6 +109,71 @@ impl App {
         match self.view_mode {
             ViewMode::Playlist => self.playlist.previous(&self.search_query),
             ViewMode::Browser => self.browser.previous(&self.search_query),
+            ViewMode::Download => {
+                if self.download.show_dir_picker {
+                    self.download.dir_picker.previous("");
+                } else if self.download.show_metadata_form {
+                    self.download.form_field_idx = if self.download.form_field_idx == 0 { 5 } else { self.download.form_field_idx - 1 };
+                } else if !self.download.search_results.is_empty() {
+                    self.download.selected_result = if self.download.selected_result == 0 {
+                        self.download.search_results.len() - 1
+                    } else {
+                        self.download.selected_result - 1
+                    };
+                }
+            }
+        }
+    }
+
+    pub fn page_down(&mut self) {
+        match self.view_mode {
+            ViewMode::Playlist => self.playlist.page_down(&self.search_query, 10),
+            ViewMode::Browser => self.browser.page_down(&self.search_query, 10),
+            ViewMode::Download => {
+                if self.download.show_dir_picker {
+                    self.download.dir_picker.page_down("", 5);
+                }
+            }
+        }
+    }
+
+    pub fn page_up(&mut self) {
+        match self.view_mode {
+            ViewMode::Playlist => self.playlist.page_up(&self.search_query, 10),
+            ViewMode::Browser => self.browser.page_up(&self.search_query, 10),
+            ViewMode::Download => {
+                if self.download.show_dir_picker {
+                    self.download.dir_picker.page_up("", 5);
+                }
+            }
+        }
+    }
+
+    pub fn go_to_top(&mut self) {
+        match self.view_mode {
+            ViewMode::Playlist => self.playlist.first(&self.search_query),
+            ViewMode::Browser => self.browser.first(&self.search_query),
+            ViewMode::Download => {
+                if self.download.show_dir_picker {
+                    self.download.dir_picker.first("");
+                } else if !self.download.search_results.is_empty() {
+                    self.download.selected_result = 0;
+                }
+            }
+        }
+    }
+
+    pub fn go_to_bottom(&mut self) {
+        match self.view_mode {
+            ViewMode::Playlist => self.playlist.last(&self.search_query),
+            ViewMode::Browser => self.browser.last(&self.search_query),
+            ViewMode::Download => {
+                if self.download.show_dir_picker {
+                    self.download.dir_picker.last("");
+                } else if !self.download.search_results.is_empty() {
+                    self.download.selected_result = self.download.search_results.len() - 1;
+                }
+            }
         }
     }
 
@@ -136,6 +217,9 @@ impl App {
 
                     self.play_track(&selected_song);
                 }
+            }
+            ViewMode::Download => {
+                self.handle_download_enter();
             }
         }
     }
@@ -197,6 +281,132 @@ impl App {
             if !found_songs.is_empty() {
                 self.playlist.set_songs(found_songs);
                 self.view_mode = ViewMode::Playlist;
+            }
+        }
+    }
+
+    pub fn start_metadata_download(&mut self) {
+        if !self.download.show_metadata_form {
+            return;
+        }
+        let req = DownloadRequest {
+            url: self.download.form_url.clone(),
+            output_dir: self.download.form_dir.clone(),
+            title: self.download.form_title.clone(),
+            artist: self.download.form_artist.clone(),
+            album: self.download.form_album.clone(),
+            cover_mode: self.download.form_cover_mode.clone(),
+            no_lyrics: self.download.form_lyrics_mode == 2,
+            no_auto_lyrics: self.download.form_lyrics_mode == 1,
+        };
+        self.download.active_title = req.title.clone();
+        self.download.active_artist = req.artist.clone();
+        self.download.is_downloading = true;
+        self.download.progress_pct = 0.0;
+        self.download.speed.clear();
+        self.download.eta.clear();
+        self.download.current_stage = "Connecting to YouTube...".into();
+        self.download.last_error = None;
+        self.download.last_completed = None;
+        self.download.show_metadata_form = false;
+        self.downloader.start_download(req);
+    }
+
+    pub fn handle_download_enter(&mut self) {
+        if self.download.show_dir_picker {
+            if let Some(selected_dir) = self.download.dir_picker.enter() {
+                self.download.form_dir = selected_dir;
+                self.download.show_dir_picker = false;
+            }
+        } else if self.download.show_metadata_form {
+            if self.download.form_field_idx == 3 {
+                // Save to field: open dir picker
+                self.download.dir_picker = crate::browser::FileBrowser::new(&self.download.form_dir);
+                self.download.show_dir_picker = true;
+            } else if self.download.form_field_idx == 4 {
+                self.download.form_field_idx = 5;
+            } else if self.download.form_field_idx == 5 {
+                self.download.form_field_idx = 6;
+            } else if self.download.form_field_idx < 6 {
+                // Advance to next field on Enter
+                self.download.form_field_idx += 1;
+            } else {
+                // Field 6: Start download!
+                self.start_metadata_download();
+            }
+        } else if self.download.is_input_active {
+            let q = self.download.query.trim().to_string();
+            if q.is_empty() {
+                return;
+            }
+            if q.starts_with("http://") || q.starts_with("https://") || q.contains("youtu.be") {
+                self.download.is_searching = true;
+                self.download.is_input_active = false;
+                self.downloader.fetch_info(q);
+            } else {
+                self.download.is_searching = true;
+                self.download.is_input_active = false;
+                self.downloader.search(q);
+            }
+        } else if !self.download.search_results.is_empty() {
+            let item = &self.download.search_results[self.download.selected_result];
+            self.download.form_url = item.url.clone();
+            self.download.form_title = item.title.clone();
+            self.download.form_artist = item.artist.clone();
+            self.download.form_album = format!("{} - Single", item.title);
+            self.download.show_metadata_form = true;
+            self.download.form_field_idx = 0;
+        }
+    }
+
+    pub fn check_download_events(&mut self) {
+        while let Ok(event) = self.downloader.receiver.try_recv() {
+            match event {
+                DownloadEvent::Searching => {
+                    self.download.is_searching = true;
+                    self.download.last_error = None;
+                }
+                DownloadEvent::SearchResults(items) => {
+                    self.download.is_searching = false;
+                    self.download.search_results = items;
+                    self.download.selected_result = 0;
+                    self.download.is_input_active = false;
+                }
+                DownloadEvent::InfoLoaded { url, title, artist } => {
+                    self.download.is_searching = false;
+                    self.download.form_url = url;
+                    self.download.form_title = title.clone();
+                    self.download.form_artist = artist;
+                    self.download.form_album = format!("{title} - Single");
+                    self.download.show_metadata_form = true;
+                    self.download.form_field_idx = 0;
+                }
+                DownloadEvent::Progress { percent, speed, eta, stage } => {
+                    self.download.is_downloading = true;
+                    self.download.progress_pct = percent;
+                    self.download.speed = speed;
+                    self.download.eta = eta;
+                    self.download.current_stage = stage;
+                }
+                DownloadEvent::Status(stage) => {
+                    self.download.current_stage = stage;
+                }
+                DownloadEvent::Completed { title, artist, mp3_path, .. } => {
+                    self.download.is_downloading = false;
+                    self.download.last_completed = Some(format!("{artist} - {title}"));
+                    self.download.last_error = None;
+                    self.browser.refresh();
+                    let mp3_p = PathBuf::from(mp3_path);
+                    if !self.playlist.songs.contains(&mp3_p) {
+                        self.playlist.songs.push(mp3_p);
+                        self.playlist.songs.sort();
+                    }
+                }
+                DownloadEvent::Error(err) => {
+                    self.download.is_searching = false;
+                    self.download.is_downloading = false;
+                    self.download.last_error = Some(err);
+                }
             }
         }
     }
