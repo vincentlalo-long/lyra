@@ -10,21 +10,23 @@ import yt_dlp
 from .utils import clean_title_and_artist, sanitize_filename
 from .lyric import vtt_to_lrc, fetch_best_vtt, fetch_all_vtt
 from .image import process_cover_art
-from .artwork import search_candidates, download_best_cover
+from .artwork import search_candidates, download_best_cover, prepare_cover_art
 from .artwork.images import download_cover_image
 from .tagger import tag_audio_file
 
 #: Map --cover-source values to provider tuples. "auto" queries everything.
 COVER_SOURCES = {
     "auto": ("itunes", "deezer", "caa"),
+    "all": ("itunes", "deezer", "caa", "web"),
     "itunes": ("itunes",),
     "deezer": ("deezer",),
     "caa": ("caa",),
+    "web": ("web",),
     "youtube": (),
 }
 
 
-def search_youtube(query: str, limit: int = 5) -> List[Dict[str, Any]]:
+def search_youtube(query: str, limit: int = 15) -> List[Dict[str, Any]]:
     ydl_opts = {
         "extract_flat": "in_playlist",
         "quiet": True,
@@ -87,13 +89,15 @@ class LyraPipeline:
         json_mode: bool = False,
         cover_source: str = "auto",
         cover_url: Optional[str] = None,
+        custom_cover: Optional[str] = None,
         no_cover_search: bool = False,
     ):
         self.output_dir = os.path.abspath(os.path.expanduser(output_dir))
         self.cover_mode = cover_mode
         self.json_mode = json_mode
         self.cover_source = cover_source if cover_source in COVER_SOURCES else "auto"
-        self.cover_url = cover_url
+        self.custom_cover = custom_cover or cover_url
+        self.cover_url = self.custom_cover
         self.no_cover_search = no_cover_search
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -107,6 +111,7 @@ class LyraPipeline:
         name: Optional[str] = None,
         album: Optional[str] = None,
         singer: Optional[str] = None,
+        genre: Optional[str] = None,
         no_lyrics: bool = False,
         no_auto_lyrics: bool = False,
     ) -> Dict[str, Any]:
@@ -218,14 +223,14 @@ class LyraPipeline:
             cover_year = ""
             cover_genre = ""
 
-            # 0. Explicit URL wins (user picked a candidate in the TUI/CLI).
-            if self.cover_url:
-                self._emit({"type": "status", "stage": "Downloading chosen cover art..."})
-                if download_cover_image(self.cover_url, processed_cover_path):
+            # 0. Custom cover wins (user picked candidate or local image file).
+            if self.custom_cover:
+                self._emit({"type": "status", "stage": "Processing custom cover art..."})
+                if prepare_cover_art(self.custom_cover, processed_cover_path, mode=self.cover_mode):
                     has_cover = True
                     cover_source_used = "custom"
                     if not self.json_mode:
-                        print("Cover:    custom URL")
+                        print(f"Cover:    custom ({self.custom_cover})")
 
             # 1. Multi-provider studio search (iTunes + Deezer + CAA).
             search_enabled = (
@@ -290,6 +295,7 @@ class LyraPipeline:
 
             # Embed metadata & cover art
             self._emit({"type": "status", "stage": "Tagging ID3v2 metadata..."})
+            effective_genre = (genre or "").strip() or (cover_genre or "").strip()
             tag_audio_file(
                 file_path=raw_mp3_path,
                 title=title,
@@ -297,6 +303,7 @@ class LyraPipeline:
                 album=album if album else f"{title} - Single",
                 cover_path=processed_cover_path if has_cover else None,
                 lrc_text=primary_lrc if primary_lrc else None,
+                genre=effective_genre or None,
             )
 
             # Export to target directory
@@ -317,6 +324,15 @@ class LyraPipeline:
             dest_lrc = os.path.join(target_dir, f"{base_filename}.lrc")
 
             shutil.copy2(raw_mp3_path, dest_mp3)
+            if effective_genre:
+                try:
+                    from .genres import set_genres
+                    genre_list = [g.strip() for g in effective_genre.split(",") if g.strip()]
+                    if genre_list:
+                        set_genres(dest_mp3, genre_list)
+                except Exception as e:
+                    if not self.json_mode:
+                        print(f"Warning: Failed to update genre sidecar: {e}")
             if not self.json_mode:
                 print(f"Audio:    {dest_mp3}")
 
@@ -354,7 +370,7 @@ class LyraPipeline:
                 "cover_source": cover_source_used,
                 "cover_candidates": cover_candidates,
                 "year": cover_year,
-                "genre": cover_genre,
+                "genre": effective_genre,
             }
             self._emit(result)
             return result

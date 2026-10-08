@@ -11,8 +11,16 @@ const B64_CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvw
 pub fn is_kitty_supported() -> bool {
     std::env::var("KITTY_WINDOW_ID").is_ok()
         || std::env::var("KITTY_PID").is_ok()
+        || std::env::var("GHOSTTY_RESOURCES_DIR").is_ok()
+        || std::env::var("WEZTERM_PANE").is_ok()
+        || std::env::var("TERM_PROGRAM")
+            .map(|p| {
+                let p = p.to_ascii_lowercase();
+                p == "wezterm" || p == "ghostty" || p == "kitty"
+            })
+            .unwrap_or(false)
         || std::env::var("TERM")
-            .map(|t| t.contains("kitty") || t.contains("ghostty"))
+            .map(|t| t.contains("kitty") || t.contains("ghostty") || t.contains("wezterm"))
             .unwrap_or(false)
 }
 
@@ -112,6 +120,7 @@ impl AlbumArt {
 
     /// Saves the cover as a PNG file (used for the MPRIS `artUrl`).
     /// Returns `true` on success.
+    #[cfg(feature = "mpris")]
     pub fn save_png(&self, path: &Path) -> bool {
         match &self.image {
             Some(img) => img.save(path).is_ok(),
@@ -251,11 +260,9 @@ mod tests {
 
     #[test]
     fn test_load_album_art_from_file() {
-        let path = Path::new("/home/danglong/Music/Steins;Gate/Hacking to The Gate.mp3");
-        if path.exists() {
-            let art = AlbumArt::load_for_song(path);
-            assert!(art.image.is_some());
-            assert!(art.png_base64.is_some());
-        }
+        let fake_path = Path::new("non_existent_cover_test.mp3");
+        let art = AlbumArt::load_for_song(fake_path);
+        assert!(art.image.is_none());
+        assert!(art.png_base64.is_none());
     }
 }

@@ -1,3 +1,4 @@
+import os
 import sys
 import json
 import argparse
@@ -28,15 +29,21 @@ def main():
     )
     get_parser.add_argument(
         "--cover-source",
-        choices=["auto", "itunes", "deezer", "caa", "youtube"],
+        choices=["auto", "all", "itunes", "deezer", "caa", "web", "youtube"],
         default="auto",
-        help="Studio providers to query (default: auto = itunes+deezer+caa)",
+        help="Studio providers to query (default: auto = itunes+deezer+caa; all = includes web)",
+    )
+    get_parser.add_argument(
+        "--cover",
+        type=str,
+        default=None,
+        help="Use this custom cover image file path or URL",
     )
     get_parser.add_argument(
         "--cover-url",
         type=str,
         default=None,
-        help="Use this exact cover image URL (e.g. a candidate picked in the TUI)",
+        help="Use this exact cover image URL (alias for --cover)",
     )
     get_parser.add_argument(
         "--no-cover-search",
@@ -62,6 +69,12 @@ def main():
         help="Author / Artist of the song",
     )
     get_parser.add_argument(
+        "-g", "--genre",
+        type=str,
+        default=None,
+        help="Genre of the song",
+    )
+    get_parser.add_argument(
         "--no-lyrics",
         action="store_true",
         help="Skip downloading and embedding synced lyrics",
@@ -83,8 +96,8 @@ def main():
     search_parser.add_argument(
         "-l", "--limit",
         type=int,
-        default=5,
-        help="Number of results (default: 5)",
+        default=15,
+        help="Number of results (default: 15)",
     )
     search_parser.add_argument(
         "--json",
@@ -106,14 +119,27 @@ def main():
     cover_parser.add_argument("query", type=str, nargs="?", default="", help="Free-text query (or title when --artist given)")
     cover_parser.add_argument("--artist", type=str, default="", help="Artist name for scored search")
     cover_parser.add_argument("--title", type=str, default="", help="Track title for scored search")
-    cover_parser.add_argument("-l", "--limit", type=int, default=5, help="Number of results (default: 5)")
+    cover_parser.add_argument("-l", "--limit", type=int, default=16, help="Number of results (default: 16)")
     cover_parser.add_argument(
         "--source",
-        choices=["auto", "itunes", "deezer", "caa"],
+        choices=["auto", "all", "itunes", "deezer", "caa", "web"],
         default="auto",
-        help="Providers to query (default: auto)",
+        help="Providers to query (default: auto = itunes+deezer+caa; all = includes web)",
     )
+    cover_parser.add_argument("--prefetch", action="store_true", help="Download candidate images into local disk cache")
     cover_parser.add_argument("--json", action="store_true", help="Output results as JSON")
+
+    # Command: tag-genre (hand-curated sidecar genres for the TUI picker)
+    genre_parser = subparsers.add_parser("tag-genre", help="Set sidecar genres for a file")
+    genre_parser.add_argument("file", type=str, help="Audio file path")
+    genre_parser.add_argument("genres", type=str, nargs="?", default="",
+                              help="Comma-separated genres (empty clears the entry)")
+
+    # Command: fill-genres (one-shot iTunes backfill for an existing library)
+    fill_parser = subparsers.add_parser("fill-genres", help="Backfill sidecar genres from iTunes")
+    fill_parser.add_argument("directory", type=str, help="Music directory to scan")
+    fill_parser.add_argument("--limit", type=int, default=None, help="Max files to query (default: all)")
+    fill_parser.add_argument("--json", action="store_true", help="Output stats as JSON")
 
     args = parser.parse_args()
 
@@ -152,16 +178,27 @@ def main():
             else:
                 print(f"error: {e}", file=sys.stderr)
     elif args.command == "cover":
-        from .artwork import search_candidates
+        from .artwork import search_candidates, prefetch_candidates
         try:
             artist = args.artist or ""
             title = args.title or args.query
+            if not artist and not args.title and " - " in (args.query or ""):
+                parts = args.query.split(" - ", 1)
+                artist = parts[0].strip()
+                title = parts[1].strip()
             if not artist and not title:
                 print(json.dumps({"type": "error", "message": "Provide a query or --artist/--title"}), flush=True) \
                     if args.json else print("error: empty query", file=sys.stderr)
                 sys.exit(1)
-            sources = ("itunes", "deezer", "caa") if args.source == "auto" else (args.source,)
+            if args.source == "auto":
+                sources = ("itunes", "deezer", "caa")
+            elif args.source == "all":
+                sources = ("itunes", "deezer", "caa", "web")
+            else:
+                sources = (args.source,)
             results = search_candidates(artist, title or args.query, sources=sources, limit=args.limit)
+            if args.prefetch or args.json:
+                prefetch_candidates(results)
             if args.json:
                 print(json.dumps({"type": "cover_results", "items": results}), flush=True)
             else:
@@ -178,6 +215,36 @@ def main():
                 print(f"error: {e}", file=sys.stderr)
             sys.exit(1)
 
+    elif args.command == "tag-genre":
+        from .genres import set_genres
+        try:
+            genres = [g.strip() for g in args.genres.split(",") if g.strip()]
+            saved = set_genres(args.file, genres)
+            print(json.dumps({"type": "genres", "file": args.file, "genres": saved}), flush=True)
+        except Exception as e:
+            print(json.dumps({"type": "error", "message": str(e)}), flush=True)
+            sys.exit(1)
+
+    elif args.command == "fill-genres":
+        from .genres import backfill_directory
+        try:
+            def show_progress(path, genre):
+                name = os.path.basename(path)
+                print(f"  {'✓' if genre else '·'} {name}" + (f" [{genre}]" if genre else ""), flush=True)
+            if not args.json:
+                print(f"Backfilling genres in {args.directory} ...")
+            stats = backfill_directory(args.directory, limit=args.limit,
+                                       progress=None if args.json else show_progress)
+            if args.json:
+                print(json.dumps({"type": "genre_stats", **stats}), flush=True)
+            else:
+                print(f"Done: {stats['filled']} filled, {stats['skipped']} skipped, "
+                      f"{stats['missed']} missed ({stats['scanned']} scanned)")
+        except Exception as e:
+            print(json.dumps({"type": "error", "message": str(e)}), flush=True) \
+                if args.json else print(f"error: {e}", file=sys.stderr)
+            sys.exit(1)
+
     elif args.command == "get":
         try:
             pipeline = LyraPipeline(
@@ -186,6 +253,7 @@ def main():
                 json_mode=args.json,
                 cover_source=args.cover_source,
                 cover_url=args.cover_url,
+                custom_cover=args.cover or args.cover_url,
                 no_cover_search=args.no_cover_search,
             )
             pipeline.process_url(
@@ -193,6 +261,7 @@ def main():
                 name=args.name,
                 album=args.album,
                 singer=args.singer,
+                genre=args.genre,
                 no_lyrics=args.no_lyrics,
                 no_auto_lyrics=args.no_auto_lyrics,
             )

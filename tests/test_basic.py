@@ -166,6 +166,58 @@ Hello &amp; world
                                                     sources=("itunes",),
                                                     use_cache=False), [])
 
+    def test_genre_sidecar_roundtrip(self):
+        from lyra import genres
+        with tempfile.TemporaryDirectory() as tmp:
+            sidecar = os.path.join(tmp, "genres.json")
+            self.assertEqual(genres.get_genres("/m/a.mp3", path=sidecar), [])
+            genres.set_genres("/m/a.mp3", ["lo-fi", " rain ", ""], path=sidecar)
+            self.assertEqual(genres.get_genres("/m/a.mp3", path=sidecar), ["lo-fi", "rain"])
+            # Empty clears the entry.
+            genres.set_genres("/m/a.mp3", [], path=sidecar)
+            self.assertEqual(genres.get_genres("/m/a.mp3", path=sidecar), [])
+            # Corrupt file reads as empty, never raises.
+            with open(sidecar, "w") as f:
+                f.write("{broken")
+            self.assertEqual(genres.load_sidecar(path=sidecar), {})
+
+    def test_genre_backfill_uses_itunes_and_skips_tagged(self):
+        from unittest.mock import patch
+        from lyra import genres
+        with tempfile.TemporaryDirectory() as tmp:
+            sidecar = os.path.join(tmp, "genres.json")
+            tagged = os.path.join(tmp, "Known - Song.mp3")
+            fresh = os.path.join(tmp, "Taylor Swift - Cruel Summer.mp3")
+            open(tagged, "w").close()
+            open(fresh, "w").close()
+            genres.set_genres(tagged, ["rock"], path=sidecar)
+            fake_info = {"genre": "Pop"}
+            with patch("lyra.image.search_itunes_cover", return_value=fake_info):
+                stats = genres.backfill_directory(tmp, path=sidecar)
+            self.assertEqual(stats["scanned"], 2)
+            self.assertEqual(stats["skipped"], 1)
+            self.assertEqual(stats["filled"], 1)
+            self.assertEqual(genres.get_genres(fresh, path=sidecar), ["Pop"])
+            # Pre-tagged entry untouched.
+            self.assertEqual(genres.get_genres(tagged, path=sidecar), ["rock"])
+
+    def test_tagger_writes_genre_tcon(self):
+        from lyra.tagger import tag_audio_file
+        from mutagen.id3 import ID3
+        with tempfile.TemporaryDirectory() as tmp:
+            mp3 = os.path.join(tmp, "t.mp3")
+            # Minimal valid MP3 frame so mutagen accepts the file.
+            with open(mp3, "wb") as f:
+                f.write(bytes.fromhex("fffb9000000000000000000000000000000000000000000000000000000000000000"))
+            self.assertTrue(tag_audio_file(mp3, "T", "A", genre="Lo-Fi"))
+            self.assertEqual(ID3(mp3)["TCON"].text, ["Lo-Fi"])
+            # No genre -> no TCON frame (fresh file).
+            mp3b = os.path.join(tmp, "t2.mp3")
+            with open(mp3b, "wb") as f:
+                f.write(bytes.fromhex("fffb9000000000000000000000000000000000000000000000000000000000000000"))
+            self.assertTrue(tag_audio_file(mp3b, "T", "A"))
+            self.assertNotIn("TCON", ID3(mp3b))
+
 
 if __name__ == "__main__":
     unittest.main()

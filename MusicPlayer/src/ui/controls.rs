@@ -52,11 +52,15 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
         Span::styled(track_name, Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)),
     ]);
 
-    // Repeat mode display
-    let (repeat_icon, repeat_text, repeat_color) = match app.repeat_mode {
-        RepeatMode::Playlist => ("󰑖 ", "Loop: All", theme::BLUE),
-        RepeatMode::Track => ("󰑘 ", "Loop: One", theme::YELLOW),
-        RepeatMode::Off => ("󰑗 ", "Loop: Off", theme::OVERLAY0),
+    // Repeat mode display (queue-loop wins: it overrides library looping).
+    let (repeat_icon, repeat_text, repeat_color) = if app.queue.loop_enabled {
+        ("󰑖 ", "Loop: Queue", theme::MAUVE)
+    } else {
+        match app.repeat_mode {
+            RepeatMode::Playlist => ("󰑖 ", "Loop: All", theme::BLUE),
+            RepeatMode::Track => ("󰑘 ", "Loop: One", theme::YELLOW),
+            RepeatMode::Off => ("󰑗 ", "Loop: Off", theme::OVERLAY0),
+        }
     };
 
     let repeat_line = Line::from(vec![

@@ -6,6 +6,7 @@ from mutagen.id3 import (
     TIT2,
     TPE1,
     TALB,
+    TCON,
     APIC,
     USLT,
     ID3NoHeaderError,
@@ -19,6 +20,7 @@ def tag_audio_file(
     album: Optional[str] = None,
     cover_path: Optional[str] = None,
     lrc_text: Optional[str] = None,
+    genre: Optional[str] = None,
 ) -> bool:
     if not os.path.exists(file_path):
         return False
@@ -33,6 +35,8 @@ def tag_audio_file(
         tags.add(TIT2(encoding=3, text=title))
         tags.add(TPE1(encoding=3, text=artist))
         tags.add(TALB(encoding=3, text=album or f"{title} - Single"))
+        if genre and genre.strip():
+            tags.add(TCON(encoding=3, text=genre.strip()))
 
         # Embed front cover art
         if cover_path and os.path.exists(cover_path):

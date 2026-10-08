@@ -17,6 +17,12 @@ pub struct PlayQueue {
     pub history: Vec<PathBuf>,
     /// True when the currently playing track came from the queue.
     pub now_from_queue: bool,
+    /// Queue-loop (`L`): when items drain, refill from the snapshot instead
+    /// of falling through to the library.
+    pub loop_enabled: bool,
+    /// What one loop round replays. Synced on every mutation while looping
+    /// so mid-loop edits join future rounds; cleared with the queue.
+    loop_snapshot: Vec<PathBuf>,
     /// Cursor for the Queue view.
     pub selected: usize,
     pub state: ListState,
@@ -28,6 +34,8 @@ impl PlayQueue {
             items: VecDeque::new(),
             history: Vec::new(),
             now_from_queue: false,
+            loop_enabled: false,
+            loop_snapshot: Vec::new(),
             selected: 0,
             state: ListState::default(),
         }
@@ -44,21 +52,28 @@ impl PlayQueue {
     /// Append to the tail (play after everything queued).
     pub fn enqueue_back(&mut self, path: PathBuf) {
         self.items.push_back(path);
+        self.sync_loop_snapshot();
     }
 
     /// Push to the head (play next).
     pub fn enqueue_front(&mut self, path: PathBuf) {
         self.items.push_front(path);
+        self.sync_loop_snapshot();
     }
 
     /// Take the head for immediate playback. Returns the path to play.
     /// `current` (the track being replaced) goes to history when it came
     /// from the queue, so Prev can walk back through queue playback.
+    /// When loop mode is on and items drain, one round is refilled from the
+    /// snapshot instead of returning `None`.
     pub fn pop_next(&mut self, current: Option<PathBuf>, current_from_queue: bool) -> Option<PathBuf> {
         if current_from_queue {
             if let Some(cur) = current {
                 self.history.push(cur);
             }
+        }
+        if self.items.is_empty() && self.loop_enabled && !self.loop_snapshot.is_empty() {
+            self.items = self.loop_snapshot.clone().into();
         }
         let next = self.items.pop_front()?;
         self.now_from_queue = true;
@@ -107,6 +122,7 @@ impl PlayQueue {
             return false;
         }
         self.items.remove(idx);
+        self.sync_loop_snapshot();
         self.clamp_selected();
         true
     }
@@ -115,11 +131,38 @@ impl PlayQueue {
     pub fn remove_path(&mut self, path: &Path) -> bool {
         if let Some(idx) = self.items.iter().position(|p| p == path) {
             self.items.remove(idx);
+            self.sync_loop_snapshot();
             self.clamp_selected();
             true
         } else {
             false
         }
+    }
+
+    /// Replace the item at `idx`, keeping order. Returns false when `idx`
+    /// is out of range (no-op).
+    pub fn replace(&mut self, idx: usize, path: PathBuf) -> bool {
+        if idx >= self.items.len() {
+            return false;
+        }
+        self.items[idx] = path;
+        self.sync_loop_snapshot();
+        true
+    }
+
+    /// Toggle queue-loop on/off. Enabling snapshots the current upcoming
+    /// items as one loop round; disabling keeps items but stops refilling.
+    pub fn set_loop(&mut self, enabled: bool) {
+        self.loop_enabled = enabled;
+        if enabled {
+            self.sync_loop_snapshot();
+        }
+    }
+
+    /// One loop round replays the queue as last edited (consumption via
+    /// pop_next/pop_prev/jump_to never shrinks it).
+    fn sync_loop_snapshot(&mut self) {
+        self.loop_snapshot = self.items.iter().cloned().collect();
     }
 
     /// Fisher-Yates shuffle of upcoming items. History and now-playing
@@ -143,11 +186,13 @@ impl PlayQueue {
             v.swap(i, j);
         }
         self.items = v.into();
+        self.sync_loop_snapshot();
     }
 
     pub fn clear(&mut self) {
         self.items.clear();
         self.history.clear();
+        self.loop_snapshot.clear();
         self.now_from_queue = false;
         self.selected = 0;
         self.state = ListState::default();
@@ -200,12 +245,13 @@ impl PlayQueue {
             .iter()
             .map(|p| p.to_string_lossy().into_owned())
             .collect();
-        if let Ok(json) = serde_json::to_string(&items) {
-            let _ = std::fs::write(path, json);
-        }
+        let doc = serde_json::json!({ "items": items, "loop_enabled": self.loop_enabled });
+        let _ = std::fs::write(path, doc.to_string());
     }
 
     /// Restore on startup; drops entries whose files no longer exist.
+    /// Reads the current `{items, loop_enabled}` object, falling back to the
+    /// legacy bare array (loop off).
     pub fn load() -> Self {
         let mut q = Self::new();
         let Some(path) = Self::queue_file() else {
@@ -214,14 +260,27 @@ impl PlayQueue {
         let Ok(json) = std::fs::read_to_string(path) else {
             return q;
         };
-        let Ok(items): Result<Vec<String>, _> = serde_json::from_str(&json) else {
+        let Ok(doc) = serde_json::from_str::<serde_json::Value>(&json) else {
             return q;
+        };
+        // Legacy files were a bare array (loop off); current files are an object.
+        let items: Vec<String> = if doc.is_array() {
+            serde_json::from_value(doc).unwrap_or_default()
+        } else {
+            q.loop_enabled = doc
+                .get("loop_enabled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            doc.get("items")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default()
         };
         q.items = items
             .into_iter()
             .map(PathBuf::from)
             .filter(|p| p.exists())
             .collect();
+        q.sync_loop_snapshot();
         q
     }
 
@@ -305,6 +364,7 @@ impl PlayQueue {
         self.items = items;
         self.history.clear();
         self.now_from_queue = false;
+        self.sync_loop_snapshot();
         self.selected = 0;
         self.state = ListState::default();
         self.persist();
@@ -401,6 +461,52 @@ mod tests {
         let mut sorted: Vec<_> = q1.items.iter().collect();
         sorted.sort();
         assert_eq!(sorted.len(), 5); // nothing lost or duplicated
+    }
+
+    #[test]
+    fn test_queue_loop_refills_on_drain() {
+        let mut q = make_queue(&["a", "b"]);
+        q.set_loop(true);
+
+        assert_eq!(q.pop_next(None, false), Some(PathBuf::from("a")));
+        assert_eq!(q.pop_next(None, false), Some(PathBuf::from("b")));
+        // Drained + loop on -> one round refilled, playback continues.
+        assert_eq!(q.pop_next(None, false), Some(PathBuf::from("a")));
+
+        // Disabling mid-round: remaining items play out, then a real drain.
+        q.set_loop(false);
+        assert_eq!(q.pop_next(None, false), Some(PathBuf::from("b")));
+        assert_eq!(q.pop_next(None, false), None);
+    }
+
+    #[test]
+    fn test_queue_loop_snapshot_tracks_edits_not_consumption() {
+        let mut q = make_queue(&["a", "b"]);
+        q.set_loop(true);
+        // Consumption must not shrink the loop round...
+        assert_eq!(q.pop_next(None, false), Some(PathBuf::from("a")));
+        // ...but edits join future rounds. Round is now [c]: `a` was
+        // consumed before the edits, consumption never re-enters the round.
+        q.enqueue_back(PathBuf::from("c"));
+        q.remove_path(Path::new("b"));
+        assert_eq!(q.pop_next(None, false), Some(PathBuf::from("c")));
+        // Refilled round replays exactly [c].
+        assert_eq!(q.pop_next(None, false), Some(PathBuf::from("c")));
+        assert_eq!(q.pop_next(None, false), Some(PathBuf::from("c")));
+    }
+
+    #[test]
+    fn test_replace_keeps_order_and_syncs_loop() {
+        let mut q = make_queue(&["a", "b", "c"]);
+        q.set_loop(true);
+        assert!(q.replace(1, PathBuf::from("B2")));
+        assert_eq!(q.items, paths(&["a", "B2", "c"]));
+        assert!(!q.replace(9, PathBuf::from("x")));
+        // Replacement is part of future loop rounds.
+        assert_eq!(q.pop_next(None, false), Some(PathBuf::from("a")));
+        assert_eq!(q.pop_next(None, false), Some(PathBuf::from("B2")));
+        assert_eq!(q.pop_next(None, false), Some(PathBuf::from("c")));
+        assert_eq!(q.pop_next(None, false), Some(PathBuf::from("a")));
     }
 
     #[test]

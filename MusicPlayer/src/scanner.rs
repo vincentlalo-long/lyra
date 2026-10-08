@@ -17,6 +17,8 @@ pub struct Scanner {
     pub folders_scanned: usize,
     pub songs_found: usize,
     pub anim_tick: usize,
+    /// Pending scan results awaiting user action (Replace / Append / Queue / Dismiss).
+    pub pending_result: Option<Vec<PathBuf>>,
     receiver: Option<Receiver<ScanMessage>>,
 }
 
@@ -27,6 +29,7 @@ impl Scanner {
             folders_scanned: 0,
             songs_found: 0,
             anim_tick: 0,
+            pending_result: None,
             receiver: None,
         }
     }
@@ -41,6 +44,7 @@ impl Scanner {
         self.folders_scanned = 0;
         self.songs_found = 0;
         self.anim_tick = 0;
+        self.pending_result = None;
         self.receiver = Some(receiver);
 
         start_background_scan(root_folder, include_hidden, sender);

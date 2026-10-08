@@ -8,6 +8,7 @@ pub struct FileBrowser {
     pub selected: usize,
     pub show_hidden: bool,
     pub state: ListState,
+    pub allowed_extensions: Option<Vec<String>>,
 }
 
 impl FileBrowser {
@@ -23,6 +24,32 @@ impl FileBrowser {
             selected: 0,
             show_hidden: false,
             state: ListState::default(),
+            allowed_extensions: Some(vec!["mp3".into(), "m3u".into(), "m3u8".into()]),
+        };
+
+        browser.refresh();
+        browser
+    }
+
+    #[allow(dead_code)]
+    pub fn for_images(start_dir: &Path) -> Self {
+        let current_dir = match fs::canonicalize(start_dir) {
+            Ok(absolute_path) => absolute_path,
+            Err(_) => PathBuf::from("/"),
+        };
+
+        let mut browser = Self {
+            current_dir,
+            entries: Vec::new(),
+            selected: 0,
+            show_hidden: false,
+            state: ListState::default(),
+            allowed_extensions: Some(vec![
+                "jpg".into(),
+                "jpeg".into(),
+                "png".into(),
+                "webp".into(),
+            ]),
         };
 
         browser.refresh();
@@ -43,7 +70,7 @@ impl FileBrowser {
 
         if let Ok(read_dir) = fs::read_dir(&self.current_dir) {
             let mut list_folder = Vec::new();
-            let mut list_mp3 = Vec::new();
+            let mut list_files = Vec::new();
 
             for entry in read_dir.flatten() {
                 let path = entry.path();
@@ -60,18 +87,23 @@ impl FileBrowser {
                     list_folder.push(path);
                 } else if path.is_file() {
                     if let Some(extension) = path.extension() {
-                        if extension.eq_ignore_ascii_case("mp3") {
-                            list_mp3.push(path);
+                        let ext_lower = extension.to_string_lossy().to_lowercase();
+                        if let Some(allowed) = &self.allowed_extensions {
+                            if allowed.iter().any(|a| a == &ext_lower) {
+                                list_files.push(path);
+                            }
+                        } else {
+                            list_files.push(path);
                         }
                     }
                 }
             }
 
             list_folder.sort();
-            list_mp3.sort();
+            list_files.sort();
 
             self.entries.extend(list_folder);
-            self.entries.extend(list_mp3);
+            self.entries.extend(list_files);
         }
 
         if self.selected >= self.entries.len() && !self.entries.is_empty() {
@@ -151,6 +183,23 @@ impl FileBrowser {
         }
     }
 
+    pub fn go_parent(&mut self) -> bool {
+        if let Some(parent) = self.current_dir.parent().map(|p| p.to_path_buf()) {
+            let prev_dir = self.current_dir.clone();
+            self.current_dir = parent;
+            self.refresh();
+            if let Some(pos) = self.entries.iter().position(|p| p == &prev_dir) {
+                self.selected = pos;
+            } else {
+                self.selected = 0;
+            }
+            self.state = ListState::default();
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn enter(&mut self) -> Option<PathBuf> {
         if self.entries.is_empty() {
             return None;
@@ -159,13 +208,69 @@ impl FileBrowser {
         let target_path = self.entries[self.selected].clone();
 
         if target_path.is_dir() {
+            let prev_dir = self.current_dir.clone();
+            let is_going_up = self.current_dir.parent() == Some(&target_path);
             self.current_dir = target_path;
-            self.selected = 0;
-            self.state = ListState::default();
             self.refresh();
+            if is_going_up {
+                if let Some(pos) = self.entries.iter().position(|p| p == &prev_dir) {
+                    self.selected = pos;
+                } else {
+                    self.selected = 0;
+                }
+            } else {
+                self.selected = 0;
+            }
+            self.state = ListState::default();
             None
         } else {
             Some(target_path)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_file_browser_for_images_filters_extensions() {
+        let temp_dir = std::env::temp_dir().join("lyra_browser_test");
+        let _ = fs::create_dir_all(&temp_dir);
+        let _ = fs::write(temp_dir.join("song.mp3"), b"fake mp3");
+        let _ = fs::write(temp_dir.join("photo.jpg"), b"fake jpg");
+        let _ = fs::write(temp_dir.join("art.png"), b"fake png");
+        let _ = fs::write(temp_dir.join("readme.txt"), b"fake txt");
+
+        let browser = FileBrowser::for_images(&temp_dir);
+        let file_names: Vec<String> = browser
+            .entries
+            .iter()
+            .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+            .collect();
+
+        assert!(file_names.contains(&"photo.jpg".to_string()));
+        assert!(file_names.contains(&"art.png".to_string()));
+        assert!(!file_names.contains(&"song.mp3".to_string()));
+        assert!(!file_names.contains(&"readme.txt".to_string()));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_file_browser_go_parent() {
+        let base_dir = std::env::temp_dir().join("lyra_parent_test");
+        let sub_dir = base_dir.join("subfolder");
+        let _ = fs::create_dir_all(&sub_dir);
+        let _ = fs::write(sub_dir.join("track.mp3"), b"mp3");
+
+        let mut browser = FileBrowser::new(&sub_dir);
+        assert_eq!(browser.current_dir, fs::canonicalize(&sub_dir).unwrap());
+
+        let went_up = browser.go_parent();
+        assert!(went_up);
+        assert_eq!(browser.current_dir, fs::canonicalize(&base_dir).unwrap());
+
+        let _ = fs::remove_dir_all(&base_dir);
     }
 }

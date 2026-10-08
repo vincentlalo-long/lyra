@@ -1,37 +1,8 @@
 use std::{path::Path, process::Command};
-use id3::TagLike;
+use crate::meta::track_meta;
 
 /// Notification display time in milliseconds.
 const NOTIFY_TIMEOUT_MILLIS: &str = "4000";
-
-/// (artist, title, album) for a track.
-/// Prefers embedded ID3 tags, falls back to parsing the `Artist - Title.mp3`
-/// filename convention, and finally to the bare file stem.
-pub fn track_meta(song_path: &Path) -> (String, String, String) {
-    if let Ok(tag) = id3::Tag::read_from_path(song_path) {
-        let artist = tag.artist().unwrap_or("").trim().to_string();
-        let title = tag.title().unwrap_or("").trim().to_string();
-        let album = tag.album().unwrap_or("").trim().to_string();
-        if !title.is_empty() {
-            return (artist, title, album);
-        }
-    }
-
-    let stem = song_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .trim();
-
-    if let Some((left, right)) = stem.split_once(" - ") {
-        let (artist, title) = (left.trim(), right.trim());
-        if !title.is_empty() {
-            return (artist.to_string(), title.to_string(), String::new());
-        }
-    }
-
-    (String::new(), stem.to_string(), String::new())
-}
 
 /// Sends a "now playing" notification via the Freedesktop Notifications spec
 /// (`org.freedesktop.Notifications` on the session bus).
@@ -70,22 +41,6 @@ pub fn send_track_notification(song_path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-
-    #[test]
-    fn test_track_meta_parses_artist_dash_title_filename() {
-        let (artist, title, _) =
-            track_meta(&PathBuf::from("/music/Daft Punk - One More Time.mp3"));
-        assert_eq!(artist, "Daft Punk");
-        assert_eq!(title, "One More Time");
-    }
-
-    #[test]
-    fn test_track_meta_falls_back_to_stem() {
-        let (artist, title, _) = track_meta(&PathBuf::from("/music/lonely.mp3"));
-        assert_eq!(artist, "");
-        assert_eq!(title, "lonely");
-    }
 
     #[test]
     fn test_send_track_notification_never_panics() {

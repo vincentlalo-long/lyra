@@ -5,7 +5,7 @@ import urllib.request
 from io import BytesIO
 from typing import Optional
 
-from PIL import Image
+from PIL import Image, ImageFilter, ImageEnhance
 
 from . import cache as cache_mod
 
@@ -89,3 +89,71 @@ def download_cover_image(
             except OSError:
                 pass
         return False
+
+
+def process_cover_art(
+    input_path: str,
+    output_path: str,
+    mode: str = "blur_pad",
+    target_size: int = TARGET_SIZE,
+) -> bool:
+    """Normalize local image to 1000x1000 square JPEG with blur_pad or center_crop."""
+    try:
+        with Image.open(input_path) as img:
+            img = img.convert("RGB")
+            w, h = img.size
+
+            if w == h and w >= target_size:
+                img.save(output_path, "JPEG", quality=95)
+                return True
+
+            if mode == "center_crop":
+                min_dim = min(w, h)
+                left = (w - min_dim) // 2
+                top = (h - min_dim) // 2
+                cropped = img.crop((left, top, left + min_dim, top + min_dim))
+                resized = cropped.resize((target_size, target_size), Image.Resampling.LANCZOS)
+                resized.save(output_path, "JPEG", quality=95)
+                return True
+
+            # Default: blur_pad
+            bg = img.resize((target_size, target_size), Image.Resampling.BILINEAR)
+            bg = bg.filter(ImageFilter.GaussianBlur(radius=35))
+            enhancer = ImageEnhance.Brightness(bg)
+            bg = enhancer.enhance(0.65)
+
+            ratio = min(target_size / w, target_size / h)
+            new_w = int(w * ratio)
+            new_h = int(h * ratio)
+            fg = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+            pos_x = (target_size - new_w) // 2
+            pos_y = (target_size - new_h) // 2
+            bg.paste(fg, (pos_x, pos_y))
+
+            bg.save(output_path, "JPEG", quality=95)
+            return True
+    except Exception as e:
+        import sys
+        print(f"warning: failed to process cover art: {e}", file=sys.stderr)
+        return False
+
+
+def prepare_cover_art(
+    source: str,
+    output_path: str,
+    mode: str = "blur_pad",
+    target_size: int = TARGET_SIZE,
+) -> bool:
+    """Prepare a square 1:1 cover art from either a local file or a remote URL."""
+    if not source:
+        return False
+    source = source.strip()
+    if source.startswith(("http://", "https://")):
+        return download_cover_image(source, output_path, target_size=target_size)
+
+    local_path = source[7:] if source.startswith("file://") else source
+    local_path = os.path.abspath(os.path.expanduser(local_path))
+    if os.path.isfile(local_path):
+        return process_cover_art(local_path, output_path, mode=mode, target_size=target_size)
+    return False

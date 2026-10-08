@@ -3,15 +3,18 @@
 from typing import Any, Dict, List, Optional
 
 from . import cache as cache_mod
-from .providers import search_candidates
-from .images import download_cover_image, TARGET_SIZE
+from .providers import search_candidates, prefetch_candidates
+from .images import download_cover_image, process_cover_art, prepare_cover_art, TARGET_SIZE
 from .scoring import ACCEPT_THRESHOLD, AUTO_PICK_THRESHOLD
 
 __all__ = [
     "search_candidates",
     "search_best_cover",
+    "prefetch_candidates",
     "download_cover_image",
     "download_best_cover",
+    "process_cover_art",
+    "prepare_cover_art",
     "ACCEPT_THRESHOLD",
     "AUTO_PICK_THRESHOLD",
     "TARGET_SIZE",

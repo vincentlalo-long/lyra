@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use std::{
     io::{BufRead, BufReader, Read},
     path::PathBuf,
@@ -8,203 +7,10 @@ use std::{
         Arc, Mutex,
     },
     thread,
-    time::Instant,
 };
 use serde::Deserialize;
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct SearchItem {
-    pub id: String,
-    pub url: String,
-    pub title: String,
-    pub artist: String,
-    pub uploader: String,
-    pub duration: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct CoverCandidate {
-    #[serde(default)]
-    pub source: String,
-    #[serde(default)]
-    pub artist: String,
-    #[serde(default)]
-    pub title: String,
-    #[serde(default)]
-    pub album: String,
-    #[serde(default)]
-    pub year: String,
-    #[serde(default)]
-    pub cover_url: String,
-    #[serde(default)]
-    pub score: f32,
-}
-
-#[derive(Debug, Clone)]
-pub struct DownloadRequest {
-    pub url: String,
-    pub output_dir: PathBuf,
-    pub title: String,
-    pub artist: String,
-    pub album: String,
-    pub cover_mode: String,
-    pub cover_url: Option<String>,
-    pub no_lyrics: bool,
-    pub no_auto_lyrics: bool,
-}
-
-#[derive(Debug, Clone)]
-pub enum DownloadEvent {
-    Searching,
-    SearchResults(Vec<SearchItem>),
-    InfoLoaded {
-        url: String,
-        title: String,
-        artist: String,
-    },
-    CoverLoading,
-    CoverResults(Vec<CoverCandidate>),
-    Progress {
-        percent: f32,
-        speed: String,
-        eta: String,
-        stage: String,
-    },
-    Status(String),
-    Completed {
-        title: String,
-        artist: String,
-        mp3_path: String,
-        lrc_path: Option<String>,
-        cover_source: Option<String>,
-    },
-    Error(String),
-}
-
-pub struct DownloadState {
-    pub query: String,
-    pub is_input_active: bool,
-    pub is_searching: bool,
-    pub search_results: Vec<SearchItem>,
-    pub selected_result: usize,
-    pub result_list_state: ratatui::widgets::ListState,
-
-    // Mode 2: Metadata Review / Edit Form
-    pub show_metadata_form: bool,
-    pub form_field_idx: usize, // 0: Title, 1: Artist, 2: Album, 3: Save to (Directory), 4: Cover pick
-    pub form_url: String,
-    pub form_title: String,
-    pub form_artist: String,
-    pub form_album: String,
-    pub form_dir: PathBuf,
-    pub form_cover_mode: String,
-    pub form_lyrics_mode: usize, // 0: All (Manual + Auto), 1: Creator Only (No Auto), 2: Disabled
-
-    // Studio cover candidates for field 4 (None = Auto best, Some(i) = picked).
-    pub cover_candidates: Vec<CoverCandidate>,
-    pub selected_cover: Option<usize>,
-    pub is_cover_loading: bool,
-
-    // Directory picker modal
-    pub show_dir_picker: bool,
-    pub dir_picker: crate::browser::FileBrowser,
-
-    // Active download tracking
-    pub is_downloading: bool,
-    pub active_title: String,
-    pub active_artist: String,
-    pub progress_pct: f32,
-    pub speed: String,
-    pub eta: String,
-    pub current_stage: String,
-    pub last_error: Option<String>,
-    pub last_completed: Option<String>,
-    /// Last time a real progress event arrived (or the download started).
-    /// Drives the fake crawl so the bar never looks frozen at 0%.
-    last_progress_at: Instant,
-}
-
-/// Fake crawl speed (%/s) while no real progress arrives, and the cap it
-/// never exceeds (real events always snap past it).
-const FAKE_CRAWL_RATE_PCT_PER_SEC: f32 = 3.0;
-const FAKE_CRAWL_CAP_PCT: f32 = 95.0;
-/// A download counts as stalled when no real progress arrived for this long.
-const STALL_THRESHOLD_SECS: u64 = 2;
-
-impl DownloadState {
-    pub fn new(initial_dir: &std::path::Path) -> Self {
-        Self {
-            query: String::new(),
-            is_input_active: true,
-            is_searching: false,
-            search_results: Vec::new(),
-            selected_result: 0,
-            result_list_state: ratatui::widgets::ListState::default(),
-
-            show_metadata_form: false,
-            form_field_idx: 0,
-            form_url: String::new(),
-            form_title: String::new(),
-            form_artist: String::new(),
-            form_album: String::new(),
-            form_dir: initial_dir.to_path_buf(),
-            form_cover_mode: "auto".to_string(),
-            form_lyrics_mode: 0,
-            cover_candidates: Vec::new(),
-            selected_cover: None,
-            is_cover_loading: false,
-
-            show_dir_picker: false,
-            dir_picker: crate::browser::FileBrowser::new(initial_dir),
-
-            is_downloading: false,
-            active_title: String::new(),
-            active_artist: String::new(),
-            progress_pct: 0.0,
-            speed: String::new(),
-            eta: String::new(),
-            current_stage: String::new(),
-            last_error: None,
-            last_completed: None,
-            last_progress_at: Instant::now(),
-        }
-    }
-
-    /// Records a real progress event from the backend (resets the stall clock).
-    pub fn set_progress(&mut self, percent: f32, speed: String, eta: String, stage: String) {
-        self.progress_pct = percent;
-        self.speed = speed;
-        self.eta = eta;
-        self.current_stage = stage;
-        self.last_progress_at = Instant::now();
-    }
-
-    /// Resets progress tracking when a new download starts.
-    pub fn reset_progress(&mut self) {
-        self.progress_pct = 0.0;
-        self.speed.clear();
-        self.eta.clear();
-        self.last_progress_at = Instant::now();
-    }
-
-    /// True while a download runs but no real progress arrived recently
-    /// (lyrics / iTunes / tagging stages emit no percentages).
-    pub fn is_stalled(&self) -> bool {
-        self.is_downloading && self.last_progress_at.elapsed().as_secs() >= STALL_THRESHOLD_SECS
-    }
-
-    /// Percentage shown on the gauge: the real value, or a slow fake crawl
-    /// toward the cap while stalled so the bar never freezes at 0%.
-    /// Real events always win via `max` (monotonic within one download).
-    pub fn display_pct(&self) -> u16 {
-        if !self.is_downloading {
-            return (self.progress_pct as u16).min(100);
-        }
-        let elapsed = self.last_progress_at.elapsed().as_secs_f32();
-        let fake = (self.progress_pct + elapsed * FAKE_CRAWL_RATE_PCT_PER_SEC).min(FAKE_CRAWL_CAP_PCT);
-        (self.progress_pct.max(fake) as u16).min(100)
-    }
-}
+use super::events::{CoverCandidate, DownloadEvent, DownloadRequest, SearchItem};
 
 #[derive(Deserialize)]
 struct RawSearchResult {
@@ -282,11 +88,32 @@ impl Downloader {
                 return p;
             }
         }
-        let candidates = [
-            PathBuf::from("/home/danglong/projects/lyra/main.py"),
+
+        let mut candidates = vec![
             PathBuf::from("main.py"),
             PathBuf::from("../main.py"),
+            PathBuf::from("../../main.py"),
         ];
+
+        // Search relative to the running executable
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                candidates.push(parent.join("main.py"));
+                if let Some(p2) = parent.parent() {
+                    candidates.push(p2.join("main.py"));
+                    if let Some(p3) = p2.parent() {
+                        candidates.push(p3.join("main.py"));
+                    }
+                }
+            }
+        }
+
+        // Standard user config / data dirs
+        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+            candidates.push(home.join(".config/lyra/main.py"));
+            candidates.push(home.join(".local/share/lyra/main.py"));
+        }
+
         for c in candidates {
             if c.exists() {
                 return c;
@@ -296,6 +123,10 @@ impl Downloader {
     }
 
     pub fn search(&self, query: String) {
+        self.search_with_limit(query, 15);
+    }
+
+    pub fn search_with_limit(&self, query: String, limit: usize) {
         let sender = self.sender.clone();
         let script = Self::find_script();
         let _ = sender.send(DownloadEvent::Searching);
@@ -308,7 +139,7 @@ impl Downloader {
                 .arg("search")
                 .arg(&query)
                 .arg("--limit")
-                .arg("5")
+                .arg(limit.to_string())
                 .arg("--json")
                 .output();
 
@@ -379,25 +210,44 @@ impl Downloader {
     }
 
     pub fn fetch_covers(&self, artist: String, title: String) {
+        self.fetch_covers_query(artist, title, None, Some("auto".to_string()));
+    }
+
+    pub fn fetch_covers_query(
+        &self,
+        artist: String,
+        title: String,
+        query: Option<String>,
+        source: Option<String>,
+    ) {
         let sender = self.sender.clone();
         let script = Self::find_script();
         let _ = sender.send(DownloadEvent::CoverLoading);
 
         thread::spawn(move || {
             let script_dir = script.parent().unwrap_or(std::path::Path::new("."));
-            let output = Command::new("python3")
-                .env("PYTHONPATH", script_dir)
+            let mut cmd = Command::new("python3");
+            cmd.env("PYTHONPATH", script_dir)
                 .arg(&script)
-                .arg("cover")
-                .arg("--artist")
-                .arg(&artist)
-                .arg("--title")
-                .arg(&title)
-                .arg("--limit")
-                .arg("5")
-                .arg("--json")
-                .output();
+                .arg("cover");
 
+            if let Some(q) = query.filter(|s| !s.trim().is_empty()) {
+                cmd.arg(q.trim());
+            } else {
+                if !artist.is_empty() {
+                    cmd.arg("--artist").arg(&artist);
+                }
+                if !title.is_empty() {
+                    cmd.arg("--title").arg(&title);
+                }
+            }
+
+            let src = source.unwrap_or_else(|| "auto".to_string());
+            cmd.arg("--source").arg(src);
+            cmd.arg("--limit").arg("16");
+            cmd.arg("--json");
+
+            let output = cmd.output();
             match output {
                 Ok(out) => {
                     let text = String::from_utf8_lossy(&out.stdout);
@@ -406,8 +256,6 @@ impl Downloader {
                         let _ = sender.send(DownloadEvent::CoverResults(items));
                         return;
                     }
-                    // No parseable candidates: not fatal, pipeline still has
-                    // YouTube fallback. Report empty list to stop the spinner.
                     let _ = sender.send(DownloadEvent::CoverResults(Vec::new()));
                 }
                 Err(_) => {
@@ -443,14 +291,23 @@ impl Downloader {
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
 
-            if let Some(url) = req.cover_url.as_ref() {
-                if !url.is_empty() {
-                    cmd.arg("--cover-url").arg(url);
-                }
+            let cover_arg = req
+                .custom_cover
+                .as_ref()
+                .filter(|s| !s.is_empty())
+                .or(req.cover_url.as_ref().filter(|s| !s.is_empty()));
+            if let Some(cov) = cover_arg {
+                cmd.arg("--cover").arg(cov);
             }
 
             if !req.album.is_empty() {
                 cmd.arg("--album").arg(&req.album);
+            }
+
+            if let Some(genre) = &req.genre {
+                if !genre.trim().is_empty() {
+                    cmd.arg("--genre").arg(genre.trim());
+                }
             }
 
             if req.no_lyrics {
@@ -589,37 +446,6 @@ impl Downloader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration as StdDuration;
-
-    #[test]
-    fn test_display_pct_crawls_while_stalled_and_caps() {
-        let mut state = DownloadState::new(std::path::Path::new("/tmp"));
-        assert!(!state.is_stalled());
-        assert_eq!(state.display_pct(), 0);
-
-        state.is_downloading = true;
-        state.reset_progress();
-        assert!(!state.is_stalled());
-        assert_eq!(state.display_pct(), 0);
-
-        // 10s without real events: fake crawl at 3%/s -> 30%, flagged stalled.
-        state.last_progress_at = Instant::now() - StdDuration::from_secs(10);
-        assert!(state.is_stalled());
-        assert_eq!(state.display_pct(), 30);
-
-        // Long stalls never pose as near-done: capped at 95%.
-        state.last_progress_at = Instant::now() - StdDuration::from_secs(1000);
-        assert_eq!(state.display_pct(), 95);
-
-        // A fresh real event resets the clock and always wins.
-        state.set_progress(40.0, String::new(), String::new(), "Downloading...".into());
-        assert!(!state.is_stalled());
-        assert_eq!(state.display_pct(), 40);
-
-        // Real values above the fake cap pass through untouched.
-        state.set_progress(97.0, String::new(), String::new(), "Downloading...".into());
-        assert_eq!(state.display_pct(), 97);
-    }
 
     #[test]
     fn test_downloader_emits_error_on_invalid_url() {
@@ -630,8 +456,10 @@ mod tests {
             title: "Test".to_string(),
             artist: "Test".to_string(),
             album: "".to_string(),
+            genre: None,
             cover_mode: "blur_pad".to_string(),
             cover_url: None,
+            custom_cover: None,
             no_lyrics: false,
             no_auto_lyrics: false,
         });
@@ -659,8 +487,10 @@ mod tests {
             title: "Test".to_string(),
             artist: "Test".to_string(),
             album: "".to_string(),
+            genre: None,
             cover_mode: "blur_pad".to_string(),
             cover_url: None,
+            custom_cover: None,
             no_lyrics: false,
             no_auto_lyrics: false,
         });

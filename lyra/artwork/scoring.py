@@ -66,6 +66,38 @@ def score_candidate(
     q_t, r_t = norm_key(query_title), norm_key(res_title)
     if not q_t or not r_t:
         return 0.0
+
+    q_a = norm_key(query_artist)
+    r_a = norm_key(res_artist or "")
+
+    if not q_a:
+        # Free-text mode: query_title is an arbitrary search string
+        # that may contain artist, song title, or both.
+        res_full = f"{r_a} {r_t}".strip() if r_a else r_t
+        q_tokens = _tokens(q_t)
+        res_tokens = _tokens(res_full)
+        overlap = len(q_tokens & res_tokens)
+
+        sim_full = _token_set_ratio(q_t, res_full)
+        sim_title = _token_set_ratio(q_t, r_t)
+        sim_artist = _token_set_ratio(q_t, r_a) if r_a else 0.0
+        best_sim = max(sim_full, sim_title, sim_artist)
+
+        match_ok = (
+            (len(q_tokens) > 0 and overlap * 2 >= len(q_tokens))
+            or q_t in res_full
+            or res_full in q_t
+            or best_sim >= 70.0
+        )
+        if not match_ok:
+            return 0.0
+
+        total = 0.95 * best_sim
+        total -= _version_mismatch_penalty(query_title, res_title)
+        total += provider_bonus
+        return max(0.0, min(100.0, total))
+
+    # Structured mode: query_artist and query_title are both known
     title_sim = _token_set_ratio(q_t, r_t)
     # Hard gate: title must at least half-overlap, otherwise artist match
     # alone must not rescue a wrong song.
@@ -81,11 +113,8 @@ def score_candidate(
         return 0.0
 
     total = 0.62 * title_sim
-    if norm_key(query_artist):
-        a_sim = _token_set_ratio(norm_key(query_artist), norm_key(res_artist or ""))
-        total += 0.33 * a_sim
-    else:
-        total += 0.33 * 50.0  # no artist info: neutral, title decides
+    a_sim = _token_set_ratio(q_a, r_a)
+    total += 0.33 * a_sim
     total -= _version_mismatch_penalty(query_title, res_title)
     total += provider_bonus
     return max(0.0, min(100.0, total))

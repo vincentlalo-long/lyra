@@ -3,6 +3,16 @@ name = "lyra"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+# Plugin model (compile-time): drop a feature to remove it, e.g.
+#   cargo install --path . --no-default-features
+# Core (audio/playlist/queue/browser/scanner/config/meta) is always on.
+default = ["download", "mpris", "notify", "genre"]
+download = []
+mpris = ["dep:mpris-server", "dep:tokio"]
+notify = []
+genre = []
+
 [dependencies]
 ratatui = "0.29"
 crossterm = "0.28"
@@ -12,5 +22,7 @@ id3 = "1.17"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-mpris-server = { version = "0.10", features = ["tokio"] }
-tokio = { version = "1.53.2", features = ["rt"] }
+mpris-server = { version = "0.10", features = ["tokio"], optional = true }
+tokio = { version = "1.53.2", features = ["rt"], optional = true }
+toml = "1.1.7"
+unicode-width = "0.2"

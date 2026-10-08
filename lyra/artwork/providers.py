@@ -17,9 +17,12 @@ from .scoring import score_candidate
 USER_AGENT = "Lyra/1.0 (cover-art search; contact: lyra-player)"
 TIMEOUT_S = 4.0
 
+import os
+import re
+
 # Small static prior so a slightly worse iTunes hit still beats a random
 # Deezer/CAA hit when scores tie. Kept tiny on purpose.
-_PROVIDER_BONUS = {"itunes": 2.0, "deezer": 1.0, "caa": 0.0}
+_PROVIDER_BONUS = {"itunes": 2.0, "deezer": 1.0, "caa": 0.0, "web": 0.5}
 
 
 def _get_json(url: str, timeout: float = TIMEOUT_S) -> Any:
@@ -219,25 +222,79 @@ def _caa_candidates(artist: str, title: str) -> List[Dict[str, Any]]:
     return out
 
 
+# ---------------------------------------------------------------- Web Search
+
+def _web_candidates(artist: str, title: str) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    queries = []
+    if artist and title:
+        queries.append(f"{artist} {title} album cover")
+    if title:
+        queries.append(f"{title} album cover")
+    for q in queries:
+        url = f"https://www.bing.com/images/search?q={urllib.parse.quote(q)}&form=HDRSC2&first=1"
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                )
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
+                html = resp.read().decode("utf-8", errors="ignore")
+            matches = re.findall(r'm="({.*?})"', html)
+            for m in matches[:10]:
+                try:
+                    data = json.loads(m.replace("&quot;", '"'))
+                    murl = data.get("murl")
+                    if not murl or murl in seen:
+                        continue
+                    seen.add(murl)
+                    desc = data.get("t") or data.get("desc") or ""
+                    desc = re.sub(r"[\ue000\ue001]", "", desc).strip()
+                    out.append({
+                        "source": "web",
+                        "artist": artist,
+                        "title": title,
+                        "album": desc[:40] if desc else "Web Image",
+                        "year": "",
+                        "genre": "",
+                        "cover_url": murl,
+                        "cover_url_fallback": data.get("turl", ""),
+                    })
+                except Exception:
+                    continue
+            if out:
+                break
+        except Exception:
+            continue
+    return out
+
+
 # ---------------------------------------------------------------- fan-out
 
 _PROVIDERS = {
     "itunes": _itunes_candidates,
     "deezer": _deezer_candidates,
     "caa": _caa_candidates,
+    "web": _web_candidates,
 }
 
 
 def search_candidates(
     artist: str,
     title: str,
-    sources: tuple = ("itunes", "deezer", "caa"),
-    limit: int = 5,
+    sources: tuple = ("itunes", "deezer", "caa", "web"),
+    limit: int = 16,
     use_cache: bool = True,
 ) -> List[Dict[str, Any]]:
     """Query providers in parallel, score, and return top candidates.
 
-    Each item: ``source/artist/title/album/year/genre/cover_url/score``.
+    Each item: ``source/artist/title/album/year/genre/cover_url/cached_path/score``.
     Sorted by score desc. Empty list = nothing relevant found.
     """
     artist = (artist or "").strip()
@@ -249,6 +306,9 @@ def search_candidates(
     if use_cache:
         cached = cache_mod.load_meta(artist, title, tuple(active))
         if cached:
+            for c in cached:
+                if not c.get("cached_path") and c.get("cover_url"):
+                    c["cached_path"] = cache_mod.image_path_for_url(c["cover_url"])
             return cached[:limit]
 
     raw: List[Dict[str, Any]] = []
@@ -281,6 +341,7 @@ def search_candidates(
                 mb_score = 0.0
             text_score = 0.5 * text_score + 0.5 * mb_score
         c["score"] = round(text_score, 1)
+        c["cached_path"] = cache_mod.image_path_for_url(c["cover_url"])
         if c["score"] > 0:
             scored.append(c)
     scored.sort(key=lambda c: c["score"], reverse=True)
@@ -288,3 +349,25 @@ def search_candidates(
     if use_cache and top:
         cache_mod.save_meta(artist, title, top, tuple(active))
     return top
+
+
+def prefetch_candidates(candidates: List[Dict[str, Any]], max_workers: int = 4) -> None:
+    """Download candidate images in background so local preview files exist immediately."""
+    from .images import download_cover_image
+    to_fetch = []
+    for c in candidates:
+        url = c.get("cover_url")
+        cpath = c.get("cached_path") or (cache_mod.image_path_for_url(url) if url else None)
+        if cpath:
+            c["cached_path"] = cpath
+            if url and (not os.path.exists(cpath) or os.path.getsize(cpath) == 0):
+                to_fetch.append((url, cpath))
+    if to_fetch:
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(to_fetch))) as pool:
+            futures = [pool.submit(download_cover_image, u, p) for u, p in to_fetch]
+            for fut in futures:
+                try:
+                    fut.result()
+                except Exception:
+                    pass
+

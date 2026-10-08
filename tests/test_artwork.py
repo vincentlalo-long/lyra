@@ -90,6 +90,18 @@ class TestScoring(unittest.TestCase):
     def test_empty_rejected(self):
         self.assertEqual(score_candidate("A", "", "A", "Something"), 0.0)
 
+    def test_free_text_artist_match(self):
+        s = score_candidate("", "Son Tung", "Sơn Tùng M-TP", "Lạc Trôi")
+        self.assertGreaterEqual(s, 75.0)
+
+    def test_free_text_combined_match(self):
+        s = score_candidate("", "Son Tung Lac Troi", "Sơn Tùng M-TP", "Lạc Trôi")
+        self.assertGreaterEqual(s, 85.0)
+
+    def test_free_text_unrelated_rejected(self):
+        s = score_candidate("", "Taylor Swift", "Sơn Tùng M-TP", "Lạc Trôi")
+        self.assertEqual(s, 0.0)
+
 
 class TestProviders(unittest.TestCase):
     def test_deezer_mapping(self):
@@ -247,7 +259,23 @@ class TestCoreContract(unittest.TestCase):
             p = LyraPipeline(output_dir=td, cover_source="deezer",
                              cover_url="http://x/a.jpg", no_cover_search=True)
             self.assertEqual(p.cover_source, "deezer")
+            self.assertEqual(p.custom_cover, "http://x/a.jpg")
             self.assertTrue(p.no_cover_search)
+
+    def test_prepare_cover_art_local_image(self):
+        from lyra.artwork import prepare_cover_art
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as td:
+            src_img = os.path.join(td, "source.png")
+            out_img = os.path.join(td, "target.jpg")
+            img = Image.new("RGB", (300, 200), color="blue")
+            img.save(src_img, "PNG")
+
+            ok = prepare_cover_art(src_img, out_img)
+            self.assertTrue(ok)
+            self.assertTrue(os.path.exists(out_img))
+            with Image.open(out_img) as res:
+                self.assertEqual(res.size, (1000, 1000))
 
 
 if __name__ == "__main__":
