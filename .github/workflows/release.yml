@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build and Release Binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev pkg-config
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: MusicPlayer
+
+      - name: Build Full TUI Binary
+        run: |
+          cargo build --manifest-path MusicPlayer/Cargo.toml --release
+          strip MusicPlayer/target/release/lyra
+          tar -czvf lyra-linux-x86_64.tar.gz -C MusicPlayer/target/release lyra
+
+      - name: Build Minimal TUI Binary
+        run: |
+          cargo build --manifest-path MusicPlayer/Cargo.toml --release --no-default-features
+          strip MusicPlayer/target/release/lyra
+          tar -czvf lyra-minimal-linux-x86_64.tar.gz -C MusicPlayer/target/release lyra
+
+      - name: Package CLI Only
+        run: |
+          tar -czvf lyra-cli.tar.gz lyra main.py requirements.txt
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            lyra-linux-x86_64.tar.gz
+            lyra-minimal-linux-x86_64.tar.gz
+            lyra-cli.tar.gz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

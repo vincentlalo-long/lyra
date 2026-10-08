@@ -22,6 +22,7 @@ venv/
 # Rust build artifacts
 target/
 **/target/
+dist/
 
 # IDE and Editor files
 .vscode/
