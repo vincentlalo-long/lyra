@@ -1,6 +1,8 @@
 mod browser;
 mod controls;
 mod cover;
+mod dir_picker;
+mod download;
 mod help;
 mod loading;
 mod lyrics;
@@ -24,7 +26,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3), // Header
-            Constraint::Min(5),    // Dual Panel Body
+            Constraint::Min(5),    // Dual Panel Body / Download View
             Constraint::Length(4), // Footer Controls
         ])
         .split(frame.area());
@@ -42,12 +44,20 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         Style::default().fg(theme::OVERLAY0)
     };
 
+    let download_tab_style = if app.view_mode == ViewMode::Download {
+        Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::OVERLAY0)
+    };
+
     let mut header_spans = vec![
         Span::styled(" 󰎆 LYRA MUSIC PLAYER", Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD)),
         Span::styled("   [Tab]: ", Style::default().fg(theme::OVERLAY0)),
         Span::styled("󰲸 Playlist", playlist_tab_style),
         Span::raw("  "),
         Span::styled("󰉋 Browser", browser_tab_style),
+        Span::raw("  "),
+        Span::styled("󰇚 Download", download_tab_style),
     ];
 
     if app.is_searching {
@@ -90,30 +100,35 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         );
     frame.render_widget(header_widget, layout_chunks[0]);
 
-    // Dual Panel Body: 35% Left (Track List + Album Art), 65% Right (Lyrics)
-    let body_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(35), // Left: Playlist/Browser + Album Art
-            Constraint::Percentage(65), // Right: Lyrics Karaoke
-        ])
-        .split(layout_chunks[1]);
+    if app.view_mode == ViewMode::Download {
+        download::render(frame, app, layout_chunks[1]);
+    } else {
+        // Dual Panel Body: 35% Left (Track List + Album Art), 65% Right (Lyrics)
+        let body_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(35), // Left: Playlist/Browser + Album Art
+                Constraint::Percentage(65), // Right: Lyrics Karaoke
+            ])
+            .split(layout_chunks[1]);
 
-    let left_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(55), // Upper: Playlist or Browser
-            Constraint::Percentage(45), // Lower: 1:1 Album Art
-        ])
-        .split(body_chunks[0]);
+        let left_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(55), // Upper: Playlist or Browser
+                Constraint::Percentage(45), // Lower: 1:1 Album Art
+            ])
+            .split(body_chunks[0]);
 
-    match app.view_mode {
-        ViewMode::Playlist => playlist::render(frame, app, left_chunks[0]),
-        ViewMode::Browser => browser::render(frame, app, left_chunks[0]),
+        match app.view_mode {
+            ViewMode::Playlist => playlist::render(frame, app, left_chunks[0]),
+            ViewMode::Browser => browser::render(frame, app, left_chunks[0]),
+            ViewMode::Download => {}
+        }
+
+        cover::render(frame, app, left_chunks[1]);
+        lyrics::render(frame, app, body_chunks[1]);
     }
-
-    cover::render(frame, app, left_chunks[1]);
-    lyrics::render(frame, app, body_chunks[1]);
 
     controls::render(frame, app, layout_chunks[2]);
 
