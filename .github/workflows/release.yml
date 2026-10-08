@@ -43,7 +43,7 @@ jobs:
 
       - name: Package CLI Only
         run: |
-          tar -czvf lyra-cli.tar.gz lyra main.py requirements.txt
+          tar --exclude='*__pycache__*' -czvf lyra-cli.tar.gz lyra main.py requirements.txt
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
