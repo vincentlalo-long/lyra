@@ -6,31 +6,33 @@ Lyra is a modular, pluggable terminal music player. Contributions—ranging from
 
 ---
 
-## Architecture Overview
+## Repository Structure
 
-The repository is structured into two main components:
+```text
+lyra/
+├── MusicPlayer/        # TUI Player application (Rust / Ratatui)
+├── lyra/               # Python core pipeline (audio/artwork/lyrics/cli)
+├── plugins/            # Community and sample plugin scripts
+│   ├── ocr_video_lyrics/  # Hardcoded video subtitle OCR extractor (in dev)
+│   └── template_plugin/   # Starter boilerplate for new plugins
+├── registry.json       # Manifest directory of community plugins
+└── tests/              # Test suite
+```
 
-- `MusicPlayer/`: Rust TUI application (`ratatui`, `rodio`, `crossterm`).
-- `lyra/`: Python pipeline (`yt-dlp`, `pillow`, `mutagen`) for multi-source studio artwork scoring, tag embedding, and batch retrieval.
+### Two Types of Plugins in Lyra
 
-### Modular Plugin Design
+Lyra supports two plugin models:
 
-Lyra isolates its core playback engine from auxiliary services. The core (playback, queue, playlist, filesystem browser, config, metadata reader) has zero network dependencies.
-
-All extra features are decoupled into compile-time Cargo features:
-
-| Feature | Scope | Dependencies Added |
-|---|---|---|
-| `download` | YouTube search/download tab & Python worker bridge | `serde_json` |
-| `mpris` | D-Bus media key listener & desktop widget updates | `mpris-server`, `zbus`, `tokio` |
-| `notify` | Desktop notifications on track change | `notify-rust` |
-| `genre` | Multi-choice genre filtering & ID3 tagger | `serde`, `serde_json` |
+1. **Compile-Time Core Features (Cargo Features)**:
+   Deeply integrated into the Rust TUI engine (`download`, `mpris`, `notify`, `genre`). These can be enabled or compiled out at build time.
+2. **Community & Script Plugins (`plugins/` & `registry.json`)**:
+   Independent add-ons listed in `registry.json` and discoverable through the in-app Plugin Store (`Tab` -> Plugins -> Store).
 
 ---
 
-## Adding a New Plugin
+## 1. Adding a Compile-Time Core Feature (Cargo Feature)
 
-When creating a new feature or plugin, follow the convention established in `MusicPlayer/plugins.md`:
+When creating a new built-in feature or modular subsystem, follow the convention established in `MusicPlayer/plugins.md`:
 
 1. **Feature definition**: Add your feature to `MusicPlayer/Cargo.toml` under `[features]`:
    ```toml
@@ -62,6 +64,36 @@ When creating a new feature or plugin, follow the convention established in `Mus
 6. **Decoupling Rules**:
    - **Core must never import from a plugin**. Plugin code can depend on core utilities (`meta.rs`, `audio/`), but core code must remain completely agnostic of the plugin.
    - Use `pub(crate)` for internal items within a plugin module; expose only necessary public types at `mod.rs`.
+
+---
+
+## 2. Contributing a Community Plugin (`plugins/`)
+
+Community plugins extend Lyra's capabilities via external scripts or stand-alone tools.
+
+1. **Scaffold your plugin**:
+   Copy [`plugins/template_plugin/`](plugins/template_plugin/) into `plugins/<your-plugin-id>/`.
+
+2. **Implement functionality**:
+   Write your entrypoint in `plugins/<your-plugin-id>/plugin.py` or executable script.
+
+3. **Register in `registry.json`**:
+   Add a JSON entry to [`registry.json`](registry.json) at the root of the repository:
+   ```json
+   {
+     "id": "your-plugin-id",
+     "name": "Your Plugin Name",
+     "version": "v1.0.0",
+     "author": "@your-github",
+     "description": "Short explanation of features",
+     "entry": "plugins/your-plugin-id",
+     "status": "active"
+   }
+   ```
+   Lyra's in-app Plugin Store dynamically reads `registry.json` to list available extensions for download and discovery.
+
+4. **Document dependencies**:
+   Include a `README.md` inside your plugin directory specifying required system libraries or Python packages.
 
 ---
 

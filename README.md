@@ -169,7 +169,7 @@ Available cargo features:
 ## Contributing & Extensions
 
 Lyra welcomes contributions, bug reports, and plugin pull requests.
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines, project layout, testing rules, and [MusicPlayer/plugins.md](MusicPlayer/plugins.md) for how to build or decouple modular compile-time plugins.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines, project layout, and testing rules. See [MusicPlayer/plugins.md](MusicPlayer/plugins.md) for compile-time Cargo plugins, and [plugins/](plugins/) with [registry.json](registry.json) for community script add-ons.
 
 ---
 

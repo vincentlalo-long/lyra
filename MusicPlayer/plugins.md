@@ -45,3 +45,7 @@ warnings. Each single feature also builds warning-free on its own.
 - `pub(crate)` for cross-module items inside a plugin; plain `pub` only at
   the `mod.rs` re-export boundary.
 - Zero-warning policy holds per feature combination in the matrix above.
+
+## External / Community Plugins (`plugins/` & `registry.json`)
+
+For standalone, external add-ons (scripts, tools, format converters) that do not require recompiling the core Rust player, place them in `plugins/<plugin_id>/` and register them in `registry.json` at repository root. See [`plugins/README.md`](../plugins/README.md) and [`CONTRIBUTING.md`](../CONTRIBUTING.md).

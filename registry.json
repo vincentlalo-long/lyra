@@ -1,0 +1,11 @@
+[
+  {
+    "id": "ocr-video-lyrics",
+    "name": "OCR Video HardCode Lyric to lrc",
+    "version": "Coming Soon",
+    "author": "@vincentlalo-long",
+    "description": "Extract hardcoded subtitles from music videos via OCR into synced .lrc lyrics (Coming Soon)",
+    "entry": "plugins/ocr_video_lyrics",
+    "status": "planned"
+  }
+]

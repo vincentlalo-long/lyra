@@ -2,7 +2,7 @@
 //! Provides real state for enabled/disabled/removed plugins, configurable paths,
 //! and community plugin download preview/mockup.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ManagedPlugin {
@@ -23,13 +23,14 @@ pub struct ConfigPathItem {
     pub description: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct DownloadablePlugin {
     pub id: String,
     pub name: String,
     pub version: String,
     pub author: String,
     pub description: String,
+    #[serde(default)]
     pub is_installed: bool,
 }
 
@@ -137,6 +138,49 @@ impl ConfigPathItem {
 
 impl DownloadablePlugin {
     pub fn available_community_plugins() -> Vec<Self> {
+        // 1. Try reading registry.json from disk (development / user custom registry)
+        let candidates = [
+            PathBuf::from("registry.json"),
+            PathBuf::from("../registry.json"),
+            PathBuf::from("../../registry.json"),
+        ];
+        for c in &candidates {
+            if let Ok(content) = std::fs::read_to_string(c) {
+                if let Ok(plugins) = serde_json::from_str::<Vec<Self>>(&content) {
+                    if !plugins.is_empty() {
+                        return plugins;
+                    }
+                }
+            }
+        }
+
+        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+            let user_paths = [
+                home.join("projects/lyra/registry.json"),
+                home.join("lyra/registry.json"),
+                home.join(".config/lyra/registry.json"),
+                home.join(".local/share/lyra/registry.json"),
+            ];
+            for p in &user_paths {
+                if let Ok(content) = std::fs::read_to_string(p) {
+                    if let Ok(plugins) = serde_json::from_str::<Vec<Self>>(&content) {
+                        if !plugins.is_empty() {
+                            return plugins;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Embedded fallback at compile-time from registry.json
+        const EMBEDDED_REGISTRY: &str = include_str!("../../registry.json");
+        if let Ok(plugins) = serde_json::from_str::<Vec<Self>>(EMBEDDED_REGISTRY) {
+            if !plugins.is_empty() {
+                return plugins;
+            }
+        }
+
+        // 3. Hardcoded default fallback
         vec![
             Self {
                 id: "ocr-video-lyrics".into(),
