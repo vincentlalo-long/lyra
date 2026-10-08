@@ -73,8 +73,7 @@ impl AlbumArt {
     }
 
     /// Loads album art from embedded ID3 APIC frame, or fallback image files in the same folder
-    pub fn load_for_song(song_path: &Path) -> Self {
-        // 1. Try reading embedded ID3 APIC picture
+    pub fn load_for_song(song_path: &Path) -> Self {        // 1. Try reading embedded ID3 APIC picture
         if let Ok(tag) = id3::Tag::read_from_path(song_path) {
             for picture in tag.pictures() {
                 if let Ok(dyn_img) = image::load_from_memory(&picture.data) {
@@ -111,8 +110,29 @@ impl AlbumArt {
         }
     }
 
+    /// Saves the cover as a PNG file (used for the MPRIS `artUrl`).
+    /// Returns `true` on success.
+    pub fn save_png(&self, path: &Path) -> bool {
+        match &self.image {
+            Some(img) => img.save(path).is_ok(),
+            None => false,
+        }
+    }
+
     /// Renders the image into Ratatui Lines using Unicode halfblocks (▀)
     pub fn render_halfblocks(&self, width: u16, height: u16) -> Vec<Line<'static>> {
+        self.render_halfblocks_dimmed(width, height, 1.0)
+    }
+
+    /// Same as [`Self::render_halfblocks`], but scales every channel by
+    /// `dim` (0.0-1.0). Used to paint a dimmed full-panel backdrop behind
+    /// the sharp centered square so wide panels don't look empty.
+    pub fn render_halfblocks_dimmed(
+        &self,
+        width: u16,
+        height: u16,
+        dim: f32,
+    ) -> Vec<Line<'static>> {
         let img = match &self.image {
             Some(i) => i,
             None => return Vec::new(),
@@ -132,6 +152,8 @@ impl AlbumArt {
             FilterType::Triangle,
         );
 
+        let dim_ch = |v: u8| ((v as f32) * dim.clamp(0.0, 1.0)) as u8;
+
         let mut lines = Vec::with_capacity(height as usize);
 
         for y in 0..height as u32 {
@@ -144,8 +166,8 @@ impl AlbumArt {
                 let top_px = resized.get_pixel(x, top_y);
                 let bot_px = resized.get_pixel(x, bot_y);
 
-                let fg = Color::Rgb(top_px[0], top_px[1], top_px[2]);
-                let bg = Color::Rgb(bot_px[0], bot_px[1], bot_px[2]);
+                let fg = Color::Rgb(dim_ch(top_px[0]), dim_ch(top_px[1]), dim_ch(top_px[2]));
+                let bg = Color::Rgb(dim_ch(bot_px[0]), dim_ch(bot_px[1]), dim_ch(bot_px[2]));
 
                 spans.push(Span::styled("▀", Style::default().fg(fg).bg(bg)));
             }

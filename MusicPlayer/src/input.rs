@@ -74,13 +74,22 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
             app.search_query.clear();
         }
 
-        // Switch tabs
+        // Switch tabs (1..4 or Tab)
         KeyCode::Tab => app.toggle_view(),
         KeyCode::Char('1') => app.view_mode = ViewMode::Playlist,
-        KeyCode::Char('2') => app.view_mode = ViewMode::Browser,
-        KeyCode::Char('3') => app.view_mode = ViewMode::Download,
+        KeyCode::Char('2') => app.view_mode = ViewMode::Queue,
+        KeyCode::Char('3') => app.view_mode = ViewMode::Browser,
+        KeyCode::Char('4') => app.view_mode = ViewMode::Download,
         KeyCode::Char('.') => app.browser.toggle_hidden(),
         KeyCode::Char('s') | KeyCode::Char('S') => app.start_scan(),
+
+        // Jump to currently playing track (inspired by rmpc 'C')
+        KeyCode::Char('C') => {
+            if let Some(playing_idx) = app.playlist.playing_index {
+                app.playlist.selected = playing_idx;
+                app.playlist.state.select(Some(playing_idx));
+            }
+        }
 
         // Navigation
         KeyCode::Up | KeyCode::Char('k') => app.previous(),
@@ -95,6 +104,15 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         KeyCode::Char(' ') => app.audio.toggle_pause(),
         KeyCode::Char('n') | KeyCode::Char('N') => app.play_next_track(),
         KeyCode::Char('p') | KeyCode::Char('P') => app.play_prev_track(),
+
+        // Scratchpad queue (ephemeral: never touches files on disk)
+        KeyCode::Char('a') => app.enqueue_selected_back(),
+        KeyCode::Char('A') => app.enqueue_selected_front(),
+        KeyCode::Char('d') => app.delete_queue_selected(),
+        KeyCode::Char('c') => app.clear_queue(),
+        KeyCode::Char('z') => app.shuffle_queue(),
+        KeyCode::Char('w') => { app.save_daylist(); }
+        KeyCode::Char('o') => { app.load_daylist(); }
 
         // Seek forward / backward (5 seconds)
         KeyCode::Left | KeyCode::Char('h') => app.audio.seek_backward(5),
@@ -199,22 +217,14 @@ fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
             }
             KeyCode::Left => {
                 if app.download.form_field_idx == 4 {
-                    app.download.form_cover_mode = if app.download.form_cover_mode == "blur_pad" {
-                        "center_crop".into()
-                    } else {
-                        "blur_pad".into()
-                    };
+                    cycle_cover(app, -1);
                 } else if app.download.form_field_idx == 5 {
                     app.download.form_lyrics_mode = if app.download.form_lyrics_mode == 0 { 2 } else { app.download.form_lyrics_mode - 1 };
                 }
             }
             KeyCode::Right => {
                 if app.download.form_field_idx == 4 {
-                    app.download.form_cover_mode = if app.download.form_cover_mode == "blur_pad" {
-                        "center_crop".into()
-                    } else {
-                        "blur_pad".into()
-                    };
+                    cycle_cover(app, 1);
                 } else if app.download.form_field_idx == 5 {
                     app.download.form_lyrics_mode = (app.download.form_lyrics_mode + 1) % 3;
                 }
@@ -232,11 +242,7 @@ fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
                     app.download.dir_picker = crate::browser::FileBrowser::new(&app.download.form_dir);
                     app.download.show_dir_picker = true;
                 } else if app.download.form_field_idx == 4 {
-                    app.download.form_cover_mode = if app.download.form_cover_mode == "blur_pad" {
-                        "center_crop".into()
-                    } else {
-                        "blur_pad".into()
-                    };
+                    cycle_cover(app, 1);
                 } else if app.download.form_field_idx == 5 {
                     app.download.form_lyrics_mode = (app.download.form_lyrics_mode + 1) % 3;
                 } else if app.download.form_field_idx == 6 {
@@ -345,6 +351,7 @@ fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
         KeyCode::Char('1') => { app.view_mode = ViewMode::Playlist; return true; }
         KeyCode::Char('2') => { app.view_mode = ViewMode::Browser; return true; }
         KeyCode::Char('3') => { app.view_mode = ViewMode::Download; return true; }
+        KeyCode::Char('4') => { app.view_mode = ViewMode::Queue; return true; }
         KeyCode::Char('q') | KeyCode::Char('Q') => return false,
         KeyCode::Char('?') => { app.show_help = true; return true; }
         KeyCode::Char(' ') => { app.audio.toggle_pause(); return true; }
@@ -359,6 +366,21 @@ fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
     }
 
     true
+}
+
+fn cycle_cover(app: &mut App, dir: i32) {
+    let n = app.download.cover_candidates.len();
+    if n == 0 {
+        return;
+    }
+    // States: None (Auto best) -> 0 -> 1 ... -> n-1 -> None.
+    let total = n as i32 + 1;
+    let cur = match app.download.selected_cover {
+        None => 0,
+        Some(i) => i as i32 + 1,
+    };
+    let next = (cur + dir).rem_euclid(total);
+    app.download.selected_cover = if next == 0 { None } else { Some(next as usize - 1) };
 }
 
 fn delete_last_word(s: &mut String) {

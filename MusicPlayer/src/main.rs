@@ -5,7 +5,10 @@ mod cover;
 mod downloader;
 mod input;
 mod lyrics;
+mod mpris;
+mod notify;
 mod playlist;
+mod queue;
 mod scanner;
 mod terminal;
 mod theme;
@@ -38,8 +41,16 @@ fn main() -> Result<()> {
 
 fn run_loop(terminal: &mut terminal::Tui, app: &mut App) -> Result<()> {
     loop {
+        // Island / media-key / playerctl presses (MPRIS input side).
+        while let Ok(key) = app.media_rx.try_recv() {
+            app.handle_media_key(key);
+        }
+
         // Commit debounced seek when user finishes seeking
         app.audio.check_pending_seek();
+
+        // Publish playing state + position to the dynamic island (MPRIS).
+        app.mpris_tick();
 
         // Auto-advance to next track when current song finishes
         app.check_auto_advance();

@@ -10,7 +10,18 @@ import yt_dlp
 from .utils import clean_title_and_artist, sanitize_filename
 from .lyric import vtt_to_lrc, fetch_best_vtt, fetch_all_vtt
 from .image import process_cover_art
+from .artwork import search_candidates, download_best_cover
+from .artwork.images import download_cover_image
 from .tagger import tag_audio_file
+
+#: Map --cover-source values to provider tuples. "auto" queries everything.
+COVER_SOURCES = {
+    "auto": ("itunes", "deezer", "caa"),
+    "itunes": ("itunes",),
+    "deezer": ("deezer",),
+    "caa": ("caa",),
+    "youtube": (),
+}
 
 
 def search_youtube(query: str, limit: int = 5) -> List[Dict[str, Any]]:
@@ -69,10 +80,21 @@ def get_video_info(url: str) -> Dict[str, Any]:
 
 
 class LyraPipeline:
-    def __init__(self, output_dir: str = "./output", cover_mode: str = "blur_pad", json_mode: bool = False):
+    def __init__(
+        self,
+        output_dir: str = "./output",
+        cover_mode: str = "itunes",
+        json_mode: bool = False,
+        cover_source: str = "auto",
+        cover_url: Optional[str] = None,
+        no_cover_search: bool = False,
+    ):
         self.output_dir = os.path.abspath(os.path.expanduser(output_dir))
         self.cover_mode = cover_mode
         self.json_mode = json_mode
+        self.cover_source = cover_source if cover_source in COVER_SOURCES else "auto"
+        self.cover_url = cover_url
+        self.no_cover_search = no_cover_search
         os.makedirs(self.output_dir, exist_ok=True)
 
     def _emit(self, data: dict):
@@ -186,22 +208,85 @@ class LyraPipeline:
                     if not self.json_mode:
                         print(f"Warning: Failed to extract lyrics: {e}")
 
-            # Process 1:1 cover art
-            self._emit({"type": "status", "stage": "Generating 1:1 square cover art..."})
+            # Process 1:1 cover art (termusic songtag-style: online search first,
+            # YouTube thumbnail last). Single search_candidates() call feeds
+            # both auto-pick and the candidate list reported to the TUI.
             processed_cover_path = os.path.join(temp_dir, "cover_1x1.jpg")
             has_cover = False
+            cover_source_used = "none"
+            cover_candidates: List[Dict[str, Any]] = []
+            cover_year = ""
+            cover_genre = ""
 
-            img_candidates = []
-            for ext in ("*.webp", "*.jpg", "*.jpeg", "*.png"):
-                img_candidates.extend(glob.glob(os.path.join(temp_dir, ext)))
+            # 0. Explicit URL wins (user picked a candidate in the TUI/CLI).
+            if self.cover_url:
+                self._emit({"type": "status", "stage": "Downloading chosen cover art..."})
+                if download_cover_image(self.cover_url, processed_cover_path):
+                    has_cover = True
+                    cover_source_used = "custom"
+                    if not self.json_mode:
+                        print("Cover:    custom URL")
 
-            if img_candidates:
-                has_cover = process_cover_art(
-                    img_candidates[0],
-                    processed_cover_path,
-                    mode=self.cover_mode,
-                    target_size=1000,
-                )
+            # 1. Multi-provider studio search (iTunes + Deezer + CAA).
+            search_enabled = (
+                not has_cover
+                and not self.no_cover_search
+                and self.cover_source != "youtube"
+                and self.cover_mode in ("itunes", "auto")
+            )
+            if search_enabled:
+                self._emit({"type": "status", "stage": "Searching studio cover art..."})
+                try:
+                    sources = COVER_SOURCES.get(self.cover_source, COVER_SOURCES["auto"])
+                    cover_candidates = search_candidates(artist, title, sources=sources)
+                    for cand in cover_candidates:
+                        urls = [cand.get("cover_url"), cand.get("cover_url_fallback")]
+                        got = False
+                        for u in urls:
+                            if u and download_cover_image(u, processed_cover_path):
+                                got = True
+                                break
+                        if got:
+                            has_cover = True
+                            cover_source_used = cand.get("source", "unknown")
+                            if not album and cand.get("album"):
+                                album = cand["album"]
+                            cover_year = cand.get("year", "")
+                            cover_genre = cand.get("genre", "")
+                            if not self.json_mode:
+                                print(
+                                    f"Cover:    {cover_source_used} studio art "
+                                    f"(score {cand.get('score')}) [Album: {cand.get('album')}]"
+                                )
+                            break
+                except Exception as e:
+                    if not self.json_mode:
+                        print(f"Warning: cover search error: {e}")
+
+            # 2. Fallback to YouTube thumbnail if search was disabled or failed
+            if not has_cover:
+                self._emit({"type": "status", "stage": "Generating 1:1 square cover art from YouTube..."})
+                img_candidates = []
+                for ext in ("*.webp", "*.jpg", "*.jpeg", "*.png"):
+                    img_candidates.extend(glob.glob(os.path.join(temp_dir, ext)))
+
+                if img_candidates:
+                    # Biggest file first instead of arbitrary glob order.
+                    img_candidates.sort(
+                        key=lambda p: os.path.getsize(p) if os.path.exists(p) else 0,
+                        reverse=True,
+                    )
+                    fallback_mode = "center_crop" if self.cover_mode == "center_crop" else "blur_pad"
+                    has_cover = process_cover_art(
+                        img_candidates[0],
+                        processed_cover_path,
+                        mode=fallback_mode,
+                        target_size=1000,
+                    )
+                    if has_cover:
+                        cover_source_used = "youtube"
+                        if not self.json_mode:
+                            print(f"Cover:    YouTube thumbnail ({fallback_mode})")
 
             # Embed metadata & cover art
             self._emit({"type": "status", "stage": "Tagging ID3v2 metadata..."})
@@ -261,10 +346,15 @@ class LyraPipeline:
                 "type": "done",
                 "artist": artist,
                 "title": title,
+                "album": album if album else f"{title} - Single",
                 "audio_path": dest_mp3,
                 "lyric_path": dest_lrc if primary_lrc else None,
                 "all_lyric_paths": saved_lrc_paths,
                 "has_cover": has_cover,
+                "cover_source": cover_source_used,
+                "cover_candidates": cover_candidates,
+                "year": cover_year,
+                "genre": cover_genre,
             }
             self._emit(result)
             return result

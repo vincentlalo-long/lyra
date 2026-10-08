@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
@@ -59,27 +59,25 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
                     app.kitty_cover_rect = Some(target_rect);
                     return;
                 } else {
-                    // Fallback for non-Kitty terminals: Unicode halfblock (▀)
-                    let lines = cover_art.render_halfblocks(cols, rows);
-                    let vert_chunks = Layout::default()
-                        .direction(Direction::Vertical)
-                        .constraints([
-                            Constraint::Length(pad_top),
-                            Constraint::Length(rows),
-                            Constraint::Min(0),
-                        ])
-                        .split(inner);
-
-                    let horiz_chunks = Layout::default()
-                        .direction(Direction::Horizontal)
-                        .constraints([
-                            Constraint::Length(pad_left),
-                            Constraint::Length(cols),
-                            Constraint::Min(0),
-                        ])
-                        .split(vert_chunks[1]);
-
-                    frame.render_widget(Paragraph::new(lines), horiz_chunks[1]);
+                    // Fallback for non-Kitty terminals: Unicode halfblock (▀).
+                    // Paint a dimmed full-panel backdrop (stretched art) so the
+                    // panel looks filled, then overlay the sharp square.
+                    let mut lines = cover_art.render_halfblocks_dimmed(
+                        inner.width,
+                        inner.height,
+                        0.35,
+                    );
+                    let fg_lines = cover_art.render_halfblocks(cols, rows);
+                    for (i, fg) in fg_lines.into_iter().enumerate() {
+                        if let Some(bg) = lines.get_mut(pad_top as usize + i) {
+                            let mut spans = std::mem::take(&mut bg.spans);
+                            let start = (pad_left as usize).min(spans.len());
+                            let end = (start + cols as usize).min(spans.len());
+                            spans.splice(start..end, fg.spans);
+                            bg.spans = spans;
+                        }
+                    }
+                    frame.render_widget(Paragraph::new(lines), inner);
                     app.kitty_cover_rect = None;
                     return;
                 }

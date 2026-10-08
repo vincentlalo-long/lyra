@@ -202,6 +202,19 @@ impl AudioPlayer {
 
     /// Seek forward with target coalescing (accumulating multiple rapid key presses)
     pub fn seek_forward(&mut self, seconds: u64) {
+        let base = self.position();
+        self.seek_to(base + Duration::from_secs(seconds));
+    }
+
+    /// Seek backward with target coalescing (accumulating multiple rapid key presses)
+    pub fn seek_backward(&mut self, seconds: u64) {
+        let base = self.position();
+        self.seek_to(base.saturating_sub(Duration::from_secs(seconds)));
+    }
+
+    /// Absolute seek with target coalescing. Shared by keyboard seeks and
+    /// external controllers (MPRIS SetPosition / Seek).
+    pub fn seek_to(&mut self, target: Duration) {
         if self.duration.is_none() && self.sink.empty() {
             return;
         }
@@ -209,10 +222,6 @@ impl AudioPlayer {
         // Mute volume immediately WITHOUT pause so hardware DMA buffer drains in silence
         self.sink.set_volume(0.0);
 
-        // Base on the true (offset-aware) position, not the raw sink counter
-        // which restarts at 0 after every rebuild-append.
-        let base = self.position();
-        let target = base + Duration::from_secs(seconds);
         let clamped = if let Some(dur) = self.duration {
             if dur > Duration::from_millis(500) {
                 target.min(dur - Duration::from_millis(500))
@@ -226,21 +235,15 @@ impl AudioPlayer {
         self.pending_seek = Some((clamped, deadline));
     }
 
-    /// Seek backward with target coalescing (accumulating multiple rapid key presses)
-    pub fn seek_backward(&mut self, seconds: u64) {
-        if self.duration.is_none() && self.sink.empty() {
-            return;
+    /// Absolute volume set (used by external controllers, e.g. MPRIS).
+    pub fn set_volume_absolute(&mut self, value: f32) {
+        self.volume = value.clamp(0.0, 1.0);
+        if self.volume > 0.0 {
+            self.previous_volume = self.volume;
         }
-
-        // Mute volume immediately WITHOUT pause so hardware DMA buffer drains in silence
-        self.sink.set_volume(0.0);
-
-        // Base on the true (offset-aware) position, not the raw sink counter
-        // which restarts at 0 after every rebuild-append.
-        let base = self.position();
-        let clamped = base.saturating_sub(Duration::from_secs(seconds));
-        let deadline = Instant::now() + Duration::from_millis(SEEK_DEBOUNCE_MILLIS);
-        self.pending_seek = Some((clamped, deadline));
+        if self.pending_seek.is_none() {
+            self.sink.set_volume(self.volume);
+        }
     }
 
     pub fn volume_up(&mut self) {

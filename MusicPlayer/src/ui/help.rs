@@ -10,8 +10,8 @@ use crate::theme;
 pub fn render(frame: &mut Frame) {
     let screen_area = frame.area();
 
-    let popup_height = 22.min(screen_area.height);
-    let popup_width = 58.min(screen_area.width);
+    let popup_height = 32.min(screen_area.height);
+    let popup_width = 62.min(screen_area.width);
 
     let vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -34,8 +34,8 @@ pub fn render(frame: &mut Frame) {
     let lines = vec![
         Line::from(Span::styled("  Navigation", Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD))),
         Line::from(vec![
-            Span::styled("    Tab / 1,2,3", Style::default().fg(theme::YELLOW)),
-            Span::styled("Switch Playlist / Browser / Download", Style::default().fg(theme::TEXT)),
+            Span::styled("    Tab / 1-4  ", Style::default().fg(theme::YELLOW)),
+            Span::styled("Switch Playlist / Queue / Browser / Download", Style::default().fg(theme::TEXT)),
         ]),
         Line::from(vec![
             Span::styled("    ↑ / k      ", Style::default().fg(theme::YELLOW)),
@@ -52,6 +52,10 @@ pub fn render(frame: &mut Frame) {
         Line::from(vec![
             Span::styled("    g / G      ", Style::default().fg(theme::YELLOW)),
             Span::styled("Jump to top / bottom", Style::default().fg(theme::TEXT)),
+        ]),
+        Line::from(vec![
+            Span::styled("    C          ", Style::default().fg(theme::YELLOW)),
+            Span::styled("Jump to playing track", Style::default().fg(theme::TEXT)),
         ]),
         Line::from(vec![
             Span::styled("    Enter      ", Style::default().fg(theme::YELLOW)),
@@ -90,6 +94,24 @@ pub fn render(frame: &mut Frame) {
         Line::from(vec![
             Span::styled("    Ctrl+r / R ", Style::default().fg(theme::YELLOW)),
             Span::styled("Replay current track from 00:00", Style::default().fg(theme::TEXT)),
+        ]),
+        Line::raw(""),
+        Line::from(Span::styled("  Queue (scratchpad, never deletes files)", Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD))),
+        Line::from(vec![
+            Span::styled("    a / A      ", Style::default().fg(theme::YELLOW)),
+            Span::styled("Queue song last / next", Style::default().fg(theme::TEXT)),
+        ]),
+        Line::from(vec![
+            Span::styled("    d          ", Style::default().fg(theme::YELLOW)),
+            Span::styled("Unqueue (deleting now-playing skips it)", Style::default().fg(theme::TEXT)),
+        ]),
+        Line::from(vec![
+            Span::styled("    c / z      ", Style::default().fg(theme::YELLOW)),
+            Span::styled("Clear queue / Shuffle queue", Style::default().fg(theme::TEXT)),
+        ]),
+        Line::from(vec![
+            Span::styled("    w / o      ", Style::default().fg(theme::YELLOW)),
+            Span::styled("Save / Load today's day-list (.m3u)", Style::default().fg(theme::TEXT)),
         ]),
         Line::raw(""),
         Line::from(Span::styled("  Tools & System", Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD))),

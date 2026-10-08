@@ -176,8 +176,11 @@ fn render_download_status(frame: &mut Frame, app: &App, area: Rect) {
 
         frame.render_widget(Paragraph::new(Line::from(header_spans)), chunks[0]);
 
-        let pct = (app.download.progress_pct as u16).min(100);
-        let (gauge_label, gauge_style) = if pct > 0 {
+        // Shown value crawls slowly toward 95% while stalled (lyrics / iTunes /
+        // tagging stages emit no percentages), real events snap past it.
+        let pct = app.download.display_pct();
+        let stalled = app.download.is_stalled();
+        let (gauge_label, gauge_style) = if pct > 0 && !stalled {
             let label = if !app.download.speed.is_empty() && !app.download.eta.is_empty() {
                 format!("{pct}% • {} • ETA {}", app.download.speed, app.download.eta)
             } else {
@@ -193,8 +196,10 @@ fn render_download_status(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 &app.download.current_stage
             };
+            // Tilde marks the crawling estimate so it never poses as a real measurement.
+            let pct_lbl = if pct > 0 { format!(" (~{pct}%)") } else { " (0%)".to_string() };
             (
-                format!("󰑮 {stage_lbl} (0%)"),
+                format!("󰑮 {stage_lbl}{pct_lbl}"),
                 Style::default().fg(theme::YELLOW).bg(theme::SURFACE0),
             )
         };
@@ -381,7 +386,36 @@ fn render_metadata_form(frame: &mut Frame, app: &App) {
         .split(inner);
 
     let dir_str = app.download.form_dir.to_string_lossy().to_string();
-    let cover_str = format!("< {} > (Space to toggle)", app.download.form_cover_mode);
+    let cover_str = if app.download.is_cover_loading {
+        "󰑮 Searching studio covers...".to_string()
+    } else if app.download.cover_candidates.is_empty() {
+        "< YouTube thumbnail fallback > (no studio art found)".to_string()
+    } else {
+        match app.download.selected_cover {
+            None => {
+                let best = &app.download.cover_candidates[0];
+                format!(
+                    "< Auto: {} {} ({:.0}) [{}/{}] > (←/→ to pick)",
+                    best.source,
+                    best.album.chars().take(24).collect::<String>(),
+                    best.score,
+                    1,
+                    app.download.cover_candidates.len(),
+                )
+            }
+            Some(i) => {
+                let c = &app.download.cover_candidates[i.min(app.download.cover_candidates.len() - 1)];
+                format!(
+                    "< {} {} ({:.0}) [{}/{}] > (←/→ to pick)",
+                    c.source,
+                    c.album.chars().take(24).collect::<String>(),
+                    c.score,
+                    i + 1,
+                    app.download.cover_candidates.len(),
+                )
+            }
+        }
+    };
     let lyrics_str = match app.download.form_lyrics_mode {
         0 => "< All (Manual + Auto) > (Space to toggle)".to_string(),
         1 => "< Creator Only (No Auto) > (Space to toggle)".to_string(),
@@ -426,6 +460,17 @@ fn render_metadata_form(frame: &mut Frame, app: &App) {
 
         if idx == 3 {
             spans.push(Span::styled(" [󰉋 Space/Enter: Browse]", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)));
+        }
+        if idx == 4 && !app.download.cover_candidates.is_empty() {
+            if let Some(c) = app.download.selected_cover
+                .and_then(|i| app.download.cover_candidates.get(i))
+                .or(app.download.cover_candidates.first())
+            {
+                spans.push(Span::styled(
+                    format!(" {} - {}", c.artist, c.title),
+                    Style::default().fg(theme::OVERLAY0),
+                ));
+            }
         }
 
         frame.render_widget(Paragraph::new(Line::from(spans)), rows[idx]);

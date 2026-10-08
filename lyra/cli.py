@@ -22,9 +22,26 @@ def main():
     )
     get_parser.add_argument(
         "--cover-mode",
-        choices=["blur_pad", "center_crop"],
-        default="blur_pad",
-        help="Cover art mode: blur_pad (default) or center_crop",
+        choices=["itunes", "auto", "blur_pad", "center_crop"],
+        default="itunes",
+        help="Cover art mode: itunes/auto (studio search, fallback YouTube), blur_pad/center_crop (YouTube only)",
+    )
+    get_parser.add_argument(
+        "--cover-source",
+        choices=["auto", "itunes", "deezer", "caa", "youtube"],
+        default="auto",
+        help="Studio providers to query (default: auto = itunes+deezer+caa)",
+    )
+    get_parser.add_argument(
+        "--cover-url",
+        type=str,
+        default=None,
+        help="Use this exact cover image URL (e.g. a candidate picked in the TUI)",
+    )
+    get_parser.add_argument(
+        "--no-cover-search",
+        action="store_true",
+        help="Skip online cover search, use YouTube thumbnail only",
     )
     get_parser.add_argument(
         "-n", "--name",
@@ -84,6 +101,20 @@ def main():
         help="Output info as JSON",
     )
 
+    # Command: cover
+    cover_parser = subparsers.add_parser("cover", help="Search studio cover art (iTunes + Deezer + Cover Art Archive)")
+    cover_parser.add_argument("query", type=str, nargs="?", default="", help="Free-text query (or title when --artist given)")
+    cover_parser.add_argument("--artist", type=str, default="", help="Artist name for scored search")
+    cover_parser.add_argument("--title", type=str, default="", help="Track title for scored search")
+    cover_parser.add_argument("-l", "--limit", type=int, default=5, help="Number of results (default: 5)")
+    cover_parser.add_argument(
+        "--source",
+        choices=["auto", "itunes", "deezer", "caa"],
+        default="auto",
+        help="Providers to query (default: auto)",
+    )
+    cover_parser.add_argument("--json", action="store_true", help="Output results as JSON")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -120,6 +151,31 @@ def main():
                 print(json.dumps({"type": "error", "message": str(e)}), flush=True)
             else:
                 print(f"error: {e}", file=sys.stderr)
+    elif args.command == "cover":
+        from .artwork import search_candidates
+        try:
+            artist = args.artist or ""
+            title = args.title or args.query
+            if not artist and not title:
+                print(json.dumps({"type": "error", "message": "Provide a query or --artist/--title"}), flush=True) \
+                    if args.json else print("error: empty query", file=sys.stderr)
+                sys.exit(1)
+            sources = ("itunes", "deezer", "caa") if args.source == "auto" else (args.source,)
+            results = search_candidates(artist, title or args.query, sources=sources, limit=args.limit)
+            if args.json:
+                print(json.dumps({"type": "cover_results", "items": results}), flush=True)
+            else:
+                if not results:
+                    print("No cover art found.")
+                for i, r in enumerate(results, 1):
+                    yr = f" ({r['year']})" if r.get('year') else ""
+                    print(f"{i}. [{r['source']}:{r.get('score')}] {r['artist']} - {r['title']} [Album: {r['album']}]{yr}")
+                    print(f"   Cover: {r['cover_url']}")
+        except Exception as e:
+            if args.json:
+                print(json.dumps({"type": "error", "message": str(e)}), flush=True)
+            else:
+                print(f"error: {e}", file=sys.stderr)
             sys.exit(1)
 
     elif args.command == "get":
@@ -128,6 +184,9 @@ def main():
                 output_dir=args.output,
                 cover_mode=args.cover_mode,
                 json_mode=args.json,
+                cover_source=args.cover_source,
+                cover_url=args.cover_url,
+                no_cover_search=args.no_cover_search,
             )
             pipeline.process_url(
                 args.url,

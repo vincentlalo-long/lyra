@@ -27,6 +27,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
         let icon = if is_playing {
             if app.audio.is_paused { "⏸ " } else { "▶ " }
+        } else if is_selected {
+            " "
         } else {
             "  "
         };
