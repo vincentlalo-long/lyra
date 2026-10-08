@@ -60,6 +60,37 @@ pub struct Downloader {
     child_pid: Arc<Mutex<Option<u32>>>,
 }
 
+fn format_python_error(stderr: &str, default_msg: &str) -> String {
+    let trimmed = stderr.trim();
+    if trimmed.contains("No module named 'yt_dlp'")
+        || trimmed.contains("No module named 'mutagen'")
+        || trimmed.contains("No module named 'PIL'")
+    {
+        return "Missing Python dependencies. Run: pip install yt-dlp pillow mutagen".to_string();
+    }
+    if trimmed.is_empty() {
+        return default_msg.to_string();
+    }
+    let lines: Vec<&str> = trimmed.lines().filter(|l| !l.trim().is_empty()).collect();
+    if let Some(err_line) = lines.iter().rev().find(|l| {
+        l.contains("Error") || l.contains("ERROR") || l.contains("Exception")
+    }) {
+        err_line.trim().to_string()
+    } else if let Some(last) = lines.last() {
+        last.trim().to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn format_spawn_error(action: &str, e: &std::io::Error) -> String {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        "Python 3 ('python3') not found on system. Please install python3.".to_string()
+    } else {
+        format!("Failed to {action}: {e}")
+    }
+}
+
 impl Downloader {
     pub fn new() -> Self {
         let (sender, receiver) = channel();
@@ -81,7 +112,8 @@ impl Downloader {
         }
     }
 
-    fn find_script() -> PathBuf {
+    pub fn find_script() -> PathBuf {
+        // 1. Explicit override via environment variable
         if let Ok(env_path) = std::env::var("LYRA_PYTHON_SCRIPT") {
             let p = PathBuf::from(env_path);
             if p.exists() {
@@ -89,36 +121,69 @@ impl Downloader {
             }
         }
 
-        let mut candidates = vec![
+        // 2. Relative to current working directory (e.g. developing inside repo root or MusicPlayer)
+        let cwd_candidates = [
             PathBuf::from("main.py"),
             PathBuf::from("../main.py"),
             PathBuf::from("../../main.py"),
         ];
+        for c in &cwd_candidates {
+            if c.exists() && c.parent().unwrap_or(std::path::Path::new("")).join("lyra").exists() {
+                if let Ok(abs) = c.canonicalize() {
+                    return abs;
+                }
+                return c.clone();
+            }
+        }
 
-        // Search relative to the running executable
+        // 3. Search relative to the running executable directory
         if let Ok(exe) = std::env::current_exe() {
-            if let Some(parent) = exe.parent() {
-                candidates.push(parent.join("main.py"));
-                if let Some(p2) = parent.parent() {
-                    candidates.push(p2.join("main.py"));
-                    if let Some(p3) = p2.parent() {
-                        candidates.push(p3.join("main.py"));
-                    }
+            let mut curr = exe.parent();
+            while let Some(parent) = curr {
+                let candidate = parent.join("main.py");
+                if candidate.exists() && parent.join("lyra").exists() {
+                    return candidate;
+                }
+                curr = parent.parent();
+            }
+        }
+
+        // 4. Check known development repo locations in user's home directory
+        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+            let dev_paths = [
+                home.join("projects/lyra/main.py"),
+                home.join("project/lyra/main.py"),
+                home.join("lyra/main.py"),
+                home.join("code/lyra/main.py"),
+                home.join("src/lyra/main.py"),
+            ];
+            for p in &dev_paths {
+                if p.exists() && p.parent().map(|d| d.join("lyra").exists()).unwrap_or(false) {
+                    return p.clone();
                 }
             }
         }
 
-        // Standard user config / data dirs
+        // 5. Check standard user data / config directories
         if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-            candidates.push(home.join(".config/lyra/main.py"));
-            candidates.push(home.join(".local/share/lyra/main.py"));
-        }
-
-        for c in candidates {
-            if c.exists() {
-                return c;
+            let user_paths = [
+                home.join(".local/share/lyra/scripts/main.py"),
+                home.join(".local/share/lyra/main.py"),
+                home.join(".config/lyra/scripts/main.py"),
+                home.join(".config/lyra/main.py"),
+            ];
+            for p in &user_paths {
+                if p.exists() {
+                    return p.clone();
+                }
             }
         }
+
+        // 6. Standalone binary fallback: extract embedded Python helper scripts
+        if let Some(extracted) = super::embed::ensure_extracted_scripts() {
+            return extracted;
+        }
+
         PathBuf::from("main.py")
     }
 
@@ -153,15 +218,11 @@ impl Downloader {
                         }
                     }
                     let err = String::from_utf8_lossy(&out.stderr);
-                    let msg = if err.trim().is_empty() {
-                        "No search results found.".to_string()
-                    } else {
-                        err.trim().to_string()
-                    };
+                    let msg = format_python_error(&err, "No search results found.");
                     let _ = sender.send(DownloadEvent::Error(msg));
                 }
                 Err(e) => {
-                    let _ = sender.send(DownloadEvent::Error(format!("Failed to run search: {e}")));
+                    let _ = sender.send(DownloadEvent::Error(format_spawn_error("run search", &e)));
                 }
             }
         });
@@ -195,15 +256,11 @@ impl Downloader {
                         }
                     }
                     let err = String::from_utf8_lossy(&out.stderr);
-                    let msg = if !err.trim().is_empty() {
-                        err.trim().to_string()
-                    } else {
-                        "Failed to parse video info".to_string()
-                    };
+                    let msg = format_python_error(&err, "Failed to parse video info");
                     let _ = sender.send(DownloadEvent::Error(msg));
                 }
                 Err(e) => {
-                    let _ = sender.send(DownloadEvent::Error(format!("Failed to fetch info: {e}")));
+                    let _ = sender.send(DownloadEvent::Error(format_spawn_error("fetch info", &e)));
                 }
             }
         });
@@ -319,7 +376,7 @@ impl Downloader {
             let mut child = match cmd.spawn() {
                 Ok(c) => c,
                 Err(e) => {
-                    let _ = sender.send(DownloadEvent::Error(format!("Failed to start download process: {e}")));
+                    let _ = sender.send(DownloadEvent::Error(format_spawn_error("start download process", &e)));
                     return;
                 }
             };
@@ -403,21 +460,12 @@ impl Downloader {
 
             // Check if process finished cleanly with Completed or Error
             if !completed && !error_emitted {
-                let mut err_msg = String::new();
                 let stderr_trimmed = stderr_output.trim();
-
-                if !stderr_trimmed.is_empty() {
-                    let lines: Vec<&str> = stderr_trimmed.lines().filter(|l| !l.trim().is_empty()).collect();
-                    if let Some(err_line) = lines.iter().rev().find(|l| {
-                        l.contains("Error") || l.contains("ERROR") || l.contains("Exception")
-                    }) {
-                        err_msg = err_line.trim().to_string();
-                    } else if let Some(last) = lines.last() {
-                        err_msg = last.trim().to_string();
-                    } else {
-                        err_msg = stderr_trimmed.to_string();
-                    }
-                }
+                let mut err_msg = if !stderr_trimmed.is_empty() {
+                    format_python_error(stderr_trimmed, "")
+                } else {
+                    String::new()
+                };
 
                 if err_msg.is_empty() {
                     match wait_res {
@@ -446,6 +494,13 @@ impl Downloader {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_find_script_always_resolves_existing_script() {
+        let script = Downloader::find_script();
+        assert!(script.exists(), "Resolved script '{:?}' must exist", script);
+        assert!(script.ends_with("main.py"), "Script must be main.py");
+    }
 
     #[test]
     fn test_downloader_emits_error_on_invalid_url() {

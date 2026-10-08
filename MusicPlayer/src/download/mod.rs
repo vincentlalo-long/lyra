@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+pub mod embed;
 pub mod events;
 pub mod state;
 pub mod worker;
