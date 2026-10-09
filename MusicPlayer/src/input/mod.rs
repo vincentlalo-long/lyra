@@ -94,6 +94,27 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
                 _ => {}
             }
         } else {
+            let has_ctrl = event.modifiers.contains(KeyModifiers::CONTROL);
+            let has_alt = event.modifiers.contains(KeyModifiers::ALT);
+            if has_alt {
+                return true;
+            }
+            if has_ctrl {
+                match event.code {
+                    KeyCode::Char('u') | KeyCode::Char('U') => {
+                        if let Some(t) = app.genre_tagger.as_mut() {
+                            t.input.clear();
+                        }
+                    }
+                    KeyCode::Char('w') | KeyCode::Char('W') => {
+                        if let Some(t) = app.genre_tagger.as_mut() {
+                            delete_last_word(&mut t.input);
+                        }
+                    }
+                    _ => {}
+                }
+                return true;
+            }
             match event.code {
                 KeyCode::Esc => app.genre_tagger = None,
                 KeyCode::Tab | KeyCode::Down => {
@@ -105,11 +126,6 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
                 KeyCode::Backspace => {
                     if let Some(t) = app.genre_tagger.as_mut() {
                         t.input.pop();
-                    }
-                }
-                KeyCode::Char('u') if event.modifiers.contains(KeyModifiers::CONTROL) => {
-                    if let Some(t) = app.genre_tagger.as_mut() {
-                        t.input.clear();
                     }
                 }
                 KeyCode::Char(c) => {
@@ -163,6 +179,19 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
 
     // Path editing modal in Plugins view
     if app.editing_path_index.is_some() {
+        let has_ctrl = event.modifiers.contains(KeyModifiers::CONTROL);
+        let has_alt = event.modifiers.contains(KeyModifiers::ALT);
+        if has_alt {
+            return true;
+        }
+        if has_ctrl {
+            match event.code {
+                KeyCode::Char('u') | KeyCode::Char('U') => app.editing_path_input.clear(),
+                KeyCode::Char('w') | KeyCode::Char('W') => delete_last_word(&mut app.editing_path_input),
+                _ => {}
+            }
+            return true;
+        }
         match event.code {
             KeyCode::Esc => app.cancel_editing_path(),
             KeyCode::Enter => app.confirm_editing_path(),
@@ -199,14 +228,51 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         return true;
     }
 
-    // Dedicated handler for Download ViewMode (download plugin)
+    // Dedicated handler for Extensions ViewMode (runs active interactive extension)
     #[cfg(feature = "download")]
-    if app.view_mode == ViewMode::Download {
-        return download::handle_download_key(app, event);
+    if app.view_mode == ViewMode::Extensions {
+        let is_download_enabled = app
+            .plugins
+            .iter()
+            .find(|p| p.id == "download")
+            .map(|p| p.enabled && !p.is_removed)
+            .unwrap_or(true);
+        if is_download_enabled {
+            return download::handle_download_key(app, event);
+        }
+    }
+
+    // Browser action modal (new album, rename album, edit track ID3, move track) owns all keys while active
+    if app.view_mode == ViewMode::Browser && app.browser_modal.is_some() {
+        return app.handle_browser_modal_key(event);
     }
 
     // Search Mode (Playlist / Browser)
     if app.is_searching {
+        let has_ctrl = event.modifiers.contains(KeyModifiers::CONTROL);
+        let has_alt = event.modifiers.contains(KeyModifiers::ALT);
+
+        if has_ctrl {
+            match event.code {
+                KeyCode::Char('u') | KeyCode::Char('U') => {
+                    app.search_query.clear();
+                }
+                KeyCode::Char('w') | KeyCode::Char('W') => {
+                    delete_last_word(&mut app.search_query);
+                }
+                KeyCode::Char('c') | KeyCode::Char('C') => {
+                    app.is_searching = false;
+                    app.search_query.clear();
+                }
+                _ => {}
+            }
+            return true;
+        }
+
+        if has_alt {
+            return true;
+        }
+
         match event.code {
             KeyCode::Esc => {
                 app.is_searching = false;
@@ -216,11 +282,7 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
                 app.on_enter();
             }
             KeyCode::Backspace => {
-                if app.search_query.is_empty() {
-                    app.is_searching = false;
-                } else {
-                    app.search_query.pop();
-                }
+                app.search_query.pop();
             }
             KeyCode::Up => app.previous(),
             KeyCode::Down => app.next(),
@@ -234,11 +296,25 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         return true;
     }
 
+    let has_ctrl = event.modifiers.contains(KeyModifiers::CONTROL);
+    let has_alt = event.modifiers.contains(KeyModifiers::ALT);
+
+    // Ctrl+C quits application cleanly from normal mode
+    if has_ctrl && (event.code == KeyCode::Char('c') || event.code == KeyCode::Char('C')) {
+        return false;
+    }
+
     // Replay current track (Ctrl+r or capital R)
-    if (event.modifiers.contains(KeyModifiers::CONTROL) && (event.code == KeyCode::Char('r') || event.code == KeyCode::Char('R')))
-        || event.code == KeyCode::Char('R')
+    if (has_ctrl && (event.code == KeyCode::Char('r') || event.code == KeyCode::Char('R')))
+        || (!has_ctrl && !has_alt && event.code == KeyCode::Char('R'))
     {
         app.replay_current_track();
+        return true;
+    }
+
+    // If Alt or Ctrl is held in Normal Mode, do not trigger single-key shortcuts
+    // (e.g. Alt+Z is Unikey toggle, Ctrl+Z, Ctrl+S, etc.)
+    if has_ctrl || has_alt {
         return true;
     }
 
@@ -277,9 +353,14 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
             }
         }
 
-        // Toggle queue-loop (replays the whole queue; `r` cycle untouched).
-        // Note: with CapsLock on, `l` (seek) arrives as `L`.
-        KeyCode::Char('L') => app.toggle_queue_loop(),
+        // Toggle queue-loop or in Browser: Set current folder as permanent Music Library path
+        KeyCode::Char('L') => {
+            if app.view_mode == ViewMode::Browser {
+                app.browser_set_current_as_music_folder();
+            } else {
+                app.toggle_queue_loop();
+            }
+        }
 
         // Toggle Lyrics display (v / y: Studio mode <-> Karaoke mode)
         KeyCode::Char('v') | KeyCode::Char('V') | KeyCode::Char('y') | KeyCode::Char('Y') => app.toggle_lyrics(),
@@ -296,15 +377,12 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
             app.search_query.clear();
         }
 
-        // Switch tabs (1..4 or Tab)
+        // Switch tabs (1..5 or Tab)
         KeyCode::Tab => app.toggle_view(),
         KeyCode::Char('1') => app.view_mode = ViewMode::Playlist,
         KeyCode::Char('2') => app.view_mode = ViewMode::Queue,
         KeyCode::Char('3') => app.view_mode = ViewMode::Browser,
-        #[cfg(feature = "download")]
-        KeyCode::Char('4') => app.view_mode = ViewMode::Download,
-        #[cfg(not(feature = "download"))]
-        KeyCode::Char('4') => app.view_mode = ViewMode::Plugins,
+        KeyCode::Char('4') => app.view_mode = ViewMode::Extensions,
         KeyCode::Char('5') => app.view_mode = ViewMode::Plugins,
         KeyCode::Char('i') | KeyCode::Char('I') => {
             if app.view_mode == ViewMode::Browser {
@@ -347,7 +425,14 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
                 app.audio.toggle_pause();
             }
         }
-        KeyCode::Char('n') | KeyCode::Char('N') => app.play_next_track(),
+        KeyCode::Char('n') => app.play_next_track(),
+        KeyCode::Char('N') => {
+            if app.view_mode == ViewMode::Browser {
+                app.browser_create_album_prompt();
+            } else {
+                app.play_next_track();
+            }
+        }
         KeyCode::Char('P') => {
             if app.view_mode == ViewMode::Browser {
                 app.play_browser_folder();
@@ -357,7 +442,7 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         }
         KeyCode::Char('p') => app.play_prev_track(),
 
-        // Scratchpad queue (ephemeral: never touches files on disk) / Plugin management
+        // Scratchpad queue (ephemeral: never touches files on disk) / Plugin management / Browser delete
         KeyCode::Char('a') => app.enqueue_selected_back(),
         KeyCode::Char('A') => app.enqueue_selected_front(),
         KeyCode::Char('d') | KeyCode::Delete => {
@@ -367,6 +452,8 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
                 app.delete_queue_selected();
             } else if app.view_mode == ViewMode::Plugins {
                 app.remove_selected_plugin();
+            } else if app.view_mode == ViewMode::Browser {
+                app.browser_delete_selected();
             }
         }
         KeyCode::Char('D') => {
@@ -379,6 +466,12 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         KeyCode::Char('e') => {
             if app.view_mode == ViewMode::Plugins {
                 app.start_editing_selected_path();
+            } else if app.view_mode == ViewMode::Browser {
+                if app.pending_replace.is_some() {
+                    app.begin_replace();
+                } else {
+                    app.browser_edit_prompt();
+                }
             } else {
                 app.begin_replace();
             }
@@ -420,12 +513,16 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
             app.audio.seek_forward(5);
         }
 
-        // Volume control
+        // Volume control / Move Track in Browser
         KeyCode::Char('+') | KeyCode::Char('=') => {
-            app.audio.volume_up();
-            if app.view_mode == ViewMode::Plugins {
-                let pct = (app.audio.volume * 100.0).round() as u32;
-                app.set_toast(format!("Volume: {pct}%"));
+            if app.view_mode == ViewMode::Browser {
+                app.browser_create_album_prompt();
+            } else {
+                app.audio.volume_up();
+                if app.view_mode == ViewMode::Plugins {
+                    let pct = (app.audio.volume * 100.0).round() as u32;
+                    app.set_toast(format!("Volume: {pct}%"));
+                }
             }
         }
         KeyCode::Char('-') | KeyCode::Char('_') => {
@@ -435,10 +532,198 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
                 app.set_toast(format!("Volume: {pct}%"));
             }
         }
-        KeyCode::Char('m') | KeyCode::Char('M') => app.audio.toggle_mute(),
-
+        KeyCode::Char('m') | KeyCode::Char('M') => {
+            if app.view_mode == ViewMode::Browser {
+                app.browser_move_track_prompt();
+            } else {
+                app.audio.toggle_mute();
+            }
+        }
         _ => {}
     }
 
     true
+}
+
+pub(crate) fn delete_last_word(s: &mut String) {
+    while s.ends_with(' ') {
+        s.pop();
+    }
+    while let Some(c) = s.chars().last() {
+        if c == ' ' {
+            break;
+        }
+        s.pop();
+    }
+    while s.ends_with(' ') {
+        s.pop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    #[test]
+    fn test_five_fixed_tabs_key_switching() {
+        let temp_dir = std::env::temp_dir();
+        if let Ok(mut app) = App::new(&temp_dir) {
+            assert_eq!(app.view_mode, ViewMode::Playlist);
+
+            // Test 1..5 keys
+            let key_2 = KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE);
+            handle_key(&mut app, key_2);
+            assert_eq!(app.view_mode, ViewMode::Queue);
+
+            let key_3 = KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE);
+            handle_key(&mut app, key_3);
+            assert_eq!(app.view_mode, ViewMode::Browser);
+
+            let key_4 = KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE);
+            handle_key(&mut app, key_4);
+            assert_eq!(app.view_mode, ViewMode::Extensions);
+
+            let key_5 = KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE);
+            handle_key(&mut app, key_5);
+            assert_eq!(app.view_mode, ViewMode::Plugins);
+
+            let key_1 = KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE);
+            handle_key(&mut app, key_1);
+            assert_eq!(app.view_mode, ViewMode::Playlist);
+
+            // Test Tab key cycle
+            let key_tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
+            handle_key(&mut app, key_tab);
+            assert_eq!(app.view_mode, ViewMode::Queue);
+
+            handle_key(&mut app, key_tab);
+            assert_eq!(app.view_mode, ViewMode::Browser);
+
+            handle_key(&mut app, key_tab);
+            assert_eq!(app.view_mode, ViewMode::Extensions);
+
+            handle_key(&mut app, key_tab);
+            assert_eq!(app.view_mode, ViewMode::Plugins);
+
+            handle_key(&mut app, key_tab);
+            assert_eq!(app.view_mode, ViewMode::Playlist);
+        }
+    }
+
+    #[test]
+    fn test_search_mode_ime_unikey_resilience() {
+        let temp_dir = std::env::temp_dir();
+        if let Ok(mut app) = App::new(&temp_dir) {
+            // Press '/' to start search
+            let key_slash = KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE);
+            handle_key(&mut app, key_slash);
+            assert!(app.is_searching);
+            assert_eq!(app.search_query, "");
+
+            // Unikey typing 'd' -> 'd'
+            let key_d = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE);
+            handle_key(&mut app, key_d);
+            assert_eq!(app.search_query, "d");
+
+            // Unikey typing second 'd' (to form 'đ'): IME sends Backspace then 'đ'
+            let key_backspace = KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE);
+            handle_key(&mut app, key_backspace);
+            // Crucial: Empty search_query must NOT close search mode!
+            assert_eq!(app.search_query, "");
+            assert!(app.is_searching, "Search mode must stay active even when backspace empties the query during IME composition");
+
+            // IME sends 'đ'
+            let key_d_bar = KeyEvent::new(KeyCode::Char('đ'), KeyModifiers::NONE);
+            handle_key(&mut app, key_d_bar);
+            assert_eq!(app.search_query, "đ");
+            assert!(app.is_searching);
+
+            // User toggles Unikey with Alt+Z: must NOT type 'z' into search query
+            let key_alt_z = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::ALT);
+            handle_key(&mut app, key_alt_z);
+            assert_eq!(app.search_query, "đ", "Alt+Z IME toggle must not append 'z' to query");
+            assert!(app.is_searching);
+
+            // Type additional Vietnamese characters
+            for c in " bài hát".chars() {
+                handle_key(&mut app, KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+            }
+            assert_eq!(app.search_query, "đ bài hát");
+
+            // Test Ctrl+W (delete last word)
+            let key_ctrl_w = KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL);
+            handle_key(&mut app, key_ctrl_w);
+            assert_eq!(app.search_query, "đ bài");
+
+            // Test Ctrl+U (clear line)
+            let key_ctrl_u = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL);
+            handle_key(&mut app, key_ctrl_u);
+            assert_eq!(app.search_query, "");
+            assert!(app.is_searching);
+
+            // Esc exits search mode
+            let key_esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+            handle_key(&mut app, key_esc);
+            assert!(!app.is_searching);
+        }
+    }
+
+    #[test]
+    fn test_normal_mode_modifier_protection() {
+        let temp_dir = std::env::temp_dir();
+        if let Ok(mut app) = App::new(&temp_dir) {
+            assert_eq!(app.view_mode, ViewMode::Playlist);
+
+            // Alt+Z (Unikey toggle shortcut): must NOT shuffle queue or trigger 'z'
+            let initial_toast = app.toast_text().map(|s| s.to_string());
+            let key_alt_z = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::ALT);
+            let cont = handle_key(&mut app, key_alt_z);
+            assert!(cont);
+            assert_eq!(app.toast_text().map(|s| s.to_string()), initial_toast, "Alt+Z must not trigger shuffle_queue");
+
+            // Ctrl+S: must NOT trigger library scan
+            let key_ctrl_s = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL);
+            let cont_s = handle_key(&mut app, key_ctrl_s);
+            assert!(cont_s);
+            assert!(app.scanner.pending_result.is_none());
+
+            // Ctrl+C: must cleanly return false to quit
+            let key_ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+            let cont_c = handle_key(&mut app, key_ctrl_c);
+            assert!(!cont_c, "Ctrl+C in normal mode must cleanly request exit");
+        }
+    }
+
+    #[test]
+    fn test_browser_modal_capital_r_and_unikey_not_intercepted() {
+        use crate::browser::BrowserActionModal;
+        let temp_dir = std::env::temp_dir();
+        if let Ok(mut app) = App::new(&temp_dir) {
+            app.view_mode = ViewMode::Browser;
+            app.browser_modal = Some(BrowserActionModal::NewAlbum { input: String::new() });
+
+            // Typing capital 'R' inside browser modal must NOT trigger replay_current_track
+            let key_cap_r = KeyEvent::new(KeyCode::Char('R'), KeyModifiers::SHIFT);
+            let handled = handle_key(&mut app, key_cap_r);
+            assert!(handled);
+
+            match &app.browser_modal {
+                Some(BrowserActionModal::NewAlbum { input }) => {
+                    assert_eq!(input, "R", "Capital 'R' must be typed into the modal input field");
+                }
+                _ => panic!("Expected NewAlbum modal to remain active"),
+            }
+
+            // Alt+Z toggle inside browser modal must NOT append 'z'
+            let key_alt_z = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::ALT);
+            handle_key(&mut app, key_alt_z);
+            match &app.browser_modal {
+                Some(BrowserActionModal::NewAlbum { input }) => {
+                    assert_eq!(input, "R", "Alt+Z must not append 'z' inside modal");
+                }
+                _ => panic!("Expected NewAlbum modal to remain active"),
+            }
+        }
+    }
 }

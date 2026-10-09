@@ -47,18 +47,30 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
 
     let inner = popup_area.inner(Margin { vertical: 1, horizontal: 1 });
 
+    // Split vertically: Top = Form Fields (+ optional Preview column), Bottom = Full-width Actions & Hotkey hints
+    let modal_sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(16),   // Top: Inputs & Preview
+            Constraint::Length(2), // Bottom: Hotkey guide (full width, never covered by cover image!)
+        ])
+        .split(inner);
+
+    let content_area = modal_sections[0];
+    let footer_area = modal_sections[1];
+
     // Split horizontally if wide enough: Left = Form Fields, Right = Live Cover Preview Box
     let (form_area, preview_area) = if has_preview_col {
         let cols = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Min(52),       // Left: Form inputs
-                Constraint::Length(32),    // Right: Live artwork preview
+                Constraint::Min(52),    // Left: Form inputs
+                Constraint::Length(32), // Right: Live artwork preview
             ])
-            .split(inner);
+            .split(content_area);
         (cols[0], Some(cols[1]))
     } else {
-        (inner, None)
+        (content_area, None)
     };
 
     let rows = Layout::default()
@@ -72,7 +84,6 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
             Constraint::Length(2), // Field 5: Cover Mode
             Constraint::Length(2), // Field 6: Lyrics Mode
             Constraint::Length(2), // Field 7: Submit Button
-            Constraint::Min(1),    // Actions & Hotkey hints
         ])
         .split(form_area);
 
@@ -162,6 +173,18 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
 
         spans.push(Span::styled(" ]", if is_active { Style::default().fg(theme::YELLOW) } else { Style::default().fg(theme::OVERLAY0) }));
 
+        // Artist suggestions badge (Field 1)
+        if idx == 1 && !app.download.existing_artists.is_empty() {
+            let count = app.download.existing_artists.len();
+            let badge_text = if let Some(i) = app.download.selected_artist_idx {
+                format!(" [󰠃 ←/→ {}/{}]", i + 1, count)
+            } else {
+                format!(" [󰠃 ←/→ {} artists]", count)
+            };
+            spans.push(Span::styled(badge_text, Style::default().fg(theme::ROSE)));
+        }
+
+        // Album suggestions badge (Field 2)
         if idx == 2 && !app.download.existing_albums.is_empty() {
             let count = app.download.existing_albums.len();
             let badge_text = if let Some(i) = app.download.selected_album_idx {
@@ -171,12 +194,14 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
             };
             spans.push(Span::styled(badge_text, Style::default().fg(theme::PEACH)));
         }
+
+        // Genre suggestions badge (Field 3)
         if idx == 3 && !app.download.suggested_genres.is_empty() {
             let count = app.download.suggested_genres.len();
             let badge_text = if let Some(i) = app.download.selected_genre_idx {
-                format!(" [󰠃 ←/→ {}/{}]", i + 1, count)
+                format!(" [󰠃 ←/→ {}/{} (type ',' to add)]", i + 1, count)
             } else {
-                " [󰠃 ←/→ genres]".to_string()
+                " [󰠃 ←/→ genres (type ',' to add)]".to_string()
             };
             spans.push(Span::styled(badge_text, Style::default().fg(theme::ROSE)));
         }
@@ -208,8 +233,18 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
     };
     frame.render_widget(Paragraph::new(Line::from(submit_spans)).alignment(Alignment::Center), rows[7]);
 
-    // Row 8: Hotkey hints
+    // Full-width Bottom Footer: Hotkey hints across the entire modal width (never covered by artwork!)
     let actions = match app.download.form_field_idx {
+        1 => Line::from(vec![
+            Span::styled("[←/→: ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled(format!("Cycle Artists ({})", app.download.existing_artists.len()), Style::default().fg(theme::ROSE).add_modifier(Modifier::BOLD)),
+            Span::styled(" | Tab/↓: ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("Next", Style::default().fg(theme::TEXT)),
+            Span::styled(" | Ctrl+Enter: ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("Download", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled(" | Esc: ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("Cancel]", Style::default().fg(theme::RED)),
+        ]),
         2 => Line::from(vec![
             Span::styled("[←/→: ", Style::default().fg(theme::OVERLAY0)),
             Span::styled(format!("Cycle Albums ({})", app.download.existing_albums.len()), Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD)),
@@ -222,7 +257,9 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
         ]),
         3 => Line::from(vec![
             Span::styled("[←/→: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Cycle Suggested Genres", Style::default().fg(theme::ROSE).add_modifier(Modifier::BOLD)),
+            Span::styled("Cycle Genre", Style::default().fg(theme::ROSE).add_modifier(Modifier::BOLD)),
+            Span::styled(" | , : ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("+More Genres", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
             Span::styled(" | Tab/↓: ", Style::default().fg(theme::OVERLAY0)),
             Span::styled("Next", Style::default().fg(theme::TEXT)),
             Span::styled(" | Ctrl+Enter: ", Style::default().fg(theme::OVERLAY0)),
@@ -253,7 +290,7 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
             Span::styled("Cancel]", Style::default().fg(theme::RED)),
         ]),
     };
-    frame.render_widget(Paragraph::new(actions).alignment(Alignment::Center), rows[8]);
+    frame.render_widget(Paragraph::new(actions).alignment(Alignment::Center), footer_area);
 
     // --- Right Column: Live Cover Preview Box ---
     if let Some(prev_area) = preview_area {
@@ -276,6 +313,7 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
                 .split(prev_inner);
 
             if app.download.is_cover_loading {
+                app.kitty_cover_rect = None;
                 let pad = (prev_chunks[0].height.saturating_sub(2)) / 2;
                 let mut lines = Vec::new();
                 for _ in 0..pad {
@@ -287,8 +325,22 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
             } else if let Some(art) = &app.download.cover_preview_art {
                 let w = prev_chunks[0].width;
                 let h = prev_chunks[0].height;
-                let halfblock_lines = art.render_halfblocks(w, h);
-                frame.render_widget(Paragraph::new(halfblock_lines), prev_chunks[0]);
+
+                // High-resolution rendering via Kitty Graphics Protocol when supported
+                if crate::cover::is_kitty_supported() {
+                    for y in prev_chunks[0].top()..prev_chunks[0].bottom() {
+                        for x in prev_chunks[0].left()..prev_chunks[0].right() {
+                            if let Some(cell) = frame.buffer_mut().cell_mut((x, y)) {
+                                cell.set_skip(true);
+                            }
+                        }
+                    }
+                    app.kitty_cover_rect = Some(prev_chunks[0]);
+                } else {
+                    let halfblock_lines = art.render_halfblocks(w, h);
+                    frame.render_widget(Paragraph::new(halfblock_lines), prev_chunks[0]);
+                    app.kitty_cover_rect = None;
+                }
 
                 let (info_text, info_color) = if let Some(cand_idx) = app.download.selected_cover {
                     if let Some(cand) = app.download.cover_candidates.get(cand_idx) {
@@ -315,6 +367,7 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
                 ];
                 frame.render_widget(Paragraph::new(footer_lines).alignment(Alignment::Center), prev_chunks[1]);
             } else {
+                app.kitty_cover_rect = None;
                 let pad = (prev_chunks[0].height.saturating_sub(2)) / 2;
                 let mut lines = Vec::new();
                 for _ in 0..pad {
@@ -325,5 +378,7 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
                 frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), prev_chunks[0]);
             }
         }
+    } else {
+        app.kitty_cover_rect = None;
     }
 }

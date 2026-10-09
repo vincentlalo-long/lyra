@@ -76,7 +76,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD)
     };
     items.push(ListItem::new(Line::from(vec![
-        Span::styled(format!("{apply_prefix}󰄲 [ Apply Filter / Lọc Playlist (f) ]"), apply_style),
+        Span::styled(format!("{apply_prefix}󰄲 [ Apply Filter (f) ]"), apply_style),
     ])));
 
     let n_checked = picker.selected_set.len();
@@ -105,7 +105,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     frame.render_widget(List::new(items), chunks[0]);
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(
-            " Enter/Space: Tick • f: Lọc Playlist • q: Enqueue • Esc: Đóng ",
+            " Enter/Space: Select • f: Apply Filter • q: Enqueue • Esc: Close ",
             Style::default().fg(theme::OVERLAY0),
         )])),
         chunks[1],

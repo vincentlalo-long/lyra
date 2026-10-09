@@ -10,9 +10,9 @@ use crate::{app::App, theme};
 /// Render the interactive Plugin Manager, Path Editor, and Plugin Store UI
 pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default()
-        .title(" 󰏖 Plugin Manager & Configuration ")
+        .title(" 󰏖 Plugin Manager & Extension Store ")
         .title_bottom(Line::from(vec![
-            Span::styled(" [↑/↓: Select | Space/Enter: Toggle/Action | d: Remove | r: Restore | e: Edit Path | D: Store] ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled(" [↑/↓: Select | Space/Enter: Toggle | d: Remove | r: Restore | e: Edit Path | D: Store] ", Style::default().fg(theme::OVERLAY0)),
         ]))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)

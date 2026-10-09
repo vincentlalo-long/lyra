@@ -35,16 +35,9 @@ pub fn render(frame: &mut Frame, app: &App) {
     let lines = vec![
         Line::from(Span::styled("  Navigation & Views", Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD))),
         Line::from(vec![
+            Span::styled("    Tab / 1-5  ", Style::default().fg(theme::YELLOW)),
             Span::styled(
-                if cfg!(feature = "download") { "    Tab / 1-5  " } else { "    Tab / 1-4  " },
-                Style::default().fg(theme::YELLOW),
-            ),
-            Span::styled(
-                if cfg!(feature = "download") {
-                    "Switch Playlist / Queue / Browser / Download / Plugins"
-                } else {
-                    "Switch Playlist / Queue / Browser / Plugins"
-                },
+                "Switch Playlist / Queue / Browser / Extensions / Plugins",
                 Style::default().fg(theme::TEXT),
             ),
         ]),
@@ -83,6 +76,10 @@ pub fn render(frame: &mut Frame, app: &App) {
         Line::from(vec![
             Span::styled("    i / I      ", Style::default().fg(theme::YELLOW)),
             Span::styled("Import track or album into active Playlist", Style::default().fg(theme::TEXT)),
+        ]),
+        Line::from(vec![
+            Span::styled("    L          ", Style::default().fg(theme::YELLOW)),
+            Span::styled("Set current folder as permanent Music Library (in Browser)", Style::default().fg(theme::TEXT)),
         ]),
         Line::from(vec![
             Span::styled("    d / Del    ", Style::default().fg(theme::YELLOW)),

@@ -2,6 +2,31 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use ratatui::widgets::ListState;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BrowserActionModal {
+    NewAlbum {
+        input: String,
+    },
+    RenameAlbum {
+        target_dir: PathBuf,
+        input: String,
+    },
+    EditTrack {
+        target_file: PathBuf,
+        field_idx: usize, // 0: Title, 1: Artist, 2: Album
+        title: String,
+        artist: String,
+        album: String,
+    },
+    MoveTrack {
+        target_file: PathBuf,
+        candidate_albums: Vec<PathBuf>,
+        selected_idx: usize,
+        creating_new: bool,
+        new_album_input: String,
+    },
+}
+
 pub struct FileBrowser {
     pub current_dir: PathBuf,
     pub entries: Vec<PathBuf>,

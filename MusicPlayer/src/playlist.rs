@@ -1,7 +1,4 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 use ratatui::widgets::ListState;
 #[cfg(feature = "genre")]
 use crate::genre::GenreDB;
@@ -15,24 +12,11 @@ pub struct Playlist {
 
 impl Playlist {
     pub fn new(music_folder: &Path) -> Self {
-        let mut songs = Vec::new();
-
-        if music_folder.exists() {
-            if let Ok(entries) = fs::read_dir(music_folder) {
-                for entry in entries.flatten() {
-                    let file_path = entry.path();
-                    if file_path.is_file() {
-                        if let Some(extension) = file_path.extension() {
-                            if extension.eq_ignore_ascii_case("mp3") {
-                                songs.push(file_path);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        songs.sort();
+        let songs = if music_folder.exists() {
+            find_mp3s_in_dir(music_folder, false)
+        } else {
+            Vec::new()
+        };
 
         Self {
             songs,
@@ -546,6 +530,24 @@ pub fn load_m3u(path: &Path) -> Vec<PathBuf> {
 
         // Removing from empty playlist returns None
         assert_eq!(playlist.remove_selected(), None);
+    }
+
+    #[test]
+    fn test_playlist_new_only_direct_files() {
+        let temp = std::env::temp_dir().join("lyra_playlist_new_direct");
+        let album = temp.join("Album A");
+        let _ = std::fs::create_dir_all(&album);
+        let track1 = temp.join("root.mp3");
+        let track2 = album.join("sub.mp3");
+        let _ = std::fs::write(&track1, b"a");
+        let _ = std::fs::write(&track2, b"b");
+
+        let playlist = Playlist::new(&temp);
+        assert_eq!(playlist.songs.len(), 1);
+        assert!(playlist.songs.contains(&track1));
+        assert!(!playlist.songs.contains(&track2), "Subdirectory songs should not clutter root playlist on startup");
+
+        let _ = std::fs::remove_dir_all(&temp);
     }
 }
 

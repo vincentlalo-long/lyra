@@ -68,7 +68,7 @@ impl App {
             ViewMode::Queue => self.queue.move_selected_down(),
             ViewMode::Browser => self.browser.next(&self.search_query),
             #[cfg(feature = "download")]
-            ViewMode::Download => {
+            ViewMode::Extensions => {
                 if self.download.show_dir_picker {
                     self.download.dir_picker.next("");
                 } else if self.download.show_metadata_form {
@@ -77,6 +77,8 @@ impl App {
                     self.download.selected_result = (self.download.selected_result + 1) % self.download.search_results.len();
                 }
             }
+            #[cfg(not(feature = "download"))]
+            ViewMode::Extensions => {}
             ViewMode::Plugins => {
                 let max = self.total_plugin_items().saturating_sub(1);
                 self.plugin_selected = (self.plugin_selected + 1).min(max);
@@ -95,7 +97,7 @@ impl App {
             ViewMode::Queue => self.queue.move_selected_up(),
             ViewMode::Browser => self.browser.previous(&self.search_query),
             #[cfg(feature = "download")]
-            ViewMode::Download => {
+            ViewMode::Extensions => {
                 if self.download.show_dir_picker {
                     self.download.dir_picker.previous("");
                 } else if self.download.show_metadata_form {
@@ -108,6 +110,8 @@ impl App {
                     };
                 }
             }
+            #[cfg(not(feature = "download"))]
+            ViewMode::Extensions => {}
             ViewMode::Plugins => {
                 self.plugin_selected = self.plugin_selected.saturating_sub(1);
             }
@@ -129,11 +133,13 @@ impl App {
             }
             ViewMode::Browser => self.browser.page_down(&self.search_query, 10),
             #[cfg(feature = "download")]
-            ViewMode::Download => {
+            ViewMode::Extensions => {
                 if self.download.show_dir_picker {
                     self.download.dir_picker.page_down("", 5);
                 }
             }
+            #[cfg(not(feature = "download"))]
+            ViewMode::Extensions => {}
             ViewMode::Plugins => {
                 let max = self.total_plugin_items().saturating_sub(1);
                 self.plugin_selected = (self.plugin_selected + 4).min(max);
@@ -156,11 +162,13 @@ impl App {
             }
             ViewMode::Browser => self.browser.page_up(&self.search_query, 10),
             #[cfg(feature = "download")]
-            ViewMode::Download => {
+            ViewMode::Extensions => {
                 if self.download.show_dir_picker {
                     self.download.dir_picker.page_up("", 5);
                 }
             }
+            #[cfg(not(feature = "download"))]
+            ViewMode::Extensions => {}
             ViewMode::Plugins => {
                 self.plugin_selected = self.plugin_selected.saturating_sub(4);
             }
@@ -178,13 +186,15 @@ impl App {
             ViewMode::Queue => self.queue.selected = 0,
             ViewMode::Browser => self.browser.first(&self.search_query),
             #[cfg(feature = "download")]
-            ViewMode::Download => {
+            ViewMode::Extensions => {
                 if self.download.show_dir_picker {
                     self.download.dir_picker.first("");
                 } else if !self.download.search_results.is_empty() {
                     self.download.selected_result = 0;
                 }
             }
+            #[cfg(not(feature = "download"))]
+            ViewMode::Extensions => {}
             ViewMode::Plugins => self.plugin_selected = 0,
         }
     }
@@ -202,13 +212,15 @@ impl App {
             }
             ViewMode::Browser => self.browser.last(&self.search_query),
             #[cfg(feature = "download")]
-            ViewMode::Download => {
+            ViewMode::Extensions => {
                 if self.download.show_dir_picker {
                     self.download.dir_picker.last("");
                 } else if !self.download.search_results.is_empty() {
                     self.download.selected_result = self.download.search_results.len() - 1;
                 }
             }
+            #[cfg(not(feature = "download"))]
+            ViewMode::Extensions => {}
             ViewMode::Plugins => self.plugin_selected = self.total_plugin_items().saturating_sub(1),
         }
     }
@@ -335,9 +347,11 @@ impl App {
                 }
             }
             #[cfg(feature = "download")]
-            ViewMode::Download => {
+            ViewMode::Extensions => {
                 self.handle_download_enter();
             }
+            #[cfg(not(feature = "download"))]
+            ViewMode::Extensions => {}
             ViewMode::Plugins => {
                 self.toggle_selected_plugin();
             }

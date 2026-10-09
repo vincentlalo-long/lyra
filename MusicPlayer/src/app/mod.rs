@@ -31,6 +31,7 @@ pub mod plugin_ops;
 pub mod queue_ops;
 #[cfg(feature = "download")]
 pub mod download_ops;
+pub mod browser_ops;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum RepeatMode {
@@ -44,10 +45,9 @@ pub enum ViewMode {
     Playlist,
     Queue,
     Browser,
-    /// YouTube search/download plugin. Absent without the `download` feature.
-    #[cfg(feature = "download")]
-    Download,
-    /// Plugin manager & app settings view.
+    /// Installed interactive extensions workspace (e.g. YouTube Downloader, OCR Lyrics, Radio).
+    Extensions,
+    /// Plugin manager, settings & extension store.
     Plugins,
 }
 
@@ -119,6 +119,8 @@ pub struct App {
     /// Tracks which queue row is focused and when it gained focus,
     /// used to drive the smooth marquee title scroll loop for queue items.
     pub queue_scroll_tracker: (usize, Instant),
+    /// Interactive browser actions: new album, rename album, edit track ID3, move track.
+    pub browser_modal: Option<crate::browser::BrowserActionModal>,
 }
 
 /// How long a toast stays visible.
@@ -132,6 +134,13 @@ pub fn short_name(path: &Path) -> String {
 
 impl App {
     pub fn new(music_folder: &Path) -> Result<Self> {
+        let config = crate::config::Config::load();
+        let (download_dir, raw_download_dir) = config.resolve_download_dir(music_folder);
+        let mut config_paths = crate::plugin::ConfigPathItem::default_paths(music_folder);
+        if let Some(item) = config_paths.iter_mut().find(|p| p.id == "download_dir") {
+            item.path = raw_download_dir;
+        }
+
         #[cfg(feature = "mpris")]
         let (mpris, media_rx) = crate::mpris::spawn();
         Ok(Self {
@@ -148,9 +157,20 @@ impl App {
             show_help: false,
             help_scroll: 0,
             plugin_selected: 0,
-            plugins: crate::plugin::ManagedPlugin::default_plugins(),
-            config_paths: crate::plugin::ConfigPathItem::default_paths(music_folder),
-            downloadable_plugins: crate::plugin::DownloadablePlugin::available_community_plugins(),
+            plugins: {
+                crate::plugin::ManagedPlugin::load_and_merge_plugins()
+            },
+            config_paths,
+            downloadable_plugins: {
+                let mut dps = crate::plugin::DownloadablePlugin::available_community_plugins();
+                let saved = crate::plugin::ManagedPlugin::load_and_merge_plugins();
+                for dp in &mut dps {
+                    if saved.iter().any(|p| p.id == dp.id) {
+                        dp.is_installed = true;
+                    }
+                }
+                dps
+            },
             editing_path_index: None,
             editing_path_input: String::new(),
             show_plugin_store: false,
@@ -162,7 +182,7 @@ impl App {
             kitty_cover_rect: None,
             last_kitty_rendered: None,
             #[cfg(feature = "download")]
-            download: DownloadState::new(music_folder),
+            download: DownloadState::new(&download_dir),
             #[cfg(feature = "download")]
             downloader: Downloader::new(),
             #[cfg(feature = "mpris")]
@@ -183,6 +203,7 @@ impl App {
             meta_cache: HashMap::new(),
             selected_scroll_tracker: (0, Instant::now()),
             queue_scroll_tracker: (0, Instant::now()),
+            browser_modal: None,
         })
     }
 
@@ -241,12 +262,8 @@ impl App {
         self.view_mode = match self.view_mode {
             ViewMode::Playlist => ViewMode::Queue,
             ViewMode::Queue => ViewMode::Browser,
-            #[cfg(feature = "download")]
-            ViewMode::Browser => ViewMode::Download,
-            #[cfg(feature = "download")]
-            ViewMode::Download => ViewMode::Plugins,
-            #[cfg(not(feature = "download"))]
-            ViewMode::Browser => ViewMode::Plugins,
+            ViewMode::Browser => ViewMode::Extensions,
+            ViewMode::Extensions => ViewMode::Plugins,
             ViewMode::Plugins => ViewMode::Playlist,
         };
     }
@@ -362,22 +379,12 @@ mod tests {
             assert_eq!(app.view_mode, ViewMode::Queue);
             app.toggle_view();
             assert_eq!(app.view_mode, ViewMode::Browser);
-            #[cfg(feature = "download")]
-            {
-                app.toggle_view();
-                assert_eq!(app.view_mode, ViewMode::Download);
-                app.toggle_view();
-                assert_eq!(app.view_mode, ViewMode::Plugins);
-                app.toggle_view();
-                assert_eq!(app.view_mode, ViewMode::Playlist);
-            }
-            #[cfg(not(feature = "download"))]
-            {
-                app.toggle_view();
-                assert_eq!(app.view_mode, ViewMode::Plugins);
-                app.toggle_view();
-                assert_eq!(app.view_mode, ViewMode::Playlist);
-            }
+            app.toggle_view();
+            assert_eq!(app.view_mode, ViewMode::Extensions);
+            app.toggle_view();
+            assert_eq!(app.view_mode, ViewMode::Plugins);
+            app.toggle_view();
+            assert_eq!(app.view_mode, ViewMode::Playlist);
         }
     }
 

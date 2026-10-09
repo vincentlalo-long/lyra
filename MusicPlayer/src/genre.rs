@@ -27,7 +27,7 @@ fn sidecar_path() -> Option<PathBuf> {
 }
 
 fn split_genre_list(raw: &str) -> Vec<String> {
-    raw.split(['/', ';', '|'])
+    raw.split([',', '/', ';', '|'])
         .map(|g| g.trim().to_string())
         .filter(|g| !g.is_empty())
         .collect()
@@ -441,6 +441,7 @@ mod tests {
     fn test_split_genre_list() {
         assert_eq!(split_genre_list("Hip-Hop/Rap"), vec!["Hip-Hop", "Rap"]);
         assert_eq!(split_genre_list("lo-fi; rain | night"), vec!["lo-fi", "rain", "night"]);
+        assert_eq!(split_genre_list("Pop, Rock"), vec!["Pop", "Rock"]);
         assert!(split_genre_list("  ").is_empty());
     }
 

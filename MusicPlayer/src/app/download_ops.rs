@@ -43,6 +43,55 @@ impl App {
         self.downloader.start_download(req);
     }
 
+    pub fn collect_existing_artists(&self) -> Vec<String> {
+        let mut set = std::collections::BTreeSet::new();
+
+        // 1. Current playlist songs
+        for p in &self.playlist.songs {
+            let meta = if let Some(cached) = self.meta_cache.get(p) {
+                cached.clone()
+            } else {
+                crate::meta::song_meta(p)
+            };
+            let art = meta.artist.trim();
+            if !art.is_empty() && !art.eq_ignore_ascii_case("unknown") {
+                set.insert(art.to_string());
+            }
+        }
+
+        // 2. All audio files in the music library directory (recursive scan)
+        let lib_songs = crate::playlist::find_mp3s_in_dir(&self.music_folder, true);
+        for p in &lib_songs {
+            let meta = if let Some(cached) = self.meta_cache.get(p) {
+                cached.clone()
+            } else {
+                crate::meta::song_meta(p)
+            };
+            let art = meta.artist.trim();
+            if !art.is_empty() && !art.eq_ignore_ascii_case("unknown") {
+                set.insert(art.to_string());
+            }
+        }
+
+        // 3. Audio files in current browser directory if different from music_folder
+        if self.browser.current_dir != self.music_folder {
+            let browser_songs = crate::playlist::find_mp3s_in_dir(&self.browser.current_dir, true);
+            for p in &browser_songs {
+                let meta = if let Some(cached) = self.meta_cache.get(p) {
+                    cached.clone()
+                } else {
+                    crate::meta::song_meta(p)
+                };
+                let art = meta.artist.trim();
+                if !art.is_empty() && !art.eq_ignore_ascii_case("unknown") {
+                    set.insert(art.to_string());
+                }
+            }
+        }
+
+        set.into_iter().collect()
+    }
+
     pub fn collect_existing_albums(&self) -> Vec<String> {
         let mut set = std::collections::BTreeSet::new();
 
@@ -54,20 +103,33 @@ impl App {
                 crate::meta::song_meta(p)
             };
             let alb = meta.album.trim();
-            if !alb.is_empty() && !alb.ends_with(" - Single") {
+            if !alb.is_empty() && !alb.ends_with(" - Single") && !alb.eq_ignore_ascii_case("unknown") {
                 set.insert(alb.to_string());
             }
         }
 
-        // 2. Subdirectories in form_dir and music_folder
-        for dir in [&self.download.form_dir, &self.music_folder] {
-            if let Ok(entries) = std::fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    if let Ok(ft) = entry.file_type() {
-                        if ft.is_dir() {
-                            let name = entry.file_name().to_string_lossy().to_string();
-                            if !name.starts_with('.') {
-                                set.insert(name);
+        // 2. Subdirectories in music_folder only if they actually contain audio files
+        let ignore_dirs = [
+            "download", "downloads", "output", "temp", "tmp", "dist",
+            "target", "src", "bin", "tests", "plugins", "node_modules",
+        ];
+        if let Ok(entries) = std::fs::read_dir(&self.music_folder) {
+            for entry in entries.flatten() {
+                if let Ok(ft) = entry.file_type() {
+                    if ft.is_dir() {
+                        let name = entry.file_name().to_string_lossy().to_string();
+                        if !name.starts_with('.') && !ignore_dirs.iter().any(|ig| name.eq_ignore_ascii_case(ig)) {
+                            if let Ok(sub) = std::fs::read_dir(entry.path()) {
+                                let has_audio = sub.flatten().any(|e| {
+                                    e.path()
+                                        .extension()
+                                        .and_then(|ext| ext.to_str())
+                                        .map(|ext| matches!(ext.to_ascii_lowercase().as_str(), "mp3" | "flac" | "m4a" | "wav" | "ogg"))
+                                        .unwrap_or(false)
+                                });
+                                if has_audio {
+                                    set.insert(name);
+                                }
                             }
                         }
                     }
@@ -107,6 +169,8 @@ impl App {
     /// Open the metadata form and kick off background studio-cover search
     /// (termusic songtag-style: user reviews metadata while candidates load).
     fn open_metadata_form(&mut self, url: String, title: String, artist: String) {
+        self.download.existing_artists = self.collect_existing_artists();
+        self.download.selected_artist_idx = None;
         self.download.existing_albums = self.collect_existing_albums();
         self.download.selected_album_idx = None;
         self.download.suggested_genres = self.collect_suggested_genres();
@@ -135,8 +199,13 @@ impl App {
     pub fn handle_download_enter(&mut self) {
         if self.download.show_dir_picker {
             if let Some(selected_dir) = self.download.dir_picker.enter() {
+                let path_str = selected_dir.to_string_lossy().to_string();
                 self.download.form_dir = selected_dir;
                 self.download.show_dir_picker = false;
+                if let Some(item) = self.config_paths.iter_mut().find(|p| p.id == "download_dir") {
+                    item.path = path_str.clone();
+                }
+                let _ = crate::config::Config::save_setting("download_dir", &path_str);
             }
         } else if self.download.show_metadata_form {
             if self.download.form_field_idx == 4 {
@@ -257,5 +326,31 @@ impl App {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_collect_existing_artists_discovers_subfolder_tracks() {
+        let temp_dir = std::env::temp_dir().join(format!("lyra_artist_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let sub_dir = temp_dir.join("Anime Album");
+        std::fs::create_dir_all(&sub_dir).unwrap();
+
+        // Create dummy audio files with artist - title filename pattern
+        let song1 = sub_dir.join("Konomi Suzuki - This game.mp3");
+        let song2 = sub_dir.join("Aya Hirano - God knows.mp3");
+        std::fs::write(&song1, b"dummy mp3 1").unwrap();
+        std::fs::write(&song2, b"dummy mp3 2").unwrap();
+
+        if let Ok(app) = App::new(&temp_dir) {
+            let artists = app.collect_existing_artists();
+            assert!(artists.contains(&"Konomi Suzuki".to_string()), "Must find Konomi Suzuki from subdirectory");
+            assert!(artists.contains(&"Aya Hirano".to_string()), "Must find Aya Hirano from subdirectory");
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

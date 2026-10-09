@@ -28,10 +28,34 @@ use app::App;
 use crossterm::event::{self, Event, KeyEventKind};
 
 fn main() -> Result<()> {
-    // Music folder priority: CLI arg > ~/.config/lyra/config.toml > CWD.
-    let cli_dir = std::env::args().nth(1).map(PathBuf::from);
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--version" || a == "-v" || a == "-V") {
+        println!("lyra {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        println!("lyra {} - Modern TUI Music Player", env!("CARGO_PKG_VERSION"));
+        println!();
+        println!("Usage: lyra [OPTIONS] [MUSIC_DIRECTORY]");
+        println!();
+        println!("Options:");
+        println!("  -v, --version    Print version information");
+        println!("  -h, --help       Print help information");
+        return Ok(());
+    }
+
+    // Music folder priority: CLI arg > ~/.config/lyra/config.toml > ~/Music > CWD.
+    let cli_dir = args.into_iter().skip(1).find(|a| !a.starts_with('-')).map(PathBuf::from);
     let config = config::Config::load();
-    let (music_directory, warning) = config.resolve_music_folder(cli_dir);
+    let (music_directory, warning) = config.resolve_music_folder(cli_dir.clone());
+
+    // If user passed a CLI directory, or if config.toml doesn't have music_folder set yet,
+    // persist it so future launches & version upgrades remember this directory!
+    if let Some(ref arg) = cli_dir {
+        let _ = config::Config::save_setting("music_folder", &arg.to_string_lossy());
+    } else if config.music_folder.is_none() && music_directory.exists() {
+        let _ = config::Config::save_setting("music_folder", &music_directory.to_string_lossy());
+    }
 
     let mut app = App::new(&music_directory)?;
     if let Some(w) = warning {

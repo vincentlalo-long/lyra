@@ -46,10 +46,24 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
         ("󰓛 ", "Stopped: ", "No track selected".to_string())
     };
 
+    let row1_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Min(20),
+            Constraint::Length(14),
+            Constraint::Length(24),
+        ])
+        .split(sub_chunks[0]);
+
+    let title_box_w = row1_chunks[0].width as usize;
+    let label_w = 2 + label.len();
+    let avail_w = title_box_w.saturating_sub(label_w);
+    let fitted_name = crate::ui::playlist::fit_width(&track_name, avail_w);
+
     let title_line = Line::from(vec![
         Span::styled(icon, Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
         Span::styled(label, Style::default().fg(theme::SUBTEXT0)),
-        Span::styled(track_name, Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)),
+        Span::styled(fitted_name, Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)),
     ]);
 
     // Repeat mode display (queue-loop wins: it overrides library looping).
@@ -81,15 +95,6 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
         Span::styled(vol_bar, Style::default().fg(theme::MAUVE)),
         Span::raw(" "),
     ]);
-
-    let row1_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Min(20),
-            Constraint::Length(14),
-            Constraint::Length(24),
-        ])
-        .split(sub_chunks[0]);
 
     frame.render_widget(Paragraph::new(title_line), row1_chunks[0]);
     frame.render_widget(Paragraph::new(repeat_line).alignment(Alignment::Center), row1_chunks[1]);

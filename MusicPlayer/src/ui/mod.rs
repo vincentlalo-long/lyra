@@ -5,6 +5,7 @@ mod cover;
 mod dir_picker;
 #[cfg(feature = "download")]
 mod download;
+mod extensions;
 #[cfg(feature = "genre")]
 mod genre;
 #[cfg(feature = "genre")]
@@ -53,16 +54,17 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         ]);
         frame.render_widget(Paragraph::new(search_line), layout_chunks[0]);
     } else {
+        let left_required = 76;
         let right_width = if app.toast_text().is_some() || !app.search_query.is_empty() {
-            50.min(layout_chunks[0].width.saturating_sub(48))
+            44.min(layout_chunks[0].width.saturating_sub(left_required))
         } else {
-            36.min(layout_chunks[0].width.saturating_sub(48))
+            34.min(layout_chunks[0].width.saturating_sub(left_required))
         };
 
         let top_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Min(48),
+                Constraint::Min(left_required),
                 Constraint::Length(right_width),
             ])
             .split(layout_chunks[0]);
@@ -87,32 +89,39 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         } else {
             Style::default().fg(theme::OVERLAY0)
         };
-
-        left_spans.push(Span::styled(" [1] 󰲸 Playlist ", playlist_tab_style));
-        left_spans.push(Span::raw(" "));
-        left_spans.push(Span::styled(" [2] 󰐗 Queue ", queue_tab_style));
-        left_spans.push(Span::raw(" "));
-        left_spans.push(Span::styled(" [3] 󰉋 Browser ", browser_tab_style));
-
-        #[cfg(feature = "download")]
-        {
-            let download_tab_style = if app.view_mode == ViewMode::Download {
-                Style::default().fg(theme::MAUVE).bg(theme::SURFACE0).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(theme::OVERLAY0)
-            };
-            left_spans.push(Span::raw(" "));
-            left_spans.push(Span::styled(" [4] 󰇚 Download ", download_tab_style));
-        }
-
-        left_spans.push(Span::raw(" "));
-        let plugin_tab_num = if cfg!(feature = "download") { "5" } else { "4" };
+        let extensions_tab_style = if app.view_mode == ViewMode::Extensions {
+            Style::default().fg(theme::MAUVE).bg(theme::SURFACE0).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme::OVERLAY0)
+        };
         let plugins_tab_style = if app.view_mode == ViewMode::Plugins {
             Style::default().fg(theme::MAUVE).bg(theme::SURFACE0).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(theme::OVERLAY0)
         };
-        left_spans.push(Span::styled(format!(" [{plugin_tab_num}] 󰏖 Plugins "), plugins_tab_style));
+
+        let is_compact = layout_chunks[0].width < 96;
+        if is_compact {
+            left_spans.push(Span::styled(" [1] Playlist ", playlist_tab_style));
+            left_spans.push(Span::raw(" "));
+            left_spans.push(Span::styled(" [2] Queue ", queue_tab_style));
+            left_spans.push(Span::raw(" "));
+            left_spans.push(Span::styled(" [3] Browser ", browser_tab_style));
+            left_spans.push(Span::raw(" "));
+            left_spans.push(Span::styled(" [4] Extensions ", extensions_tab_style));
+            left_spans.push(Span::raw(" "));
+            left_spans.push(Span::styled(" [5] Plugins ", plugins_tab_style));
+        } else {
+            left_spans.push(Span::styled(" [1] 󰲸 Playlist ", playlist_tab_style));
+            left_spans.push(Span::raw(" "));
+            left_spans.push(Span::styled(" [2] 󰐗 Queue ", queue_tab_style));
+            left_spans.push(Span::raw(" "));
+            left_spans.push(Span::styled(" [3] 󰉋 Browser ", browser_tab_style));
+            left_spans.push(Span::raw(" "));
+            left_spans.push(Span::styled(" [4] 󱊄 Extensions ", extensions_tab_style));
+            left_spans.push(Span::raw(" "));
+            left_spans.push(Span::styled(" [5] 󰏖 Plugins ", plugins_tab_style));
+        }
 
         frame.render_widget(Paragraph::new(Line::from(left_spans)), top_chunks[0]);
 
@@ -139,30 +148,23 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         );
     }
 
-    // Set when the `download` plugin is compiled in and its view is active.
-    #[cfg(feature = "download")]
-    let in_download_view = app.view_mode == ViewMode::Download;
-    #[cfg(not(feature = "download"))]
-    let in_download_view = false;
-
-    if in_download_view {
-        #[cfg(feature = "download")]
-        download::render(frame, app, layout_chunks[1]);
-    } else if app.show_lyrics {
-        // Karaoke Mode (Lyric ON): Cover Art hẹp lại (giảm chiều ngang) và cao hơn
+    if app.view_mode == ViewMode::Extensions {
+        extensions::render(frame, app, layout_chunks[1]);
+    } else if app.show_lyrics && app.view_mode != ViewMode::Plugins {
+        // Karaoke Mode (Lyric ON): Cover art on the left, wide lyrics area on the right
         let body_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(24), // Left: Giảm chiều ngang xuống 24%
-                Constraint::Percentage(76), // Right: Tăng độ rộng cho Lyrics Karaoke
+                Constraint::Percentage(24), // Left: Compact width for cover art
+                Constraint::Percentage(76), // Right: Wide area for synchronized lyrics
             ])
             .split(layout_chunks[1]);
 
         let left_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Percentage(38), // Upper: Playlist or Browser
-                Constraint::Percentage(62), // Lower: Tăng chiều cao Cover Art (62%)
+                Constraint::Percentage(38), // Upper: Playlist, Queue, or Browser
+                Constraint::Percentage(62), // Lower: Cover Art
             ])
             .split(body_chunks[0]);
 
@@ -170,15 +172,14 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             ViewMode::Playlist => playlist::render(frame, app, left_chunks[0]),
             ViewMode::Queue => queue::render(frame, app, left_chunks[0]),
             ViewMode::Browser => browser::render(frame, app, left_chunks[0]),
-            #[cfg(feature = "download")]
-            ViewMode::Download => {}
-            ViewMode::Plugins => plugins::render(frame, app, left_chunks[0]),
+            ViewMode::Extensions => {}
+            ViewMode::Plugins => {}
         }
 
         cover::render(frame, app, left_chunks[1]);
         lyrics::render(frame, app, body_chunks[1]);
     } else {
-        // Studio Mode (Lyric OFF): Cover Art rộng hơn (+width) và bớt cao (-height) để không bị bóp ảnh
+        // Studio Mode (Lyric OFF): Cover Art + Spotlight specs on the left
         let available_h = layout_chunks[1].height;
         let available_w = layout_chunks[1].width;
         let spotlight_height = 10.min(available_h.saturating_sub(12));
@@ -189,16 +190,16 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         let body_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Length(left_w), // Trái: Rộng hơn để ảnh thoải mái, không bị bóp
-                Constraint::Min(40),        // Phải: Bảng bài hát đa cột / Browser / Plugins
+                Constraint::Length(left_w), // Left: Cover art and spotlight
+                Constraint::Min(40),        // Right: Songs table / Browser / Plugins
             ])
             .split(layout_chunks[1]);
 
         let left_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(cover_h),       // Trên: Cover Art giảm tí độ cao
-                Constraint::Min(spotlight_height), // Dưới: Spotlight & Specs nhận phần còn lại
+                Constraint::Length(cover_h),       // Upper: Cover Art
+                Constraint::Min(spotlight_height), // Lower: Spotlight & Specs
             ])
             .split(body_chunks[0]);
 
@@ -209,8 +210,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             ViewMode::Playlist => playlist::render(frame, app, body_chunks[1]),
             ViewMode::Queue => queue::render(frame, app, body_chunks[1]),
             ViewMode::Browser => browser::render(frame, app, body_chunks[1]),
-            #[cfg(feature = "download")]
-            ViewMode::Download => {}
+            ViewMode::Extensions => {}
             ViewMode::Plugins => plugins::render(frame, app, body_chunks[1]),
         }
     }
@@ -247,18 +247,19 @@ pub fn post_render(app: &mut App) -> std::io::Result<()> {
     let mut stdout = std::io::stdout();
 
     // Cover art lives either in:
-    // 1. Cover Art Picker modal in download view (using app.download.cover_preview_art)
+    // 1. Cover Art Picker modal or Metadata review form in download view (using app.download.cover_preview_art)
     // 2. Playlist/Queue/Browser split view (using app.cover)
     #[cfg(feature = "download")]
-    let is_cover_modal = app.download.show_cover_picker_modal;
+    let is_download_cover_active = app.download.show_cover_picker_modal
+        || (app.download.show_metadata_form && app.download.cover_preview_art.is_some());
     #[cfg(not(feature = "download"))]
-    let _is_cover_modal = false;
+    let is_download_cover_active = false;
 
     #[cfg(feature = "download")]
-    let in_download_overlay = (app.view_mode == ViewMode::Download
+    let in_download_overlay = (app.view_mode == ViewMode::Extensions
         || app.download.show_metadata_form
         || app.download.show_dir_picker)
-        && !is_cover_modal;
+        && !is_download_cover_active;
     #[cfg(not(feature = "download"))]
     let in_download_overlay = false;
 
@@ -275,7 +276,7 @@ pub fn post_render(app: &mut App) -> std::io::Result<()> {
     }
 
     #[cfg(feature = "download")]
-    let (target_art, state_path) = if is_cover_modal {
+    let (target_art, state_path) = if is_download_cover_active {
         (
             app.download.cover_preview_art.as_ref(),
             app.download.cover_preview_path.as_ref().map(PathBuf::from),

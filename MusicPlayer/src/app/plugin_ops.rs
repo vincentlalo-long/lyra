@@ -33,6 +33,7 @@ impl App {
                 "lyrics" => self.show_lyrics = enabled,
                 _ => {}
             }
+            let _ = crate::plugin::ManagedPlugin::save_plugins(&self.plugins);
         } else if self.plugin_selected < n_plugins + n_paths {
             let path_idx = self.plugin_selected - n_plugins;
             self.start_editing_path(path_idx);
@@ -60,12 +61,14 @@ impl App {
                     self.plugin_selected = total.saturating_sub(1);
                 }
                 self.set_toast(format!("Uninstalled & permanently removed '{name}'"));
+                let _ = crate::plugin::ManagedPlugin::save_plugins(&self.plugins);
                 return;
             }
             let p_mut = &mut self.plugins[self.plugin_selected];
             p_mut.is_removed = true;
             p_mut.enabled = false;
             let name = p_mut.name.clone();
+            let _ = crate::plugin::ManagedPlugin::save_plugins(&self.plugins);
             self.set_toast(format!("Removed plugin: {name} (press 'r' to restore)"));
         } else {
             self.set_toast("Paths and store cannot be removed".to_string());
@@ -79,6 +82,7 @@ impl App {
             p.is_removed = false;
             p.enabled = true;
             let name = p.name.clone();
+            let _ = crate::plugin::ManagedPlugin::save_plugins(&self.plugins);
             self.set_toast(format!("Restored plugin: {name}"));
         }
     }
@@ -112,12 +116,21 @@ impl App {
                 if let Some(item) = self.config_paths.get_mut(idx) {
                     item.path = new_path.clone();
                     let label = item.label.clone();
+                    let home = std::env::var("HOME").unwrap_or_default();
+                    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                    let expanded = crate::config::expand_path(&new_path, &home, &cwd);
+
                     if item.id == "music_folder" {
-                        let home = std::env::var("HOME").unwrap_or_default();
-                        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                        let expanded = crate::config::expand_path(&new_path, &home, &cwd);
                         self.music_folder = expanded.clone();
                         self.browser = FileBrowser::new(&expanded);
+                        self.playlist = crate::playlist::Playlist::new(&expanded);
+                        let _ = crate::config::Config::save_setting("music_folder", &new_path);
+                    } else if item.id == "download_dir" {
+                        #[cfg(feature = "download")]
+                        {
+                            self.download.form_dir = expanded;
+                        }
+                        let _ = crate::config::Config::save_setting("download_dir", &new_path);
                     }
                     self.set_toast(format!("Updated {label} to: {new_path}"));
                 }
@@ -153,6 +166,7 @@ impl App {
                     is_removed: false,
                     is_builtin: false,
                 });
+                let _ = crate::plugin::ManagedPlugin::save_plugins(&self.plugins);
             }
             self.set_toast(format!("[Mock UI] Downloaded & installed '{name}' {version}!"));
         }

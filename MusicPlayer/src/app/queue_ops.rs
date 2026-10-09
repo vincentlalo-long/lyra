@@ -13,8 +13,7 @@ impl App {
             ViewMode::Browser => self.browser.entries.get(self.browser.selected).cloned().filter(|p| {
                 p.is_file() && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("mp3"))
             }),
-            #[cfg(feature = "download")]
-            ViewMode::Download => None,
+            ViewMode::Extensions => None,
             ViewMode::Plugins => None,
         }
     }
