@@ -49,12 +49,19 @@ fn main() -> Result<()> {
     let config = config::Config::load();
     let (music_directory, warning) = config.resolve_music_folder(cli_dir.clone());
 
-    // If user passed a CLI directory, or if config.toml doesn't have music_folder set yet,
-    // persist it so future launches & version upgrades remember this directory!
+    // If user passed a CLI directory, persist it so future launches remember it.
+    // If no config exists yet, only auto-pin the standard ~/Music folder —
+    // never an arbitrary CWD (launching from a random directory must not
+    // permanently hijack the library and look like a "reset" next time).
     if let Some(ref arg) = cli_dir {
         let _ = config::Config::save_setting("music_folder", &arg.to_string_lossy());
     } else if config.music_folder.is_none() && music_directory.exists() {
-        let _ = config::Config::save_setting("music_folder", &music_directory.to_string_lossy());
+        let is_default_music = std::env::var_os("HOME")
+            .map(|h| PathBuf::from(h).join("Music"))
+            .is_some_and(|d| d == music_directory);
+        if is_default_music {
+            let _ = config::Config::save_setting("music_folder", &music_directory.to_string_lossy());
+        }
     }
 
     let mut app = App::new(&music_directory)?;

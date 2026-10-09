@@ -19,6 +19,13 @@ pub struct FileConfig {
 }
 
 fn config_path() -> Option<PathBuf> {
+    // Test override: keeps `cargo test` hermetic so unit tests never
+    // clobber the user's real `~/.config/lyra/config.toml`.
+    // (Used by explicit-path helpers below; the global writers are
+    // stubbed out entirely under `cfg(test)`.)
+    if let Some(p) = std::env::var_os("LYRA_CONFIG_FILE") {
+        return Some(PathBuf::from(p));
+    }
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| {
@@ -72,24 +79,58 @@ impl Config {
         }
     }
 
-    /// Save or update setting in config file (~/.config/lyra/config.toml)
+    /// Save or update setting in config file (~/.config/lyra/config.toml).
+    /// Unknown keys already present in the file are preserved.
     pub fn save_setting(key: &str, value: &str) -> std::io::Result<()> {
-        if let Some(path) = config_path() {
-            if let Some(parent) = path.parent() {
+        #[cfg(test)]
+        {
+            // Hermetic tests: App-level tests assert in-memory state only.
+            // Never touch the user's real config file from `cargo test`.
+            // (Persistence itself is covered by `save_setting_to` tests below.)
+            let _ = (key, value);
+            return Ok(());
+        }
+        #[cfg(not(test))]
+        {
+            if let Some(path) = config_path() {
+                Self::save_setting_to(&path, key, value)?;
+            }
+            Ok(())
+        }
+    }
+
+    /// Explicit-path variant used by tests and future callers.
+    /// Preserves unknown keys (merges into the existing TOML table
+    /// instead of round-tripping through the minimal `FileConfig` struct).
+    pub fn save_setting_to(path: &Path, key: &str, value: &str) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            let text = std::fs::read_to_string(&path).unwrap_or_default();
-            let mut file: FileConfig = toml::from_str(&text).unwrap_or_default();
-            match key {
-                "music_folder" => file.music_folder = Some(value.to_string()),
-                "download_dir" => file.download_dir = Some(value.to_string()),
-                _ => {}
-            }
-            let serialized = toml::to_string_pretty(&file)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-            std::fs::write(&path, serialized)?;
         }
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        let mut table: toml::Table = toml::from_str(&text).unwrap_or_default();
+        match key {
+            "music_folder" | "download_dir" => {
+                table.insert(key.to_string(), toml::Value::String(value.to_string()));
+            }
+            _ => {}
+        }
+        let serialized = toml::to_string_pretty(&table)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        std::fs::write(path, serialized)?;
         Ok(())
+    }
+
+    /// Explicit-path loader (test helper; mirrors [`Config::load`]).
+    #[cfg(test)]
+    pub fn load_from(path: &Path) -> Self {
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        let file: FileConfig = toml::from_str(&text).unwrap_or_default();
+        Self {
+            music_folder: file.music_folder,
+            download_dir: file.download_dir,
+        }
     }
 
     /// Resolves the effective download folder.
@@ -209,5 +250,43 @@ mod tests {
         let (p, raw) = cfg.resolve_download_dir(Path::new("/fallback"));
         assert_eq!(raw, "~/Custom/Downloads");
         assert!(p.to_string_lossy().ends_with("Custom/Downloads"));
+    }
+
+    #[test]
+    fn test_save_and_reload_roundtrip_via_explicit_path() {
+        // Regression test for "music directory resets on restart":
+        // a saved music_folder must survive a load (quit -> relaunch).
+        let dir = std::env::temp_dir().join(format!("lyra_cfg_test_{}", std::process::id()));
+        let path = dir.join("config.toml");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        Config::save_setting_to(&path, "music_folder", "/tmp/mytest_music").unwrap();
+        Config::save_setting_to(&path, "download_dir", "/tmp/mytest_music/dl").unwrap();
+        let cfg = Config::load_from(&path);
+        assert_eq!(cfg.music_folder, Some("/tmp/mytest_music".to_string()));
+        assert_eq!(cfg.download_dir, Some("/tmp/mytest_music/dl".to_string()));
+
+        // Overwriting one key must not drop the other.
+        Config::save_setting_to(&path, "music_folder", "/tmp/other").unwrap();
+        let cfg = Config::load_from(&path);
+        assert_eq!(cfg.music_folder, Some("/tmp/other".to_string()));
+        assert_eq!(cfg.download_dir, Some("/tmp/mytest_music/dl".to_string()));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_save_preserves_unknown_keys() {
+        let dir = std::env::temp_dir().join(format!("lyra_cfg_unknown_{}", std::process::id()));
+        let path = dir.join("config.toml");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        std::fs::write(&path, "music_folder = \"/a\"\nfuture_option = \"keep-me\"\n").unwrap();
+
+        Config::save_setting_to(&path, "music_folder", "/b").unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("future_option"), "unknown keys must survive saves: {text}");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

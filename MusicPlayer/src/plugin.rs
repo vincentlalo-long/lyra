@@ -107,6 +107,10 @@ impl ManagedPlugin {
 
     /// Resolves path to ~/.config/lyra/plugins.json
     pub fn plugins_config_path() -> Option<PathBuf> {
+        // Test override (see config.rs `LYRA_CONFIG_FILE`).
+        if let Some(p) = std::env::var_os("LYRA_PLUGINS_FILE") {
+            return Some(PathBuf::from(p));
+        }
         let base = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .or_else(|| {
@@ -155,15 +159,24 @@ impl ManagedPlugin {
 
     /// Persists plugins configuration to ~/.config/lyra/plugins.json
     pub fn save_plugins(plugins: &[Self]) -> std::io::Result<()> {
-        if let Some(path) = Self::plugins_config_path() {
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            let json = serde_json::to_string_pretty(plugins)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-            std::fs::write(&path, json)?;
+        #[cfg(test)]
+        {
+            // Hermetic tests: never clobber the user's real plugins.json.
+            let _ = plugins;
+            return Ok(());
         }
-        Ok(())
+        #[cfg(not(test))]
+        {
+            if let Some(path) = Self::plugins_config_path() {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let json = serde_json::to_string_pretty(plugins)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                std::fs::write(&path, json)?;
+            }
+            Ok(())
+        }
     }
 }
 
