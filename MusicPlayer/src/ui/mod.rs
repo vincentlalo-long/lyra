@@ -251,7 +251,8 @@ pub fn post_render(app: &mut App) -> std::io::Result<()> {
     // 2. Playlist/Queue/Browser split view (using app.cover)
     #[cfg(feature = "download")]
     let is_download_cover_active = app.download.show_cover_picker_modal
-        || (app.download.show_metadata_form && app.download.cover_preview_art.is_some());
+        || (app.download.show_metadata_form && app.download.cover_preview_art.is_some())
+        || (app.download.show_cover_file_picker && app.download.file_hover_preview.is_some());
     #[cfg(not(feature = "download"))]
     let is_download_cover_active = false;
 
@@ -276,7 +277,12 @@ pub fn post_render(app: &mut App) -> std::io::Result<()> {
     }
 
     #[cfg(feature = "download")]
-    let (target_art, state_path) = if is_download_cover_active {
+    let (target_art, state_path) = if app.download.show_cover_file_picker {
+        (
+            app.download.file_hover_preview.as_ref(),
+            app.download.file_hover_path.clone().map(PathBuf::from),
+        )
+    } else if is_download_cover_active {
         (
             app.download.cover_preview_art.as_ref(),
             app.download.cover_preview_path.as_ref().map(PathBuf::from),

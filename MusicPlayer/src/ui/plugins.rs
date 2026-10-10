@@ -12,7 +12,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default()
         .title(" 󰏖 Plugin Manager & Extension Store ")
         .title_bottom(Line::from(vec![
-            Span::styled(" [↑/↓: Select | Space/Enter: Toggle | d: Remove | r: Restore | e: Edit Path | D: Store] ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled(" [↑/↓: Select | Space/Enter: Toggle | ←/→: Adjust Limit | d: Remove | r: Restore | e: Edit Path | D: Store] ", Style::default().fg(theme::OVERLAY0)),
         ]))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
@@ -128,7 +128,52 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         lines.push(Line::raw(""));
     }
 
+    // Section 2.5: Download Settings (persisted to config.toml).
+    // Only with the `download` feature; otherwise the store row
+    // directly follows the paths (see total_plugin_items).
+    #[cfg(feature = "download")]
+    {
+    let settings_idx = n_plugins + n_paths;
+    item_line_indices.push(lines.len());
+    let is_sel_settings = app.plugin_selected == settings_idx;
+    lines.push(Line::from(vec![
+        Span::styled("  Download Settings", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
+        Span::styled(" — [←/→ or Enter: Adjust]", Style::default().fg(theme::OVERLAY0)),
+    ]));
+    lines.push(Line::raw(""));
+    {
+        let limit = app.download.search_limit;
+        let value = format!("< {limit} results >");
+        if is_sel_settings {
+            lines.push(Line::from(vec![
+                Span::styled(" ❯ ", Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{:<24}", "Search Result Limit"), Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
+                Span::styled(value, Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)),
+                Span::styled("  ◀ ←/→: Adjust (5/10/15/25/50) ▶", Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("     "),
+                Span::styled("How many YouTube results each search fetches (saved)", Style::default().fg(theme::TEXT)),
+            ]));
+        } else {
+            lines.push(Line::from(vec![
+                Span::raw("   "),
+                Span::styled(format!("{:<24}", "Search Result Limit"), Style::default().fg(theme::SUBTEXT0)),
+                Span::styled(value, Style::default().fg(theme::TEXT)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("     "),
+                Span::styled("How many YouTube results each search fetches (saved)", Style::default().fg(theme::OVERLAY0)),
+            ]));
+        }
+        lines.push(Line::raw(""));
+    }
+    } // end cfg(feature = "download") settings section
+
     // Section 3: Download Community Plugins Option
+    #[cfg(feature = "download")]
+    let store_item_idx = n_plugins + n_paths + 1;
+    #[cfg(not(feature = "download"))]
     let store_item_idx = n_plugins + n_paths;
     item_line_indices.push(lines.len());
     let is_sel_store = app.plugin_selected == store_item_idx;

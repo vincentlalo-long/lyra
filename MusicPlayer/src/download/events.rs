@@ -67,6 +67,11 @@ pub enum DownloadEvent {
         has_manual: bool,
         has_auto: bool,
     },
+    /// A remote cover image was staged to the local disk cache
+    /// for crop editing (prefetch had missed it).
+    ImageStaged {
+        path: String,
+    },
     CoverLoading,
     CoverResults(Vec<CoverCandidate>),
     Progress {

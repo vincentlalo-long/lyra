@@ -42,7 +42,7 @@ impl ManagedPlugin {
             Self {
                 id: "download".into(),
                 name: "YouTube Audio Downloader".into(),
-                version: "v0.5.0".into(),
+                version: "v0.6.0".into(),
                 description: "YouTube audio search, yt-dlp downloader & ID3 artwork embedder".into(),
                 enabled: cfg!(feature = "download"),
                 is_removed: false,
@@ -278,7 +278,7 @@ mod tests {
     fn test_merge_plugins_preserves_user_settings_and_updates_version() {
         let defaults = ManagedPlugin::default_plugins();
         let download_def = defaults.iter().find(|p| p.id == "download").unwrap();
-        assert_eq!(download_def.version, "v0.5.0");
+        assert_eq!(download_def.version, "v0.6.0");
 
         // Simulate saved plugins from older version (download was v0.3.2 and user disabled it)
         let old_saved = vec![
@@ -317,8 +317,8 @@ mod tests {
         }
 
         let download_merged = merged.iter().find(|p| p.id == "download").unwrap();
-        // Version is upgraded to v0.5.0 from new binary:
-        assert_eq!(download_merged.version, "v0.5.0");
+        // Version is upgraded to v0.6.0 from new binary:
+        assert_eq!(download_merged.version, "v0.6.0");
         // But user preference (enabled = false) is strictly preserved!
         assert_eq!(download_merged.enabled, false);
 

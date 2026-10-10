@@ -47,6 +47,11 @@ struct RawLyricsProbe {
 }
 
 #[derive(Deserialize)]
+struct RawStaged {
+    path: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct RawEvent {
     #[serde(rename = "type")]
     event_type: String,
@@ -308,8 +313,34 @@ impl Downloader {
         });
     }
 
-    pub fn fetch_covers(&self, artist: String, title: String) {
-        self.fetch_covers_query(artist, title, None, Some("auto".to_string()));
+    /// Downloads a remote cover image into the local disk cache so the
+    /// crop editor can work on it. Emits `ImageStaged` on success,
+    /// stays silent on failure (caller keeps its toast).
+    pub fn stage_image_for_crop(&self, url: String) {
+        let sender = self.sender.clone();
+        let script = Self::find_script();
+
+        thread::spawn(move || {
+            let script_dir = script.parent().unwrap_or(std::path::Path::new("."));
+            let output = Command::new("python3")
+                .env("PYTHONPATH", script_dir)
+                .arg(&script)
+                .arg("stage-image")
+                .arg(&url)
+                .arg("--json")
+                .output();
+
+            if let Ok(out) = output {
+                let text = String::from_utf8_lossy(&out.stdout);
+                if let Ok(staged) = serde_json::from_str::<RawStaged>(text.trim()) {
+                    if let Some(path) = staged.path {
+                        if std::path::Path::new(&path).is_file() {
+                            let _ = sender.send(DownloadEvent::ImageStaged { path });
+                        }
+                    }
+                }
+            }
+        });
     }
 
     pub fn fetch_covers_query(

@@ -16,6 +16,7 @@ const CONFIG_EXAMPLE: &str = "# lyra settings\n# music_folder = \"~/Music\"\n# d
 pub struct FileConfig {
     pub music_folder: Option<String>,
     pub download_dir: Option<String>,
+    pub search_limit: Option<usize>,
 }
 
 fn config_path() -> Option<PathBuf> {
@@ -63,6 +64,8 @@ pub struct Config {
     pub music_folder: Option<String>,
     /// Raw `download_dir` value from the file, if present.
     pub download_dir: Option<String>,
+    /// Saved YouTube search result limit, if present.
+    pub search_limit: Option<usize>,
 }
 
 impl Config {
@@ -76,6 +79,7 @@ impl Config {
         Self {
             music_folder: file.music_folder,
             download_dir: file.download_dir,
+            search_limit: file.search_limit,
         }
     }
 
@@ -114,6 +118,14 @@ impl Config {
             "music_folder" | "download_dir" => {
                 table.insert(key.to_string(), toml::Value::String(value.to_string()));
             }
+            // Numeric setting (YouTube search result limit).
+            "search_limit" => {
+                if let Ok(n) = value.parse::<i64>() {
+                    if (1..=50).contains(&n) {
+                        table.insert(key.to_string(), toml::Value::Integer(n));
+                    }
+                }
+            }
             _ => {}
         }
         let serialized = toml::to_string_pretty(&table)
@@ -130,6 +142,7 @@ impl Config {
         Self {
             music_folder: file.music_folder,
             download_dir: file.download_dir,
+            search_limit: file.search_limit,
         }
     }
 
@@ -224,6 +237,7 @@ mod tests {
         let cfg = Config {
             music_folder: Some("/cfg/music".to_string()),
             download_dir: None,
+            search_limit: None,
         };
         let (p, w) = cfg.resolve_music_folder(Some(PathBuf::from("/cli/music")));
         assert_eq!(p, PathBuf::from("/cli/music"));
@@ -235,6 +249,7 @@ mod tests {
         let cfg = Config {
             music_folder: Some("/nonexistent-lyra-dir-xyz".to_string()),
             download_dir: None,
+            search_limit: None,
         };
         let (p, w) = cfg.resolve_music_folder(None);
         assert!(w.is_some());
@@ -246,6 +261,7 @@ mod tests {
         let cfg = Config {
             music_folder: None,
             download_dir: Some("~/Custom/Downloads".to_string()),
+            search_limit: None,
         };
         let (p, raw) = cfg.resolve_download_dir(Path::new("/fallback"));
         assert_eq!(raw, "~/Custom/Downloads");
@@ -262,9 +278,11 @@ mod tests {
 
         Config::save_setting_to(&path, "music_folder", "/tmp/mytest_music").unwrap();
         Config::save_setting_to(&path, "download_dir", "/tmp/mytest_music/dl").unwrap();
+        Config::save_setting_to(&path, "search_limit", "25").unwrap();
         let cfg = Config::load_from(&path);
         assert_eq!(cfg.music_folder, Some("/tmp/mytest_music".to_string()));
         assert_eq!(cfg.download_dir, Some("/tmp/mytest_music/dl".to_string()));
+        assert_eq!(cfg.search_limit, Some(25));
 
         // Overwriting one key must not drop the other.
         Config::save_setting_to(&path, "music_folder", "/tmp/other").unwrap();

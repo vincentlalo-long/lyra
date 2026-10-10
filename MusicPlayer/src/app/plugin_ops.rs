@@ -2,11 +2,41 @@ use std::path::PathBuf;
 use crate::browser::FileBrowser;
 use super::App;
 
+/// YouTube search result-count presets for the Plugins settings row.
+#[cfg(feature = "download")]
+pub const SEARCH_LIMIT_PRESETS: [usize; 5] = [5, 10, 15, 25, 50];
+
 impl App {
     /// Total selectable items in the main Plugin Manager view:
-    /// (Installed plugins + Configurable paths + 1 Download Plugin button)
+    /// (Installed plugins + Configurable paths [+ Download settings]
+    /// + 1 Download Plugin button)
     pub fn total_plugin_items(&self) -> usize {
-        self.plugins.len() + self.config_paths.len() + 1
+        #[cfg(feature = "download")]
+        {
+            self.plugins.len() + self.config_paths.len() + 1 + 1
+        }
+        #[cfg(not(feature = "download"))]
+        {
+            self.plugins.len() + self.config_paths.len() + 1
+        }
+    }
+
+    /// Index of the "Search Result Limit" settings row, right after
+    /// the configurable paths and before the store button.
+    /// Only meaningful with the `download` feature (the row is hidden
+    /// otherwise, and the store button takes its index).
+    pub fn search_limit_row_idx(&self) -> usize {
+        self.plugins.len() + self.config_paths.len()
+    }
+
+    #[cfg(feature = "download")]
+    pub fn is_search_limit_row(&self) -> bool {
+        self.plugin_selected == self.search_limit_row_idx()
+    }
+
+    #[cfg(not(feature = "download"))]
+    pub fn is_search_limit_row(&self) -> bool {
+        false
     }
 
     /// Runtime state of a plugin: enabled flag AND not removed.
@@ -45,6 +75,10 @@ impl App {
     pub fn toggle_selected_plugin(&mut self) {
         let n_plugins = self.plugins.len();
         let n_paths = self.config_paths.len();
+        #[cfg(feature = "download")]
+        let on_settings_row = self.is_search_limit_row();
+        #[cfg(not(feature = "download"))]
+        let on_settings_row = false;
 
         if self.plugin_selected < n_plugins {
             let p = &mut self.plugins[self.plugin_selected];
@@ -65,12 +99,42 @@ impl App {
         } else if self.plugin_selected < n_plugins + n_paths {
             let path_idx = self.plugin_selected - n_plugins;
             self.start_editing_path(path_idx);
+        } else if on_settings_row {
+            // Settings row: Enter/Space steps to the next preset.
+            #[cfg(feature = "download")]
+            self.cycle_search_limit_setting(1);
         } else {
             // Option "Download Plugin"
             self.show_plugin_store = true;
             self.store_selected = 0;
             self.set_toast("Opened Plugin Store (UI Preview)".to_string());
         }
+    }
+
+    /// Cycles the persisted YouTube search result limit through the
+    /// presets (`dir`: +1 forward, -1 backward). Shared by the Plugins
+    /// settings row and the Extensions `E` key.
+    #[cfg(feature = "download")]
+    pub fn cycle_search_limit_setting(&mut self, dir: i32) {
+        let cur = self.download.search_limit;
+        let pos = SEARCH_LIMIT_PRESETS.iter().position(|&p| p == cur);
+        let next = match pos {
+            Some(i) => {
+                let len = SEARCH_LIMIT_PRESETS.len() as i32;
+                SEARCH_LIMIT_PRESETS[((i as i32 + dir).rem_euclid(len)) as usize]
+            }
+            // Custom value from config: snap to nearest preset in `dir`.
+            None => {
+                if dir >= 0 {
+                    SEARCH_LIMIT_PRESETS.iter().find(|&&p| p > cur).copied().unwrap_or(SEARCH_LIMIT_PRESETS[0])
+                } else {
+                    SEARCH_LIMIT_PRESETS.iter().rev().find(|&&p| p < cur).copied().unwrap_or(SEARCH_LIMIT_PRESETS[SEARCH_LIMIT_PRESETS.len() - 1])
+                }
+            }
+        };
+        self.download.search_limit = next;
+        let _ = crate::config::Config::save_setting("search_limit", &next.to_string());
+        self.set_toast(format!("Search result limit: {next} (saved)"));
     }
 
     /// Removes (uninstalls / deactivates) the selected plugin from active configuration
@@ -100,7 +164,7 @@ impl App {
             let _ = crate::plugin::ManagedPlugin::save_plugins(&self.plugins);
             self.set_toast(format!("Removed plugin: {name} (press 'r' to restore)"));
         } else {
-            self.set_toast("Paths and store cannot be removed".to_string());
+            self.set_toast("Paths, settings and store cannot be removed".to_string());
         }
     }
 
@@ -213,12 +277,20 @@ impl App {
         self.set_toast(format!("[Mock UI] Downloaded & installed '{name}' {version}!"));
     }
 
-    /// Adjusts or toggles the selected setting in the Plugins view.
-    pub fn adjust_selected_plugin(&mut self, _increase: bool) {
+    /// Adjusts the selected setting in the Plugins view:
+    /// plugins toggle, the Search Limit row steps presets, paths open edit.
+    pub fn adjust_selected_plugin(&mut self, increase: bool) {
+        #[cfg(feature = "download")]
+        let on_settings_row = self.is_search_limit_row();
+        #[cfg(not(feature = "download"))]
+        let on_settings_row = false;
         if self.plugin_selected < self.plugins.len() {
             if !self.plugins[self.plugin_selected].is_removed {
                 self.toggle_selected_plugin();
             }
+        } else if on_settings_row {
+            #[cfg(feature = "download")]
+            self.cycle_search_limit_setting(if increase { 1 } else { -1 });
         } else {
             self.toggle_selected_plugin();
         }

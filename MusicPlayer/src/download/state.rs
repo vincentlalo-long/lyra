@@ -56,6 +56,9 @@ pub struct DownloadState {
     // Image file picker modal (to pick a local image file from disk)
     pub show_cover_file_picker: bool,
     pub cover_file_picker: crate::browser::FileBrowser,
+    /// Live preview of the highlighted image in the file picker.
+    pub file_hover_preview: Option<crate::cover::AlbumArt>,
+    pub file_hover_path: Option<String>,
 
     // Interactive crop-focus editor: fixed 1:1 frame moved over the
     // source image with arrows (focus only applies to center_crop).
@@ -64,6 +67,8 @@ pub struct DownloadState {
     pub crop_img_size: Option<(u32, u32)>,
     /// Confirmed focal point (0..1) sent as `--crop-focus`, if any.
     pub cover_focus: Option<(f32, f32)>,
+    /// A remote image is being staged for the crop editor right now.
+    pub crop_staging: bool,
 
     // Directory picker modal
     pub show_dir_picker: bool,
@@ -135,11 +140,14 @@ impl DownloadState {
 
             show_cover_file_picker: false,
             cover_file_picker: crate::browser::FileBrowser::new(initial_dir),
+            file_hover_preview: None,
+            file_hover_path: None,
 
             show_crop_modal: false,
             crop_cursor: (0.5, 0.5),
             crop_img_size: None,
             cover_focus: None,
+            crop_staging: false,
 
             show_dir_picker: false,
             dir_picker: crate::browser::FileBrowser::new(initial_dir),
@@ -281,10 +289,30 @@ impl DownloadState {
         self.form_cursor = new_cursor;
     }
 
+    /// Reloads the file-picker hover preview when the highlighted entry
+    /// changed. Images decode + downscale to 400px (cheap); anything
+    /// else clears the preview.
+    pub fn refresh_file_hover(&mut self) {
+        let hovered = self
+            .cover_file_picker
+            .entries
+            .get(self.cover_file_picker.selected)
+            .filter(|p| p.is_file())
+            .map(|p| p.to_string_lossy().to_string());
+        if hovered == self.file_hover_path {
+            return;
+        }
+        self.file_hover_path = hovered.clone();
+        self.file_hover_preview = hovered.and_then(|p| {
+            image::open(&p)
+                .ok()
+                .map(crate::cover::AlbumArt::from_dynamic_image)
+        });
+    }
+
     /// Source image path for the crop editor: the picked local file,
     /// else the selected/downloaded candidate's cached file, if any.
-    pub fn crop_source_path(&self) -> Option<String> {
-        if let Some(custom) = &self.form_custom_cover {
+    pub fn crop_source_path(&self) -> Option<String> {        if let Some(custom) = &self.form_custom_cover {
             if std::path::Path::new(custom).is_file() {
                 return Some(custom.clone());
             }

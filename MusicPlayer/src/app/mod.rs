@@ -214,6 +214,13 @@ impl App {
         // Lyrics layout defaults ON when its plugin ships enabled.
         let lyrics_on = app.plugin_enabled("lyrics");
         app.sync_plugin_runtime_flags(lyrics_on);
+        // Persisted YouTube search result limit (Plugins settings row / E).
+        #[cfg(feature = "download")]
+        if let Some(n) = config.search_limit {
+            if (1..=50).contains(&n) {
+                app.download.search_limit = n;
+            }
+        }
         Ok(app)
     }
 
@@ -585,8 +592,7 @@ mod tests {
     }
 
     #[test]
-    fn test_coming_soon_store_item_not_installable() {
-        if let Ok(mut app) = App::new(std::path::Path::new(".")) {
+    fn test_coming_soon_store_item_not_installable() {        if let Ok(mut app) = App::new(std::path::Path::new(".")) {
             app.downloadable_plugins.insert(
                 0,
                 crate::plugin::DownloadablePlugin {
@@ -628,6 +634,34 @@ mod tests {
             assert!(!app.show_lyrics);
             app.toggle_lyrics();
             assert!(!app.show_lyrics, "manual toggle must not revive a disabled plugin");
+        }
+    }
+
+    #[cfg(feature = "download")]
+    #[test]
+    fn test_search_limit_settings_row() {
+        if let Ok(mut app) = App::new(std::path::Path::new(".")) {
+            let row = app.search_limit_row_idx();
+            assert!(app.is_search_limit_row() == (app.plugin_selected == row));
+            app.plugin_selected = row;
+            assert!(app.is_search_limit_row());
+
+            // Store row shifted by one and still opens the store.
+            app.plugin_selected = app.total_plugin_items() - 1;
+            app.toggle_selected_plugin();
+            assert!(app.show_plugin_store);
+
+            // Step presets with adjust (Left/Right).
+            app.plugin_selected = row;
+            app.download.search_limit = 15;
+            app.adjust_selected_plugin(true);
+            assert_eq!(app.download.search_limit, 25);
+            app.adjust_selected_plugin(false);
+            assert_eq!(app.download.search_limit, 15);
+            // Enter/Space also steps forward.
+            app.toggle_selected_plugin();
+            assert_eq!(app.download.search_limit, 25);
+            assert!(app.toast_text().is_some_and(|t| t.contains("Search result limit")));
         }
     }
 }

@@ -11,9 +11,11 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
             }
             KeyCode::Up | KeyCode::Char('k') => {
                 app.download.cover_file_picker.previous("");
+                app.download.refresh_file_hover();
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 app.download.cover_file_picker.next("");
+                app.download.refresh_file_hover();
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if let Some(selected_file) = app.download.cover_file_picker.enter() {
@@ -22,6 +24,9 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
                     app.download.show_cover_file_picker = false;
                     app.download.show_cover_picker_modal = false;
                     app.download.update_cover_preview();
+                } else {
+                    // Entered a directory: refresh the hover preview.
+                    app.download.refresh_file_hover();
                 }
             }
             _ => {}
@@ -90,6 +95,7 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
             KeyCode::Char('b') | KeyCode::Char('B') => {
                 app.download.cover_file_picker = crate::browser::FileBrowser::for_images(&app.download.form_dir);
                 app.download.show_cover_file_picker = true;
+                app.download.refresh_file_hover();
             }
             KeyCode::Char('c') | KeyCode::Char('C') | KeyCode::Delete => {
                 app.download.form_custom_cover = None;
@@ -206,6 +212,12 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
                     item.path = path_str.clone();
                 }
                 let _ = crate::config::Config::save_setting("download_dir", &path_str);
+            }
+            KeyCode::Char('r') | KeyCode::Char('R') => {
+                // Re-scan disk (picks up albums created in Browser with N).
+                app.download.dir_picker.refresh();
+                let n = app.download.dir_picker.entries.iter().filter(|p| p.is_dir()).count();
+                app.set_toast(format!("Refreshed: {n} folders"));
             }
             _ => {}
         }
@@ -435,9 +447,26 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
                     cycle_cover_source(app);
                 } else if app.download.form_field_idx == 5 && (c == 'r' || c == 'R') {
                     // Interactive crop: move the fixed 1:1 frame over the
-                    // source image and pick the focal point.
-                    if !app.download.open_crop_modal() {
-                        app.set_toast("Pick a cover image first (local file or candidate)".to_string());
+                    // source image and pick the focal point. Remote images
+                    // already prefetched to disk crop directly; otherwise
+                    // the image is staged on demand in the background.
+                    if app.download.crop_staging {
+                        app.set_toast("Staging image for crop editor...".to_string());
+                    } else if !app.download.open_crop_modal() {
+                        let fallback_url = app.download.selected_cover
+                            .and_then(|i| app.download.cover_candidates.get(i))
+                            .map(|c| c.cover_url.clone())
+                            .filter(|u| !u.is_empty());
+                        match fallback_url {
+                            Some(url) => {
+                                app.download.crop_staging = true;
+                                app.downloader.stage_image_for_crop(url);
+                                app.set_toast("Downloading image for crop editor...".to_string());
+                            }
+                            None => {
+                                app.set_toast("Pick a cover image first (local file or candidate)".to_string());
+                            }
+                        }
                     }
                 } else {
                     match app.download.form_field_idx {

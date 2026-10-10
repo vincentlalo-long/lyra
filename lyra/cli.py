@@ -135,6 +135,15 @@ def main():
         help="Output probe result as JSON",
     )
 
+    # Command: stage-image
+    stage_parser = subparsers.add_parser("stage-image", help="Download a remote image into the local cache")
+    stage_parser.add_argument("url", type=str, help="Image URL")
+    stage_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output staged path as JSON",
+    )
+
     # Command: cover
     cover_parser = subparsers.add_parser("cover", help="Search studio cover art (iTunes + Deezer + Cover Art Archive)")
     cover_parser.add_argument("query", type=str, nargs="?", default="", help="Free-text query (or title when --artist given)")
@@ -208,6 +217,28 @@ def main():
             else:
                 print(f"Manual subs: {'yes' if probe['has_manual'] else 'no'}")
                 print(f"Auto subs:   {'yes' if probe['has_auto'] else 'no'}")
+        except Exception as e:
+            if args.json:
+                print(json.dumps({"type": "error", "message": str(e)}), flush=True)
+            else:
+                print(f"error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    elif args.command == "stage-image":
+        try:
+            from .artwork.images import stage_remote_image
+            path = stage_remote_image(args.url)
+            if args.json:
+                if path:
+                    print(json.dumps({"type": "staged", "path": path}), flush=True)
+                else:
+                    print(json.dumps({"type": "error", "message": "Download failed"}), flush=True)
+            else:
+                if path:
+                    print(path)
+                else:
+                    print("error: download failed", file=sys.stderr)
+                    sys.exit(1)
         except Exception as e:
             if args.json:
                 print(json.dumps({"type": "error", "message": str(e)}), flush=True)

@@ -103,6 +103,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         Span::styled("Open Folder", Style::default().fg(theme::YELLOW)),
         Span::styled(" | Space: ", Style::default().fg(theme::OVERLAY0)),
         Span::styled("Select This Folder", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
+        Span::styled(" | r: ", Style::default().fg(theme::OVERLAY0)),
+        Span::styled("Refresh", Style::default().fg(theme::TEXT)),
         Span::styled(" | Esc: Cancel]", Style::default().fg(theme::OVERLAY0)),
     ]);
     frame.render_widget(Paragraph::new(hint).alignment(Alignment::Center), chunks[2]);

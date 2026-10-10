@@ -307,8 +307,8 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
 
 pub fn render_cover_file_picker_modal(frame: &mut Frame, app: &mut App) {
     let screen_area = frame.area();
-    let popup_width = 72.min(screen_area.width.saturating_sub(4));
-    let popup_height = 22.min(screen_area.height.saturating_sub(4));
+    let popup_width = 92.min(screen_area.width.saturating_sub(2));
+    let popup_height = 22.min(screen_area.height.saturating_sub(2));
 
     let vert = Layout::default()
         .direction(Direction::Vertical)
@@ -330,14 +330,22 @@ pub fn render_cover_file_picker_modal(frame: &mut Frame, app: &mut App) {
 
     frame.render_widget(Clear, popup_area);
 
-    let chunks = Layout::default()
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(55), // Left: folder + entries
+            Constraint::Percentage(45), // Right: live image preview
+        ])
+        .split(popup_area.inner(Margin { vertical: 1, horizontal: 1 }));
+
+    let left_rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(2), // Current directory
             Constraint::Min(5),    // File / folder entries
             Constraint::Length(2), // Bottom hints
         ])
-        .split(popup_area.inner(Margin { vertical: 1, horizontal: 1 }));
+        .split(cols[0]);
 
     let block = Block::default()
         .title(" 󰋩 Select Local Cover Image (.jpg, .png, .webp) ")
@@ -353,7 +361,7 @@ pub fn render_cover_file_picker_modal(frame: &mut Frame, app: &mut App) {
         Span::styled("Folder: ", Style::default().fg(theme::OVERLAY0)),
         Span::styled(curr_str, Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
     ]));
-    frame.render_widget(path_p, chunks[0]);
+    frame.render_widget(path_p, left_rows[0]);
 
     // Entries list
     let entries = &app.download.cover_file_picker.entries;
@@ -390,7 +398,7 @@ pub fn render_cover_file_picker_modal(frame: &mut Frame, app: &mut App) {
     }
 
     app.download.cover_file_picker.state.select(Some(app.download.cover_file_picker.selected));
-    frame.render_stateful_widget(List::new(list_items), chunks[1], &mut app.download.cover_file_picker.state);
+    frame.render_stateful_widget(List::new(list_items), left_rows[1], &mut app.download.cover_file_picker.state);
 
     if entries.len() > 1 {
         let mut sc_state = ScrollbarState::new(entries.len()).position(app.download.cover_file_picker.selected);
@@ -398,7 +406,7 @@ pub fn render_cover_file_picker_modal(frame: &mut Frame, app: &mut App) {
             Scrollbar::new(ScrollbarOrientation::VerticalRight)
                 .thumb_style(Style::default().fg(theme::GREEN))
                 .track_style(Style::default().fg(theme::SURFACE0)),
-            chunks[1],
+            left_rows[1],
             &mut sc_state,
         );
     }
@@ -408,5 +416,62 @@ pub fn render_cover_file_picker_modal(frame: &mut Frame, app: &mut App) {
         Span::styled("Open Folder / Select Image", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
         Span::styled(" | Esc: Cancel]", Style::default().fg(theme::OVERLAY0)),
     ]);
-    frame.render_widget(Paragraph::new(hint).alignment(Alignment::Center), chunks[2]);
+    frame.render_widget(Paragraph::new(hint).alignment(Alignment::Center), left_rows[2]);
+
+    // Right: live preview of the highlighted image.
+    let preview_block = Block::default()
+        .title(" Preview ")
+        .title_alignment(Alignment::Center)
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme::GREEN));
+    let preview_inner = cols[1].inner(Margin { vertical: 1, horizontal: 1 });
+    frame.render_widget(preview_block, cols[1]);
+
+    if let Some(art) = &app.download.file_hover_preview {
+        let max_rows = preview_inner.height;
+        let max_cols = preview_inner.width;
+        let mut rows = max_rows;
+        let mut cols_n = rows * 2;
+        if cols_n > max_cols {
+            cols_n = max_cols;
+            rows = (cols_n / 2).max(1);
+        }
+        if rows > 0 && cols_n > 0 {
+            let pad_top = (max_rows.saturating_sub(rows)) / 2;
+            let pad_left = (max_cols.saturating_sub(cols_n)) / 2;
+            let target_rect = ratatui::layout::Rect::new(
+                preview_inner.x + pad_left,
+                preview_inner.y + pad_top,
+                cols_n,
+                rows,
+            );
+            if crate::cover::is_kitty_supported() {
+                let buf = frame.buffer_mut();
+                for y in target_rect.y..target_rect.bottom() {
+                    for x in target_rect.x..target_rect.right() {
+                        if let Some(cell) = buf.cell_mut((x, y)) {
+                            cell.set_skip(true);
+                        }
+                    }
+                }
+                app.kitty_cover_rect = Some(target_rect);
+            } else {
+                let preview_lines = art.render_halfblocks(cols_n, rows);
+                frame.render_widget(Paragraph::new(preview_lines).alignment(Alignment::Center), preview_inner);
+                app.kitty_cover_rect = None;
+            }
+        } else {
+            app.kitty_cover_rect = None;
+        }
+    } else {
+        app.kitty_cover_rect = None;
+        let msg = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled("[ No Preview ]", Style::default().fg(theme::OVERLAY0))),
+            Line::from(Span::styled("Highlight an image file", Style::default().fg(theme::SUBTEXT0))),
+        ])
+        .alignment(Alignment::Center);
+        frame.render_widget(msg, preview_inner);
+    }
 }

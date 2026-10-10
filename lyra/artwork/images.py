@@ -47,8 +47,7 @@ def _fetch_bytes(url: str, timeout: float = 8.0) -> Optional[bytes]:
         return None
 
 
-def download_cover_image(
-    url: str,
+def download_cover_image(    url: str,
     output_path: str,
     timeout: float = 8.0,
     target_size: int = TARGET_SIZE,
@@ -172,3 +171,20 @@ def prepare_cover_art(
     if os.path.isfile(local_path):
         return process_cover_art(local_path, output_path, mode=mode, target_size=target_size, focus=focus)
     return False
+
+
+def stage_remote_image(url: str) -> Optional[str]:
+    """Download a remote image into the local disk cache on demand.
+
+    Returns the local cache path on success (for crop editing etc.),
+    or None when the download fails.
+    """
+    if not url or not url.startswith(("http://", "https://")):
+        return None
+    cached_path = cache_mod.image_path_for_url(url)
+    if os.path.exists(cached_path) and os.path.getsize(cached_path) > 0:
+        return cached_path
+    data = _fetch_bytes(url)
+    if data and os.path.exists(cached_path):
+        return cached_path
+    return None

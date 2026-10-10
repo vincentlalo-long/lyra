@@ -277,15 +277,13 @@ impl App {
         self.set_toast(format!("Expanding results for '{q}' to {new_limit}..."));
     }
 
-    /// Cycles the result-count preset (5/10/15/25/50) and refetches.
+    /// Cycles the result-count preset (5/10/15/25/50), persists it,
+    /// and refetches the current query.
     pub fn cycle_search_limit(&mut self) {
-        const PRESETS: [usize; 5] = [5, 10, 15, 25, 50];
-        let cur = self.download.search_limit;
-        let next = PRESETS.iter().find(|&&p| p > cur).copied().unwrap_or(PRESETS[0]);
-        self.download.search_limit = next;
+        self.cycle_search_limit_setting(1);
+        let next = self.download.search_limit;
         let q = self.download.query.trim().to_string();
         if q.is_empty() || q.starts_with("http://") || q.starts_with("https://") || q.contains("youtu.be") {
-            self.set_toast(format!("Search result limit: {next}"));
             return;
         }
         self.download.is_searching = true;
@@ -314,6 +312,17 @@ impl App {
                     // Only a badge hint: manual subs ~ .lrc likely,
                     // auto-only ~ auto captions, neither ~ skip lyrics.
                     self.download.lyrics_probe = Some((has_manual, has_auto));
+                }
+                DownloadEvent::ImageStaged { path } => {
+                    self.download.crop_staging = false;
+                    // The staged file becomes a local custom cover, so the
+                    // confirmed crop focus flows through the local path.
+                    self.download.form_custom_cover = Some(path);
+                    self.download.selected_cover = None;
+                    self.download.update_cover_preview();
+                    if !self.download.open_crop_modal() {
+                        self.set_toast("Staged image unreadable, crop cancelled".to_string());
+                    }
                 }
                 DownloadEvent::CoverLoading => {
                     self.download.is_cover_loading = true;
