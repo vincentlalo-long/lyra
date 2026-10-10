@@ -2,7 +2,7 @@ import os
 import sys
 import json
 import argparse
-from .core import LyraPipeline, search_youtube, get_video_info
+from .core import LyraPipeline, search_youtube, get_video_info, probe_lyrics
 
 
 def main():
@@ -38,6 +38,12 @@ def main():
         type=str,
         default=None,
         help="Use this custom cover image file path or URL",
+    )
+    get_parser.add_argument(
+        "--crop-focus",
+        type=str,
+        default=None,
+        help="Crop focal point for center_crop as 'x y' in 0..1 (e.g. '0.3 0.7')",
     )
     get_parser.add_argument(
         "--cover-url",
@@ -120,6 +126,15 @@ def main():
         help="Output info as JSON",
     )
 
+    # Command: probe-lyrics
+    probe_parser = subparsers.add_parser("probe-lyrics", help="Check subtitle availability for a video")
+    probe_parser.add_argument("url", type=str, help="Video URL")
+    probe_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output probe result as JSON",
+    )
+
     # Command: cover
     cover_parser = subparsers.add_parser("cover", help="Search studio cover art (iTunes + Deezer + Cover Art Archive)")
     cover_parser.add_argument("query", type=str, nargs="?", default="", help="Free-text query (or title when --artist given)")
@@ -183,6 +198,22 @@ def main():
                 print(json.dumps({"type": "error", "message": str(e)}), flush=True)
             else:
                 print(f"error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    elif args.command == "probe-lyrics":
+        try:
+            probe = probe_lyrics(args.url)
+            if args.json:
+                print(json.dumps({"type": "lyrics_probe", **probe}), flush=True)
+            else:
+                print(f"Manual subs: {'yes' if probe['has_manual'] else 'no'}")
+                print(f"Auto subs:   {'yes' if probe['has_auto'] else 'no'}")
+        except Exception as e:
+            if args.json:
+                print(json.dumps({"type": "error", "message": str(e)}), flush=True)
+            else:
+                print(f"error: {e}", file=sys.stderr)
+            sys.exit(1)
     elif args.command == "cover":
         from .artwork import search_candidates, prefetch_candidates
         try:
@@ -253,6 +284,13 @@ def main():
 
     elif args.command == "get":
         try:
+            crop_focus = None
+            if args.crop_focus:
+                try:
+                    x_str, y_str = args.crop_focus.replace(",", " ").split()
+                    crop_focus = (float(x_str), float(y_str))
+                except (ValueError, AttributeError):
+                    print("warning: ignoring invalid --crop-focus (want 'x y' in 0..1)", file=sys.stderr)
             pipeline = LyraPipeline(
                 output_dir=args.output,
                 cover_mode=args.cover_mode,
@@ -261,6 +299,7 @@ def main():
                 cover_url=args.cover_url,
                 custom_cover=args.cover or args.cover_url,
                 no_cover_search=args.no_cover_search,
+                crop_focus=crop_focus,
             )
             pipeline.process_url(
                 args.url,

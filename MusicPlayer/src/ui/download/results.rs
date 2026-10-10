@@ -79,7 +79,9 @@ pub(super) fn render_search_results(frame: &mut Frame, app: &mut App, area: Rect
             Span::styled("Enter", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
             Span::styled(": Review | ", Style::default().fg(theme::TEXT)),
             Span::styled("e", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
-            Span::styled(": More Results | ", Style::default().fg(theme::TEXT)),
+            Span::styled(": More | ", Style::default().fg(theme::TEXT)),
+            Span::styled("E", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
+            Span::styled(format!(": Limit ({}) | ", app.download.search_limit), Style::default().fg(theme::TEXT)),
             Span::styled("/", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
             Span::styled(": New Search] ", Style::default().fg(theme::TEXT)),
         ])

@@ -61,8 +61,7 @@ def search_youtube(query: str, limit: int = 15) -> List[Dict[str, Any]]:
         return results
 
 
-def get_video_info(url: str) -> Dict[str, Any]:
-    ydl_opts = {
+def get_video_info(url: str) -> Dict[str, Any]:    ydl_opts = {
         "extract_flat": True,
         "quiet": True,
         "no_warnings": True,
@@ -91,6 +90,32 @@ def get_video_info(url: str) -> Dict[str, Any]:
         }
 
 
+def probe_lyrics(url: str) -> Dict[str, Any]:
+    """Check subtitle/caption availability for one video (full extraction).
+
+    Returns {"has_manual": bool, "has_auto": bool} so the TUI can badge
+    whether downloading lyrics (.lrc) is likely to succeed.
+    """
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "web"],
+            }
+        },
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False) or {}
+        manual = info.get("subtitles") or {}
+        auto = info.get("automatic_captions") or {}
+        return {
+            "has_manual": bool(manual),
+            "has_auto": bool(auto),
+        }
+
+
 class LyraPipeline:
     def __init__(
         self,
@@ -101,6 +126,7 @@ class LyraPipeline:
         cover_url: Optional[str] = None,
         custom_cover: Optional[str] = None,
         no_cover_search: bool = False,
+        crop_focus: Optional[tuple] = None,
     ):
         self.output_dir = os.path.abspath(os.path.expanduser(output_dir))
         self.cover_mode = cover_mode
@@ -109,6 +135,7 @@ class LyraPipeline:
         self.custom_cover = custom_cover or cover_url
         self.cover_url = self.custom_cover
         self.no_cover_search = no_cover_search
+        self.crop_focus = crop_focus
         os.makedirs(self.output_dir, exist_ok=True)
 
     def _emit(self, data: dict):
@@ -249,7 +276,7 @@ class LyraPipeline:
             # 0. Custom cover wins (user picked candidate or local image file).
             if self.custom_cover:
                 self._emit({"type": "status", "stage": "Processing custom cover art..."})
-                if prepare_cover_art(self.custom_cover, processed_cover_path, mode=self.cover_mode):
+                if prepare_cover_art(self.custom_cover, processed_cover_path, mode=self.cover_mode, focus=self.crop_focus):
                     has_cover = True
                     cover_source_used = "custom"
                     if not self.json_mode:
@@ -310,6 +337,7 @@ class LyraPipeline:
                         processed_cover_path,
                         mode=fallback_mode,
                         target_size=1000,
+                        focus=self.crop_focus,
                     )
                     if has_cover:
                         cover_source_used = "youtube"

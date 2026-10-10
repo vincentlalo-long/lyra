@@ -14,6 +14,9 @@ pub struct DownloadState {
     // Mode 2: Metadata Review / Edit Form
     pub show_metadata_form: bool,
     pub form_field_idx: usize, // 0: Title, 1: Artist, 2: Album, 3: Genre, 4: Save to (Directory), 5: Cover pick, 6: Lyrics, 7: Submit
+    /// Caret position (in chars) inside the active text field (0..=3).
+    /// Reset to end-of-text whenever the field changes or text is replaced.
+    pub form_cursor: usize,
     pub form_url: String,
     pub form_title: String,
     pub form_artist: String,
@@ -27,6 +30,13 @@ pub struct DownloadState {
     pub selected_genre_idx: Option<usize>,
     pub form_dir: PathBuf,
     pub form_cover_mode: String,
+    /// Subtitle availability probe for the Lyrics row:
+    /// None = probing, Some((manual, auto)).
+    pub lyrics_probe: Option<(bool, bool)>,
+    /// Studio provider set for cover search + final download
+    /// (auto/all/web/itunes/deezer/caa/youtube). Cycled with `s` on
+    /// the Cover row; `web` includes generic web results.
+    pub cover_source: String,
     pub form_lyrics_mode: usize, // 0: All (Manual + Auto), 1: Creator Only (No Auto), 2: Disabled
 
     // Studio cover candidates for field 4 (None = Auto best, Some(i) = picked).
@@ -46,6 +56,14 @@ pub struct DownloadState {
     // Image file picker modal (to pick a local image file from disk)
     pub show_cover_file_picker: bool,
     pub cover_file_picker: crate::browser::FileBrowser,
+
+    // Interactive crop-focus editor: fixed 1:1 frame moved over the
+    // source image with arrows (focus only applies to center_crop).
+    pub show_crop_modal: bool,
+    pub crop_cursor: (f32, f32),
+    pub crop_img_size: Option<(u32, u32)>,
+    /// Confirmed focal point (0..1) sent as `--crop-focus`, if any.
+    pub cover_focus: Option<(f32, f32)>,
 
     // Directory picker modal
     pub show_dir_picker: bool,
@@ -86,6 +104,7 @@ impl DownloadState {
 
             show_metadata_form: false,
             form_field_idx: 0,
+            form_cursor: 0,
             form_url: String::new(),
             form_title: String::new(),
             form_artist: String::new(),
@@ -99,6 +118,8 @@ impl DownloadState {
             selected_genre_idx: None,
             form_dir: initial_dir.to_path_buf(),
             form_cover_mode: "auto".to_string(),
+            lyrics_probe: None,
+            cover_source: "auto".to_string(),
             form_lyrics_mode: 0,
             cover_candidates: Vec::new(),
             selected_cover: None,
@@ -114,6 +135,11 @@ impl DownloadState {
 
             show_cover_file_picker: false,
             cover_file_picker: crate::browser::FileBrowser::new(initial_dir),
+
+            show_crop_modal: false,
+            crop_cursor: (0.5, 0.5),
+            crop_img_size: None,
+            cover_focus: None,
 
             show_dir_picker: false,
             dir_picker: crate::browser::FileBrowser::new(initial_dir),
@@ -131,9 +157,170 @@ impl DownloadState {
         }
     }
 
+    /// Mutable text of a typeable form field (0: Title, 1: Artist,
+    /// 2: Album, 3: Genre). `None` for picker/button rows.
+    fn form_text_mut(&mut self, idx: usize) -> Option<&mut String> {
+        match idx {
+            0 => Some(&mut self.form_title),
+            1 => Some(&mut self.form_artist),
+            2 => Some(&mut self.form_album),
+            3 => Some(&mut self.form_genre),
+            _ => None,
+        }
+    }
+
+    fn form_text(&self, idx: usize) -> Option<&str> {
+        match idx {
+            0 => Some(&self.form_title),
+            1 => Some(&self.form_artist),
+            2 => Some(&self.form_album),
+            3 => Some(&self.form_genre),
+            _ => None,
+        }
+    }
+
+    /// Switches the active form field, snapping the caret to end-of-text.
+    pub fn move_form_field(&mut self, idx: usize) {
+        self.form_field_idx = idx;
+        self.snap_cursor_to_end();
+    }
+
+    /// Puts the caret at end-of-text of the current field.
+    /// Call after any programmatic text replacement (suggestion cycling…).
+    pub fn snap_cursor_to_end(&mut self) {
+        let len = self.form_text(self.form_field_idx).map(|t| t.chars().count()).unwrap_or(0);
+        self.form_cursor = len;
+    }
+
+    /// Clamps a char index to a valid caret position.
+    fn byte_idx(text: &str, char_idx: usize) -> usize {
+        text.char_indices()
+            .map(|(b, _)| b)
+            .nth(char_idx)
+            .unwrap_or(text.len())
+    }
+
+    pub fn cursor_left(&mut self) {
+        self.form_cursor = self.form_cursor.saturating_sub(1);
+    }
+
+    pub fn cursor_right(&mut self) {
+        let max = self.form_text(self.form_field_idx).map(|t| t.chars().count()).unwrap_or(0);
+        if self.form_cursor < max {
+            self.form_cursor += 1;
+        }
+    }
+
+    pub fn cursor_home(&mut self) {
+        self.form_cursor = 0;
+    }
+
+    pub fn cursor_end(&mut self) {
+        self.snap_cursor_to_end();
+    }
+
+    /// Inserts a char at the caret and advances it.
+    pub fn cursor_insert(&mut self, c: char) {
+        let cursor = self.form_cursor;
+        if let Some(text) = self.form_text_mut(self.form_field_idx) {
+            let byte = Self::byte_idx(text, cursor);
+            text.insert(byte, c);
+        }
+        self.form_cursor = cursor + 1;
+    }
+
+    /// Backspace: deletes the char before the caret.
+    pub fn cursor_backspace(&mut self) {
+        let cursor = self.form_cursor;
+        if cursor == 0 {
+            return;
+        }
+        if let Some(text) = self.form_text_mut(self.form_field_idx) {
+            let start = Self::byte_idx(text, cursor - 1);
+            let end = Self::byte_idx(text, cursor);
+            text.drain(start..end);
+        }
+        self.form_cursor = cursor - 1;
+    }
+
+    /// Delete: deletes the char at the caret.
+    pub fn cursor_delete(&mut self) {
+        let cursor = self.form_cursor;
+        let len = self.form_text(self.form_field_idx).map(|t| t.chars().count()).unwrap_or(0);
+        if cursor >= len {
+            return;
+        }
+        if let Some(text) = self.form_text_mut(self.form_field_idx) {
+            let start = Self::byte_idx(text, cursor);
+            let end = Self::byte_idx(text, cursor + 1);
+            text.drain(start..end);
+        }
+    }
+
+    /// Ctrl+W: deletes the word before the caret (then trailing spaces).
+    pub fn cursor_delete_word(&mut self) {
+        let cursor = self.form_cursor;
+        if cursor == 0 {
+            return;
+        }
+        let mut new_cursor = 0;
+        if let Some(text) = self.form_text_mut(self.form_field_idx) {
+            let chars: Vec<char> = text.chars().collect();
+            let mut start = cursor.min(chars.len());
+            while start > 0 && chars[start - 1] == ' ' {
+                start -= 1;
+            }
+            while start > 0 && chars[start - 1] != ' ' {
+                start -= 1;
+            }
+            let b_start = Self::byte_idx(text, start);
+            let b_end = Self::byte_idx(text, cursor.min(chars.len()));
+            text.drain(b_start..b_end);
+            new_cursor = start;
+        }
+        self.form_cursor = new_cursor;
+    }
+
+    /// Source image path for the crop editor: the picked local file,
+    /// else the selected/downloaded candidate's cached file, if any.
+    pub fn crop_source_path(&self) -> Option<String> {
+        if let Some(custom) = &self.form_custom_cover {
+            if std::path::Path::new(custom).is_file() {
+                return Some(custom.clone());
+            }
+        }
+        if let Some(i) = self.selected_cover {
+            if let Some(cand) = self.cover_candidates.get(i) {
+                if let Some(cached) = &cand.cached_path {
+                    if std::path::Path::new(cached).is_file() {
+                        return Some(cached.clone());
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Opens the crop-focus editor for the current cover source.
+    /// Returns false (with nothing opened) when no image is available.
+    pub fn open_crop_modal(&mut self) -> bool {
+        let Some(path) = self.crop_source_path() else {
+            return false;
+        };
+        let Ok((w, h)) = image::image_dimensions(&path) else {
+            return false;
+        };
+        if w == 0 || h == 0 {
+            return false;
+        }
+        self.crop_img_size = Some((w, h));
+        self.crop_cursor = self.cover_focus.unwrap_or((0.5, 0.5));
+        self.show_crop_modal = true;
+        true
+    }
+
     /// Refresh decoded preview image based on currently selected candidate or custom local cover
-    pub fn update_cover_preview(&mut self) {
-        let path_to_load = if self.cover_picker_selected == 0 {
+    pub fn update_cover_preview(&mut self) {        let path_to_load = if self.cover_picker_selected == 0 {
             if let Some(custom) = &self.form_custom_cover {
                 if std::path::Path::new(custom).exists() {
                     Some(custom.clone())

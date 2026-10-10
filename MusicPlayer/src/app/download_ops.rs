@@ -25,6 +25,8 @@ impl App {
             album: self.download.form_album.clone(),
             genre: if self.download.form_genre.trim().is_empty() { None } else { Some(self.download.form_genre.trim().to_string()) },
             cover_mode: self.download.form_cover_mode.clone(),
+            cover_source: self.download.cover_source.clone(),
+            cover_focus: self.download.cover_focus,
             cover_url: custom_cover.clone(),
             custom_cover,
             no_lyrics: self.download.form_lyrics_mode == 2,
@@ -183,6 +185,7 @@ impl App {
         self.download.form_genre.clear();
         self.download.show_metadata_form = true;
         self.download.form_field_idx = 0;
+        self.download.snap_cursor_to_end();
         self.download.form_custom_cover = None;
         self.download.show_cover_picker_modal = false;
         self.download.show_cover_file_picker = false;
@@ -193,10 +196,18 @@ impl App {
         self.download.cover_candidates.clear();
         self.download.selected_cover = None;
         self.download.is_cover_loading = true;
-        self.downloader.fetch_covers(artist, title);
+        self.download.lyrics_probe = None;
+        let src = self.download.cover_source.clone();
+        self.downloader.fetch_covers_query(artist, title, None, Some(src));
+        // Background subtitle probe for the Lyrics-row badge (silent on failure).
+        self.downloader.probe_lyrics(self.download.form_url.clone());
     }
 
     pub fn handle_download_enter(&mut self) {
+        if !self.plugin_enabled("download") {
+            self.set_toast("Downloader plugin is disabled (enable it in [5] Plugins)".to_string());
+            return;
+        }
         if self.download.show_dir_picker {
             if let Some(selected_dir) = self.download.dir_picker.enter() {
                 let path_str = selected_dir.to_string_lossy().to_string();
@@ -266,6 +277,22 @@ impl App {
         self.set_toast(format!("Expanding results for '{q}' to {new_limit}..."));
     }
 
+    /// Cycles the result-count preset (5/10/15/25/50) and refetches.
+    pub fn cycle_search_limit(&mut self) {
+        const PRESETS: [usize; 5] = [5, 10, 15, 25, 50];
+        let cur = self.download.search_limit;
+        let next = PRESETS.iter().find(|&&p| p > cur).copied().unwrap_or(PRESETS[0]);
+        self.download.search_limit = next;
+        let q = self.download.query.trim().to_string();
+        if q.is_empty() || q.starts_with("http://") || q.starts_with("https://") || q.contains("youtu.be") {
+            self.set_toast(format!("Search result limit: {next}"));
+            return;
+        }
+        self.download.is_searching = true;
+        self.downloader.search_with_limit(q.clone(), next);
+        self.set_toast(format!("Search result limit: {next} (refetching '{q}')"));
+    }
+
     pub fn check_download_events(&mut self) {
         while let Ok(event) = self.downloader.receiver.try_recv() {
             match event {
@@ -282,6 +309,11 @@ impl App {
                 DownloadEvent::InfoLoaded { url, title, artist } => {
                     self.download.is_searching = false;
                     self.open_metadata_form(url, title, artist);
+                }
+                DownloadEvent::LyricsProbe { has_manual, has_auto } => {
+                    // Only a badge hint: manual subs ~ .lrc likely,
+                    // auto-only ~ auto captions, neither ~ skip lyrics.
+                    self.download.lyrics_probe = Some((has_manual, has_auto));
                 }
                 DownloadEvent::CoverLoading => {
                     self.download.is_cover_loading = true;
@@ -314,10 +346,9 @@ impl App {
                     self.download.last_error = None;
                     self.browser.refresh();
                     let mp3_p = PathBuf::from(mp3_path);
-                    if !self.playlist.songs.contains(&mp3_p) {
-                        self.playlist.songs.push(mp3_p);
-                        self.playlist.songs.sort();
-                    }
+                    // Sorted insert that preserves playing/selected cursors
+                    // by path identity (no display/cursor jump mid-playback).
+                    self.playlist.insert_sorted(mp3_p);
                 }
                 DownloadEvent::Error(err) => {
                     self.download.is_searching = false;

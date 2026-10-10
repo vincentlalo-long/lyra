@@ -88,22 +88,36 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
         .split(form_area);
 
     let dir_str = app.download.form_dir.to_string_lossy().to_string();
+    // Cover mode (how the final art is processed): auto/itunes/blur_pad/center_crop.
+    // Local files go through the same mode, so the picker preview matches the result.
+    let mode_badge = match app.download.form_cover_mode.as_str() {
+        "itunes" => "[studio]",
+        "blur_pad" => "[blur]",
+        "center_crop" => "[crop]",
+        _ => "[auto]",
+    };
+    let src_badge = format!("<{}>", app.download.cover_source);
+    let src_badge = if let Some((fx, fy)) = app.download.cover_focus {
+        format!("<{}> ⦿({fx:.2},{fy:.2})", app.download.cover_source)
+    } else {
+        src_badge
+    };
     let cover_str = if let Some(path) = &app.download.form_custom_cover {
         let fname = std::path::Path::new(path)
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| path.clone());
-        format!("< 󰉋 Local: {fname} >")
+        format!("< 󰉋 Local: {fname} > {mode_badge} {src_badge}")
     } else if app.download.is_cover_loading {
-        "󰑮 Searching covers...".to_string()
+        format!("󰑮 Searching covers... {mode_badge} {src_badge}")
     } else if app.download.cover_candidates.is_empty() {
-        "< YouTube thumbnail fallback >".to_string()
+        format!("< YouTube thumbnail fallback > {mode_badge} {src_badge}")
     } else {
         match app.download.selected_cover {
             None => {
                 let best = &app.download.cover_candidates[0];
                 format!(
-                    "< Auto: {} {} ({:.0}) [{}/{}] >",
+                    "< Auto: {} {} ({:.0}) [{}/{}] > {mode_badge} {src_badge}",
                     best.source,
                     best.album.chars().take(16).collect::<String>(),
                     best.score,
@@ -114,7 +128,7 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
             Some(i) => {
                 let c = &app.download.cover_candidates[i.min(app.download.cover_candidates.len() - 1)];
                 format!(
-                    "< {} {} ({:.0}) [{}/{}] >",
+                    "< {} {} ({:.0}) [{}/{}] > {mode_badge} {src_badge}",
                     c.source,
                     c.album.chars().take(16).collect::<String>(),
                     c.score,
@@ -125,10 +139,17 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
         }
     };
 
-    let lyrics_str = match app.download.form_lyrics_mode {
+    let lyrics_base = match app.download.form_lyrics_mode {
         0 => "< All (Manual + Auto) >".to_string(),
         1 => "< Creator Only (No Auto) >".to_string(),
         _ => "< Disabled >".to_string(),
+    };
+    // Subtitle probe badge: tells whether .lrc download is likely.
+    let lyrics_str = match app.download.lyrics_probe {
+        None => format!("{lyrics_base} [probing LRC…]"),
+        Some((true, _)) => format!("{lyrics_base} [LRC ✓ manual]"),
+        Some((false, true)) => format!("{lyrics_base} [LRC ~ auto]"),
+        Some((false, false)) => format!("{lyrics_base} [no LRC]"),
     };
 
     let fields = [
@@ -167,8 +188,16 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
         }
 
         // For active text fields (Title, Artist, Album, Genre), show cursor █
+        // at the caret position (Left/Right/Home/End move it).
         if is_active && idx < 4 {
+            let val_str: &str = val.as_str();
+            let caret = app.download.form_cursor.min(val_str.chars().count());
+            let before: String = val_str.chars().take(caret).collect();
+            let after: String = val_str.chars().skip(caret).collect();
+            spans.pop();
+            spans.push(Span::styled(before, style));
             spans.push(Span::styled("█", Style::default().fg(theme::YELLOW)));
+            spans.push(Span::styled(after, style));
         }
 
         spans.push(Span::styled(" ]", if is_active { Style::default().fg(theme::YELLOW) } else { Style::default().fg(theme::OVERLAY0) }));
@@ -177,9 +206,9 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
         if idx == 1 && !app.download.existing_artists.is_empty() {
             let count = app.download.existing_artists.len();
             let badge_text = if let Some(i) = app.download.selected_artist_idx {
-                format!(" [󰠃 ←/→ {}/{}]", i + 1, count)
+                format!(" [󰠃 Ctrl+←/→ {}/{}]", i + 1, count)
             } else {
-                format!(" [󰠃 ←/→ {} artists]", count)
+                format!(" [󰠃 Ctrl+←/→ {} artists]", count)
             };
             spans.push(Span::styled(badge_text, Style::default().fg(theme::ROSE)));
         }
@@ -188,9 +217,9 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
         if idx == 2 && !app.download.existing_albums.is_empty() {
             let count = app.download.existing_albums.len();
             let badge_text = if let Some(i) = app.download.selected_album_idx {
-                format!(" [󰀥 ←/→ {}/{}]", i + 1, count)
+                format!(" [󰀥 Ctrl+←/→ {}/{}]", i + 1, count)
             } else {
-                format!(" [󰀥 ←/→ {} albums]", count)
+                format!(" [󰀥 Ctrl+←/→ {} albums]", count)
             };
             spans.push(Span::styled(badge_text, Style::default().fg(theme::PEACH)));
         }
@@ -199,9 +228,9 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
         if idx == 3 && !app.download.suggested_genres.is_empty() {
             let count = app.download.suggested_genres.len();
             let badge_text = if let Some(i) = app.download.selected_genre_idx {
-                format!(" [󰠃 ←/→ {}/{} (type ',' to add)]", i + 1, count)
+                format!(" [󰠃 Ctrl+←/→ {}/{} (type ',' to add)]", i + 1, count)
             } else {
-                " [󰠃 ←/→ genres (type ',' to add)]".to_string()
+                " [󰠃 Ctrl+←/→ genres (type ',' to add)]".to_string()
             };
             spans.push(Span::styled(badge_text, Style::default().fg(theme::ROSE)));
         }
@@ -235,8 +264,20 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
 
     // Full-width Bottom Footer: Hotkey hints across the entire modal width (never covered by artwork!)
     let actions = match app.download.form_field_idx {
+        0 => Line::from(vec![
+            Span::styled("[←/→: ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("Move Cursor", Style::default().fg(theme::TEXT)),
+            Span::styled(" | Tab/↓: ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("Next", Style::default().fg(theme::TEXT)),
+            Span::styled(" | Ctrl+Enter: ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("Download", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled(" | Esc: ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("Cancel]", Style::default().fg(theme::RED)),
+        ]),
         1 => Line::from(vec![
             Span::styled("[←/→: ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("Move Cursor", Style::default().fg(theme::TEXT)),
+            Span::styled(" | Ctrl+←/→: ", Style::default().fg(theme::OVERLAY0)),
             Span::styled(format!("Cycle Artists ({})", app.download.existing_artists.len()), Style::default().fg(theme::ROSE).add_modifier(Modifier::BOLD)),
             Span::styled(" | Tab/↓: ", Style::default().fg(theme::OVERLAY0)),
             Span::styled("Next", Style::default().fg(theme::TEXT)),
@@ -247,6 +288,8 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
         ]),
         2 => Line::from(vec![
             Span::styled("[←/→: ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("Move Cursor", Style::default().fg(theme::TEXT)),
+            Span::styled(" | Ctrl+←/→: ", Style::default().fg(theme::OVERLAY0)),
             Span::styled(format!("Cycle Albums ({})", app.download.existing_albums.len()), Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD)),
             Span::styled(" | Tab/↓: ", Style::default().fg(theme::OVERLAY0)),
             Span::styled("Next", Style::default().fg(theme::TEXT)),
@@ -257,6 +300,8 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
         ]),
         3 => Line::from(vec![
             Span::styled("[←/→: ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("Move Cursor", Style::default().fg(theme::TEXT)),
+            Span::styled(" | Ctrl+←/→: ", Style::default().fg(theme::OVERLAY0)),
             Span::styled("Cycle Genre", Style::default().fg(theme::ROSE).add_modifier(Modifier::BOLD)),
             Span::styled(" | , : ", Style::default().fg(theme::OVERLAY0)),
             Span::styled("+More Genres", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
@@ -270,6 +315,12 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
         5 => Line::from(vec![
             Span::styled("[←/→: ", Style::default().fg(theme::OVERLAY0)),
             Span::styled("Cycle Art", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
+            Span::styled(" | m: ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("Mode", Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD)),
+            Span::styled(" | s: ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("Source", Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD)),
+            Span::styled(" | r: ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("Crop", Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD)),
             Span::styled(" | p: ", Style::default().fg(theme::OVERLAY0)),
             Span::styled("Full Picker", Style::default().fg(theme::PURPLE).add_modifier(Modifier::BOLD)),
             Span::styled(" | b: ", Style::default().fg(theme::OVERLAY0)),

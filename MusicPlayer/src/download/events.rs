@@ -41,6 +41,11 @@ pub struct DownloadRequest {
     pub album: String,
     pub genre: Option<String>,
     pub cover_mode: String,
+    /// Studio provider set for the final download (`auto`/`all`/`web`/
+    /// `itunes`/`deezer`/`caa`/`youtube`). Python validates + falls back.
+    pub cover_source: String,
+    /// Crop focal point (0..1) for `center_crop`, chosen in the crop editor.
+    pub cover_focus: Option<(f32, f32)>,
     pub cover_url: Option<String>,
     pub custom_cover: Option<String>,
     pub no_lyrics: bool,
@@ -55,6 +60,12 @@ pub enum DownloadEvent {
         url: String,
         title: String,
         artist: String,
+    },
+    /// Subtitle availability for the form's Lyrics row
+    /// (probed in background when the metadata form opens).
+    LyricsProbe {
+        has_manual: bool,
+        has_auto: bool,
     },
     CoverLoading,
     CoverResults(Vec<CoverCandidate>),

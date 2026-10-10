@@ -5,6 +5,7 @@ use ratatui::{
 use crate::app::App;
 
 mod cover_modal;
+mod crop_modal;
 mod form;
 mod progress;
 mod results;
@@ -37,5 +38,9 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
     if app.download.show_cover_file_picker {
         cover_modal::render_cover_file_picker_modal(frame, app);
+    }
+
+    if app.download.show_crop_modal {
+        crop_modal::render_crop_modal(frame, app);
     }
 }

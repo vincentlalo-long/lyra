@@ -96,8 +96,13 @@ def process_cover_art(
     output_path: str,
     mode: str = "blur_pad",
     target_size: int = TARGET_SIZE,
+    focus: Optional[tuple] = None,
 ) -> bool:
-    """Normalize local image to 1000x1000 square JPEG with blur_pad or center_crop."""
+    """Normalize local image to 1000x1000 square JPEG with blur_pad or center_crop.
+
+    ``focus`` is an optional (x, y) pair in 0..1 units selecting the
+    center of the crop window for ``center_crop`` (default: image center).
+    """
     try:
         with Image.open(input_path) as img:
             img = img.convert("RGB")
@@ -109,8 +114,17 @@ def process_cover_art(
 
             if mode == "center_crop":
                 min_dim = min(w, h)
-                left = (w - min_dim) // 2
-                top = (h - min_dim) // 2
+                fx, fy = 0.5, 0.5
+                if focus:
+                    try:
+                        fx = min(1.0, max(0.0, float(focus[0])))
+                        fy = min(1.0, max(0.0, float(focus[1])))
+                    except (TypeError, ValueError, IndexError):
+                        pass
+                max_left = w - min_dim
+                max_top = h - min_dim
+                left = int(round(max_left * fx))
+                top = int(round(max_top * fy))
                 cropped = img.crop((left, top, left + min_dim, top + min_dim))
                 resized = cropped.resize((target_size, target_size), Image.Resampling.LANCZOS)
                 resized.save(output_path, "JPEG", quality=95)
@@ -144,6 +158,7 @@ def prepare_cover_art(
     output_path: str,
     mode: str = "blur_pad",
     target_size: int = TARGET_SIZE,
+    focus: Optional[tuple] = None,
 ) -> bool:
     """Prepare a square 1:1 cover art from either a local file or a remote URL."""
     if not source:
@@ -155,5 +170,5 @@ def prepare_cover_art(
     local_path = source[7:] if source.startswith("file://") else source
     local_path = os.path.abspath(os.path.expanduser(local_path))
     if os.path.isfile(local_path):
-        return process_cover_art(local_path, output_path, mode=mode, target_size=target_size)
+        return process_cover_art(local_path, output_path, mode=mode, target_size=target_size, focus=focus)
     return False

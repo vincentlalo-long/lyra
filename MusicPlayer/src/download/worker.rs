@@ -37,6 +37,16 @@ struct RawCoverResult {
 }
 
 #[derive(Deserialize)]
+struct RawLyricsProbe {
+    #[serde(rename = "type")]
+    _event_type: Option<String>,
+    #[serde(default)]
+    has_manual: bool,
+    #[serde(default)]
+    has_auto: bool,
+}
+
+#[derive(Deserialize)]
 struct RawEvent {
     #[serde(rename = "type")]
     event_type: String,
@@ -266,6 +276,38 @@ impl Downloader {
         });
     }
 
+    /// Probes subtitle availability for the Lyrics-row badge.
+    /// Failures are silent (badge stays neutral) — never an Error event,
+    /// so a failed probe can't clobber the form.
+    pub fn probe_lyrics(&self, url: String) {
+        let sender = self.sender.clone();
+        let script = Self::find_script();
+
+        thread::spawn(move || {
+            let script_dir = script.parent().unwrap_or(std::path::Path::new("."));
+            let output = Command::new("python3")
+                .env("PYTHONPATH", script_dir)
+                .arg(&script)
+                .arg("probe-lyrics")
+                .arg(&url)
+                .arg("--json")
+                .output();
+
+            match output {
+                Ok(out) => {
+                    let text = String::from_utf8_lossy(&out.stdout);
+                    if let Ok(probe) = serde_json::from_str::<RawLyricsProbe>(text.trim()) {
+                        let _ = sender.send(DownloadEvent::LyricsProbe {
+                            has_manual: probe.has_manual,
+                            has_auto: probe.has_auto,
+                        });
+                    }
+                }
+                Err(_) => {}
+            }
+        });
+    }
+
     pub fn fetch_covers(&self, artist: String, title: String) {
         self.fetch_covers_query(artist, title, None, Some("auto".to_string()));
     }
@@ -339,9 +381,8 @@ impl Downloader {
                 .arg("--cover-mode")
                 .arg(&req.cover_mode)
                 .arg("--cover-source")
-                .arg("auto")
-                .arg("--title")
-                .arg(&req.title)
+                .arg(req.cover_source.clone())
+                .arg("--title")                .arg(&req.title)
                 .arg("--name")
                 .arg(format!("{} - {}", req.artist, req.title))
                 .arg("--singer")
@@ -357,6 +398,10 @@ impl Downloader {
                 .or(req.cover_url.as_ref().filter(|s| !s.is_empty()));
             if let Some(cov) = cover_arg {
                 cmd.arg("--cover").arg(cov);
+            }
+
+            if let Some((fx, fy)) = req.cover_focus {
+                cmd.arg("--crop-focus").arg(format!("{fx:.3} {fy:.3}"));
             }
 
             if !req.album.is_empty() {
@@ -515,6 +560,8 @@ mod tests {
             album: "".to_string(),
             genre: None,
             cover_mode: "blur_pad".to_string(),
+            cover_source: "auto".to_string(),
+            cover_focus: None,
             cover_url: None,
             custom_cover: None,
             no_lyrics: false,
@@ -546,6 +593,8 @@ mod tests {
             album: "".to_string(),
             genre: None,
             cover_mode: "blur_pad".to_string(),
+            cover_source: "auto".to_string(),
+            cover_focus: None,
             cover_url: None,
             custom_cover: None,
             no_lyrics: false,
