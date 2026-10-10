@@ -70,7 +70,15 @@ impl App {
             .as_ref()
             .is_some_and(|p| p.picked_genres().is_empty());
         if picked_empty {
-            self.set_toast("Tick genres with Space/Enter first (nothing selected)".to_string());
+            // Nothing ticked: pressing `f` turns the filter OFF instead of
+            // phantom-filtering by the cursor row.
+            self.genre_picker = None;
+            if !self.genre_filters.is_empty() {
+                self.genre_filters.clear();
+                self.set_toast("Genre filter cleared".to_string());
+            } else {
+                self.set_toast("Tick genres with Space/Enter first (nothing selected)".to_string());
+            }
             return;
         }
         let Some(picker) = self.genre_picker.take() else {

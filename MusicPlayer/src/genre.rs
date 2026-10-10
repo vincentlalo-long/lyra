@@ -224,49 +224,69 @@ impl GenreDB {
     /// Returns all known genres across the entire library: combines all tags recorded
     /// in the sidecar database (regardless of whether song is in current playlist)
     /// plus embedded ID3 tags from current playlist songs.
+    ///
+    /// Counts are deduplicated by canonical song identity and skip files
+    /// missing from disk: the sidecar stores each song under two keys
+    /// (canonical + raw path) plus stale entries of deleted/renamed
+    /// tracks, so naive per-entry counting inflates (e.g. 21 songs
+    /// showing as 30 for one genre).
     pub fn all_known_genres(&mut self, current_playlist: &[PathBuf]) -> Vec<(String, usize)> {
-        let mut counts: HashMap<String, (String, usize)> = HashMap::new();
+        use std::collections::HashSet;
+        // genre (lowercased) -> (display name, canonical song paths)
+        let mut members: HashMap<String, (String, HashSet<String>)> = HashMap::new();
+        let count_song = |display: &str, canon: &str, members: &mut HashMap<String, (String, HashSet<String>)>| {
+            let trimmed = display.trim();
+            if trimmed.is_empty() {
+                return;
+            }
+            members
+                .entry(trimmed.to_lowercase())
+                .or_insert_with(|| (trimmed.to_string(), HashSet::new()))
+                .1
+                .insert(canon.to_string());
+        };
 
-        // 1. All genres in the sidecar database
-        for genres in self.sidecar.values() {
-            let mut seen_here = std::collections::HashSet::new();
+        // 1. All genres in the sidecar database (one vote per real file).
+        let sidecar_snapshot: Vec<(String, Vec<String>)> = self
+            .sidecar
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        for (key, genres) in &sidecar_snapshot {
+            let canon = Self::canonical_key(Path::new(key));
+            if !Path::new(&canon).is_file() {
+                continue;
+            }
+            let mut seen_here = HashSet::new();
             for g in genres {
-                let trimmed = g.trim();
-                if trimmed.is_empty() {
+                let lower = g.trim().to_lowercase();
+                if g.trim().is_empty() || !seen_here.insert(lower) {
                     continue;
                 }
-                let lower = trimmed.to_lowercase();
-                if seen_here.insert(lower.clone()) {
-                    counts
-                        .entry(lower)
-                        .and_modify(|(_, n)| *n += 1)
-                        .or_insert((trimmed.to_string(), 1));
-                }
+                count_song(g, &canon, &mut members);
             }
         }
 
-        // 2. Extra genres found on songs in current playlist not in sidecar
+        // 2. Extra genres found on songs in current playlist not in sidecar.
         for song in current_playlist {
             if self.find_sidecar_genres(song).is_some() {
                 continue;
             }
-            let mut seen_here = std::collections::HashSet::new();
+            let canon = Self::canonical_key(song);
+            let mut seen_here = HashSet::new();
             for g in self.genres_for(song) {
-                let trimmed = g.trim();
-                if trimmed.is_empty() {
+                let lower = g.trim().to_lowercase();
+                if g.trim().is_empty() || !seen_here.insert(lower) {
                     continue;
                 }
-                let lower = trimmed.to_lowercase();
-                if seen_here.insert(lower.clone()) {
-                    counts
-                        .entry(lower)
-                        .and_modify(|(_, n)| *n += 1)
-                        .or_insert((trimmed.to_string(), 1));
-                }
+                count_song(&g.clone(), &canon, &mut members);
             }
         }
 
-        let mut out: Vec<(String, usize)> = counts.into_values().collect();
+        let mut out: Vec<(String, usize)> = members
+            .into_values()
+            .map(|(name, songs)| (name, songs.len()))
+            .collect();
         out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         out
     }
@@ -583,9 +603,22 @@ mod tests {
 
     #[test]
     fn test_all_known_genres_and_fuzzy_path_lookup() {
+        // Real files: sidecar stores each song under TWO keys
+        // (canonical + raw), which must still count as ONE song.
+        let dir = std::env::temp_dir().join("lyra_genre_count_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let song = dir.join("LIT piano.mp3");
+        std::fs::write(&song, b"mp3").unwrap();
+        let canon = std::fs::canonicalize(&song).unwrap().to_string_lossy().into_owned();
+        let raw = song.to_string_lossy().into_owned();
+
         let mut db = GenreDB {
             sidecar: [
-                ("/home/user/Music/Sub/LIT piano.mp3".to_string(), vec!["Anime".to_string(), "Chill".to_string()]),
+                (canon, vec!["Anime".to_string(), "Chill".to_string()]),
+                (raw, vec!["Anime".to_string(), "Chill".to_string()]),
+                // Stale entry of a deleted file: never counted.
+                ("/nonexistent-lyra-song-xyz.mp3".to_string(), vec!["Anime".to_string()]),
             ]
             .into_iter()
             .collect(),
@@ -611,5 +644,7 @@ mod tests {
         assert_eq!(rec.len(), 2);
         assert!(rec.contains(&"Anime".to_string()));
         assert!(rec.contains(&"Chill".to_string()));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

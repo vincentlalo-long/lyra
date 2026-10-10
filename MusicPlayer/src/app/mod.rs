@@ -121,6 +121,9 @@ pub struct App {
     pub queue_scroll_tracker: (usize, Instant),
     /// Interactive browser actions: new album, rename album, edit track ID3, move track.
     pub browser_modal: Option<crate::browser::BrowserActionModal>,
+    /// Caret (char index) inside the active browser-modal text input.
+    /// Reset to end-of-text whenever a modal opens or its field changes.
+    pub browser_caret: usize,
 }
 
 /// How long a toast stays visible.
@@ -204,6 +207,7 @@ impl App {
             selected_scroll_tracker: (0, Instant::now()),
             queue_scroll_tracker: (0, Instant::now()),
             browser_modal: None,
+            browser_caret: 0,
         };
         // Derive runtime flags from saved plugin states (a plugin disabled
         // in a previous session stays off — no recompile needed).

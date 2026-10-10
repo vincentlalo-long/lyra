@@ -4,12 +4,93 @@ use id3::TagLike;
 use crate::browser::BrowserActionModal;
 use super::App;
 
+/// Byte index of a char-position caret (clamped to text end).
+fn caret_byte_idx(s: &str, caret: usize) -> usize {
+    s.char_indices().map(|(b, _)| b).nth(caret).unwrap_or(s.len())
+}
+
+/// Movable caret for single-line modal inputs (browser modals).
+fn caret_insert(s: &mut String, caret: &mut usize, c: char) {
+    let byte = caret_byte_idx(s, *caret);
+    s.insert(byte, c);
+    *caret += 1;
+}
+
+fn caret_backspace(s: &mut String, caret: &mut usize) {
+    if *caret == 0 {
+        return;
+    }
+    let end = caret_byte_idx(s, *caret);
+    let start = caret_byte_idx(s, *caret - 1);
+    s.drain(start..end);
+    *caret -= 1;
+}
+
+fn caret_delete(s: &mut String, caret: usize) {
+    let len = s.chars().count();
+    if caret >= len {
+        return;
+    }
+    let start = caret_byte_idx(s, caret);
+    let end = caret_byte_idx(s, caret + 1);
+    s.drain(start..end);
+}
+
+fn caret_delete_word(s: &mut String, caret: &mut usize) {
+    let chars: Vec<char> = s.chars().collect();
+    let mut start = (*caret).min(chars.len());
+    while start > 0 && chars[start - 1] == ' ' {
+        start -= 1;
+    }
+    while start > 0 && chars[start - 1] != ' ' {
+        start -= 1;
+    }
+    let b_start = caret_byte_idx(s, start);
+    let b_end = caret_byte_idx(s, (*caret).min(chars.len()));
+    s.drain(b_start..b_end);
+    *caret = start;
+}
+
+fn caret_end(s: &str) -> usize {
+    s.chars().count()
+}
+
+/// Mutable access to one EditTrack text field by index
+/// (0: Title, 1: Artist, 2: Album, 3: File name).
+fn edit_field_mut<'a>(
+    idx: usize,
+    title: &'a mut String,
+    artist: &'a mut String,
+    album: &'a mut String,
+    file_name: &'a mut String,
+) -> Option<&'a mut String> {
+    match idx {
+        0 => Some(title),
+        1 => Some(artist),
+        2 => Some(album),
+        3 => Some(file_name),
+        _ => None,
+    }
+}
+
+fn edit_field(field_idx: usize, title: &str, artist: &str, album: &str, file_name: &str) -> usize {
+    let text = match field_idx {
+        0 => title,
+        1 => artist,
+        2 => album,
+        3 => file_name,
+        _ => "",
+    };
+    caret_end(text)
+}
+
 impl App {
     /// Opens the prompt modal to create a new album (folder) in current browser directory
     pub fn browser_create_album_prompt(&mut self) {
         self.browser_modal = Some(BrowserActionModal::NewAlbum {
             input: String::new(),
         });
+        self.browser_caret = 0;
     }
 
     /// Deletes the currently selected item in browser.
@@ -143,6 +224,7 @@ impl App {
 
         if entry_path.is_dir() {
             let name = entry_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            self.browser_caret = caret_end(&name);
             self.browser_modal = Some(BrowserActionModal::RenameAlbum {
                 target_dir: entry_path,
                 input: name,
@@ -155,6 +237,7 @@ impl App {
                 meta.title
             };
             let file_name = entry_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            self.browser_caret = caret_end(&title);
             self.browser_modal = Some(BrowserActionModal::EditTrack {
                 target_file: entry_path,
                 field_idx: 0,
@@ -347,8 +430,11 @@ impl App {
             BrowserActionModal::NewAlbum { mut input } => {
                 if has_ctrl {
                     match key.code {
-                        KeyCode::Char('u') | KeyCode::Char('U') => input.clear(),
-                        KeyCode::Char('w') | KeyCode::Char('W') => crate::input::delete_last_word(&mut input),
+                        KeyCode::Char('u') | KeyCode::Char('U') => {
+                            input.clear();
+                            self.browser_caret = 0;
+                        }
+                        KeyCode::Char('w') | KeyCode::Char('W') => caret_delete_word(&mut input, &mut self.browser_caret),
                         _ => {}
                     }
                     self.browser_modal = Some(BrowserActionModal::NewAlbum { input });
@@ -359,11 +445,31 @@ impl App {
                         self.set_toast("Album creation cancelled".to_string());
                     }
                     KeyCode::Backspace => {
-                        input.pop();
+                        caret_backspace(&mut input, &mut self.browser_caret);
+                        self.browser_modal = Some(BrowserActionModal::NewAlbum { input });
+                    }
+                    KeyCode::Delete => {
+                        caret_delete(&mut input, self.browser_caret);
+                        self.browser_modal = Some(BrowserActionModal::NewAlbum { input });
+                    }
+                    KeyCode::Left => {
+                        self.browser_caret = self.browser_caret.saturating_sub(1);
+                        self.browser_modal = Some(BrowserActionModal::NewAlbum { input });
+                    }
+                    KeyCode::Right => {
+                        self.browser_caret = (self.browser_caret + 1).min(caret_end(&input));
+                        self.browser_modal = Some(BrowserActionModal::NewAlbum { input });
+                    }
+                    KeyCode::Home => {
+                        self.browser_caret = 0;
+                        self.browser_modal = Some(BrowserActionModal::NewAlbum { input });
+                    }
+                    KeyCode::End => {
+                        self.browser_caret = caret_end(&input);
                         self.browser_modal = Some(BrowserActionModal::NewAlbum { input });
                     }
                     KeyCode::Char(c) => {
-                        input.push(c);
+                        caret_insert(&mut input, &mut self.browser_caret, c);
                         self.browser_modal = Some(BrowserActionModal::NewAlbum { input });
                     }
                     KeyCode::Enter => {
@@ -394,8 +500,11 @@ impl App {
             BrowserActionModal::RenameAlbum { target_dir, mut input } => {
                 if has_ctrl {
                     match key.code {
-                        KeyCode::Char('u') | KeyCode::Char('U') => input.clear(),
-                        KeyCode::Char('w') | KeyCode::Char('W') => crate::input::delete_last_word(&mut input),
+                        KeyCode::Char('u') | KeyCode::Char('U') => {
+                            input.clear();
+                            self.browser_caret = 0;
+                        }
+                        KeyCode::Char('w') | KeyCode::Char('W') => caret_delete_word(&mut input, &mut self.browser_caret),
                         _ => {}
                     }
                     self.browser_modal = Some(BrowserActionModal::RenameAlbum { target_dir, input });
@@ -406,11 +515,31 @@ impl App {
                         self.set_toast("Album rename cancelled".to_string());
                     }
                     KeyCode::Backspace => {
-                        input.pop();
+                        caret_backspace(&mut input, &mut self.browser_caret);
+                        self.browser_modal = Some(BrowserActionModal::RenameAlbum { target_dir, input });
+                    }
+                    KeyCode::Delete => {
+                        caret_delete(&mut input, self.browser_caret);
+                        self.browser_modal = Some(BrowserActionModal::RenameAlbum { target_dir, input });
+                    }
+                    KeyCode::Left => {
+                        self.browser_caret = self.browser_caret.saturating_sub(1);
+                        self.browser_modal = Some(BrowserActionModal::RenameAlbum { target_dir, input });
+                    }
+                    KeyCode::Right => {
+                        self.browser_caret = (self.browser_caret + 1).min(caret_end(&input));
+                        self.browser_modal = Some(BrowserActionModal::RenameAlbum { target_dir, input });
+                    }
+                    KeyCode::Home => {
+                        self.browser_caret = 0;
+                        self.browser_modal = Some(BrowserActionModal::RenameAlbum { target_dir, input });
+                    }
+                    KeyCode::End => {
+                        self.browser_caret = caret_end(&input);
                         self.browser_modal = Some(BrowserActionModal::RenameAlbum { target_dir, input });
                     }
                     KeyCode::Char(c) => {
-                        input.push(c);
+                        caret_insert(&mut input, &mut self.browser_caret, c);
                         self.browser_modal = Some(BrowserActionModal::RenameAlbum { target_dir, input });
                     }
                     KeyCode::Enter => {
@@ -456,13 +585,10 @@ impl App {
                 if has_ctrl {
                     match key.code {
                         KeyCode::Char('u') | KeyCode::Char('U') => {
-                            match field_idx {
-                                0 => title.clear(),
-                                1 => artist.clear(),
-                                2 => album.clear(),
-                                3 => file_name.clear(),
-                                _ => {}
+                            if let Some(text) = edit_field_mut(field_idx, &mut title, &mut artist, &mut album, &mut file_name) {
+                                text.clear();
                             }
+                            self.browser_caret = 0;
                             self.browser_modal = Some(BrowserActionModal::EditTrack {
                                 target_file,
                                 field_idx,
@@ -474,12 +600,8 @@ impl App {
                             return true;
                         }
                         KeyCode::Char('w') | KeyCode::Char('W') => {
-                            match field_idx {
-                                0 => crate::input::delete_last_word(&mut title),
-                                1 => crate::input::delete_last_word(&mut artist),
-                                2 => crate::input::delete_last_word(&mut album),
-                                3 => crate::input::delete_last_word(&mut file_name),
-                                _ => {}
+                            if let Some(text) = edit_field_mut(field_idx, &mut title, &mut artist, &mut album, &mut file_name) {
+                                caret_delete_word(text, &mut self.browser_caret);
                             }
                             self.browser_modal = Some(BrowserActionModal::EditTrack {
                                 target_file,
@@ -500,6 +622,7 @@ impl App {
                     }
                     KeyCode::Tab | KeyCode::Down => {
                         field_idx = (field_idx + 1) % 4;
+                        self.browser_caret = edit_field(field_idx, &title, &artist, &album, &file_name);
                         self.browser_modal = Some(BrowserActionModal::EditTrack {
                             target_file,
                             field_idx,
@@ -511,6 +634,7 @@ impl App {
                     }
                     KeyCode::Up => {
                         field_idx = (field_idx + 3) % 4;
+                        self.browser_caret = edit_field(field_idx, &title, &artist, &album, &file_name);
                         self.browser_modal = Some(BrowserActionModal::EditTrack {
                             target_file,
                             field_idx,
@@ -521,12 +645,8 @@ impl App {
                         });
                     }
                     KeyCode::Backspace => {
-                        match field_idx {
-                            0 => { title.pop(); }
-                            1 => { artist.pop(); }
-                            2 => { album.pop(); }
-                            3 => { file_name.pop(); }
-                            _ => {}
+                        if let Some(text) = edit_field_mut(field_idx, &mut title, &mut artist, &mut album, &mut file_name) {
+                            caret_backspace(text, &mut self.browser_caret);
                         }
                         self.browser_modal = Some(BrowserActionModal::EditTrack {
                             target_file,
@@ -537,13 +657,67 @@ impl App {
                             file_name,
                         });
                     }
+                    KeyCode::Delete => {
+                        if let Some(text) = edit_field_mut(field_idx, &mut title, &mut artist, &mut album, &mut file_name) {
+                            caret_delete(text, self.browser_caret);
+                        }
+                        self.browser_modal = Some(BrowserActionModal::EditTrack {
+                            target_file,
+                            field_idx,
+                            title,
+                            artist,
+                            album,
+                            file_name,
+                        });
+                    }
+                    KeyCode::Left => {
+                        self.browser_caret = self.browser_caret.saturating_sub(1);
+                        self.browser_modal = Some(BrowserActionModal::EditTrack {
+                            target_file,
+                            field_idx,
+                            title,
+                            artist,
+                            album,
+                            file_name,
+                        });
+                    }
+                    KeyCode::Right => {
+                        let max = edit_field(field_idx, &title, &artist, &album, &file_name);
+                        self.browser_caret = (self.browser_caret + 1).min(max);
+                        self.browser_modal = Some(BrowserActionModal::EditTrack {
+                            target_file,
+                            field_idx,
+                            title,
+                            artist,
+                            album,
+                            file_name,
+                        });
+                    }
+                    KeyCode::Home => {
+                        self.browser_caret = 0;
+                        self.browser_modal = Some(BrowserActionModal::EditTrack {
+                            target_file,
+                            field_idx,
+                            title,
+                            artist,
+                            album,
+                            file_name,
+                        });
+                    }
+                    KeyCode::End => {
+                        self.browser_caret = edit_field(field_idx, &title, &artist, &album, &file_name);
+                        self.browser_modal = Some(BrowserActionModal::EditTrack {
+                            target_file,
+                            field_idx,
+                            title,
+                            artist,
+                            album,
+                            file_name,
+                        });
+                    }
                     KeyCode::Char(c) => {
-                        match field_idx {
-                            0 => { title.push(c); }
-                            1 => { artist.push(c); }
-                            2 => { album.push(c); }
-                            3 => { file_name.push(c); }
-                            _ => {}
+                        if let Some(text) = edit_field_mut(field_idx, &mut title, &mut artist, &mut album, &mut file_name) {
+                            caret_insert(text, &mut self.browser_caret, c);
                         }
                         self.browser_modal = Some(BrowserActionModal::EditTrack {
                             target_file,
@@ -557,6 +731,7 @@ impl App {
                     KeyCode::Enter => {
                         if field_idx < 3 && !key.modifiers.contains(KeyModifiers::CONTROL) {
                             field_idx += 1;
+                            self.browser_caret = edit_field(field_idx, &title, &artist, &album, &file_name);
                             self.browser_modal = Some(BrowserActionModal::EditTrack {
                                 target_file,
                                 field_idx,
@@ -635,8 +810,11 @@ impl App {
                 if creating_new {
                     if has_ctrl {
                         match key.code {
-                            KeyCode::Char('u') | KeyCode::Char('U') => new_album_input.clear(),
-                            KeyCode::Char('w') | KeyCode::Char('W') => crate::input::delete_last_word(&mut new_album_input),
+                            KeyCode::Char('u') | KeyCode::Char('U') => {
+                                new_album_input.clear();
+                                self.browser_caret = 0;
+                            }
+                            KeyCode::Char('w') | KeyCode::Char('W') => caret_delete_word(&mut new_album_input, &mut self.browser_caret),
                             _ => {}
                         }
                         self.browser_modal = Some(BrowserActionModal::MoveTrack {
@@ -659,7 +837,57 @@ impl App {
                             });
                         }
                         KeyCode::Backspace => {
-                            new_album_input.pop();
+                            caret_backspace(&mut new_album_input, &mut self.browser_caret);
+                            self.browser_modal = Some(BrowserActionModal::MoveTrack {
+                                target_file,
+                                candidate_albums,
+                                selected_idx,
+                                creating_new: true,
+                                new_album_input,
+                            });
+                        }
+                        KeyCode::Delete => {
+                            caret_delete(&mut new_album_input, self.browser_caret);
+                            self.browser_modal = Some(BrowserActionModal::MoveTrack {
+                                target_file,
+                                candidate_albums,
+                                selected_idx,
+                                creating_new: true,
+                                new_album_input,
+                            });
+                        }
+                        KeyCode::Left => {
+                            self.browser_caret = self.browser_caret.saturating_sub(1);
+                            self.browser_modal = Some(BrowserActionModal::MoveTrack {
+                                target_file,
+                                candidate_albums,
+                                selected_idx,
+                                creating_new: true,
+                                new_album_input,
+                            });
+                        }
+                        KeyCode::Right => {
+                            self.browser_caret = (self.browser_caret + 1).min(caret_end(&new_album_input));
+                            self.browser_modal = Some(BrowserActionModal::MoveTrack {
+                                target_file,
+                                candidate_albums,
+                                selected_idx,
+                                creating_new: true,
+                                new_album_input,
+                            });
+                        }
+                        KeyCode::Home => {
+                            self.browser_caret = 0;
+                            self.browser_modal = Some(BrowserActionModal::MoveTrack {
+                                target_file,
+                                candidate_albums,
+                                selected_idx,
+                                creating_new: true,
+                                new_album_input,
+                            });
+                        }
+                        KeyCode::End => {
+                            self.browser_caret = caret_end(&new_album_input);
                             self.browser_modal = Some(BrowserActionModal::MoveTrack {
                                 target_file,
                                 candidate_albums,
@@ -669,7 +897,7 @@ impl App {
                             });
                         }
                         KeyCode::Char(c) => {
-                            new_album_input.push(c);
+                            caret_insert(&mut new_album_input, &mut self.browser_caret, c);
                             self.browser_modal = Some(BrowserActionModal::MoveTrack {
                                 target_file,
                                 candidate_albums,
@@ -732,6 +960,7 @@ impl App {
                             });
                         }
                         KeyCode::Char('n') | KeyCode::Char('N') => {
+                            self.browser_caret = 0;
                             self.browser_modal = Some(BrowserActionModal::MoveTrack {
                                 target_file,
                                 candidate_albums,
@@ -743,6 +972,7 @@ impl App {
                         KeyCode::Enter => {
                             if selected_idx == candidate_albums.len() {
                                 // Option "Create New Album"
+                                self.browser_caret = 0;
                                 self.browser_modal = Some(BrowserActionModal::MoveTrack {
                                     target_file,
                                     candidate_albums,
@@ -865,8 +1095,7 @@ mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
-    fn test_browser_create_album() {
-        let temp_dir = std::env::temp_dir().join("lyra_test_create_album");
+    fn test_browser_create_album() {        let temp_dir = std::env::temp_dir().join("lyra_test_create_album");
         let _ = std::fs::remove_dir_all(&temp_dir);
         let _ = std::fs::create_dir_all(&temp_dir);
 
@@ -886,6 +1115,48 @@ mod tests {
 
             assert!(app.browser_modal.is_none());
             assert!(temp_dir.join("Summer 2026").is_dir());
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_browser_modal_caret_edits_mid_text() {
+        let temp_dir = std::env::temp_dir().join("lyra_test_modal_caret");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        if let Ok(mut app) = App::new(&temp_dir) {
+            app.browser.current_dir = temp_dir.clone();
+            app.browser.refresh();
+
+            app.browser_create_album_prompt();
+            for c in "abcd".chars() {
+                app.handle_browser_modal_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+            }
+            // Caret at end; move left twice and insert mid-text.
+            app.handle_browser_modal_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+            app.handle_browser_modal_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+            assert_eq!(app.browser_caret, 2);
+            app.handle_browser_modal_key(KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
+            // Backspace removes the inserted char.
+            app.handle_browser_modal_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+            // Delete removes the char at the caret ('c').
+            app.handle_browser_modal_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
+            // Home + type at front, End + type at back.
+            app.handle_browser_modal_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+            app.handle_browser_modal_key(KeyEvent::new(KeyCode::Char('Z'), KeyModifiers::NONE));
+            app.handle_browser_modal_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+            app.handle_browser_modal_key(KeyEvent::new(KeyCode::Char('Y'), KeyModifiers::NONE));
+
+            match &app.browser_modal {
+                Some(BrowserActionModal::NewAlbum { input }) => {
+                    assert_eq!(input, "ZabdY");
+                }
+                other => panic!("expected NewAlbum modal, got {other:?}"),
+            }
+            app.handle_browser_modal_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+            assert!(temp_dir.join("ZabdY").is_dir());
         }
 
         let _ = std::fs::remove_dir_all(&temp_dir);

@@ -61,7 +61,8 @@ def search_youtube(query: str, limit: int = 15) -> List[Dict[str, Any]]:
         return results
 
 
-def get_video_info(url: str) -> Dict[str, Any]:    ydl_opts = {
+def get_video_info(url: str) -> Dict[str, Any]:
+    ydl_opts = {
         "extract_flat": True,
         "quiet": True,
         "no_warnings": True,

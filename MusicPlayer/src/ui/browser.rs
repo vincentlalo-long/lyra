@@ -11,6 +11,19 @@ use crate::{
     theme,
 };
 
+/// Splits an input around the caret so the `█` block renders at the
+/// real editing position instead of always at end-of-text.
+fn caret_spans(text: &str, caret: usize, text_style: Style, cursor_style: Style) -> Vec<Span<'_>> {
+    let caret = caret.min(text.chars().count());
+    let before: String = text.chars().take(caret).collect();
+    let after: String = text.chars().skip(caret).collect();
+    vec![
+        Span::styled(before, text_style),
+        Span::styled("█", cursor_style),
+        Span::styled(after, text_style),
+    ]
+}
+
 pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let filtered = app.browser.filtered_indices(&app.search_query);
     let mut list_items = Vec::new();
@@ -116,11 +129,11 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
     // Render interactive modal if active
     if let Some(modal) = app.browser_modal.clone() {
-        render_browser_modal(frame, &modal);
+        render_browser_modal(frame, &modal, app.browser_caret);
     }
 }
 
-fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal) {
+fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal, caret: usize) {
     let screen = frame.area();
 
     match modal {
@@ -143,17 +156,21 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal) {
             let inner = block.inner(popup_area);
             frame.render_widget(block, popup_area);
 
+            let mut input_spans = vec![
+                Span::raw("  [ "),
+            ];
+            input_spans.extend(caret_spans(
+                input,
+                caret,
+                Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD),
+                Style::default().fg(theme::GREEN),
+            ));
+            input_spans.push(Span::raw(" ]"));
             let lines = vec![
                 Line::from(vec![
                     Span::styled(" Enter album name: ", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
-                ]),
-                Line::raw(""),
-                Line::from(vec![
-                    Span::raw("  [ "),
-                    Span::styled(input, Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)),
-                    Span::styled("█", Style::default().fg(theme::GREEN)),
-                    Span::raw(" ]"),
-                ]),
+                ]),                Line::raw(""),
+                Line::from(input_spans),
             ];
             frame.render_widget(Paragraph::new(lines), inner);
         }
@@ -177,17 +194,22 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal) {
             let inner = block.inner(popup_area);
             frame.render_widget(block, popup_area);
 
+            let mut input_spans = vec![
+                Span::raw("  [ "),
+            ];
+            input_spans.extend(caret_spans(
+                input,
+                caret,
+                Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD),
+                Style::default().fg(theme::PEACH),
+            ));
+            input_spans.push(Span::raw(" ]"));
             let lines = vec![
                 Line::from(vec![
                     Span::styled(" New album name: ", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
                 ]),
                 Line::raw(""),
-                Line::from(vec![
-                    Span::raw("  [ "),
-                    Span::styled(input, Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)),
-                    Span::styled("█", Style::default().fg(theme::PEACH)),
-                    Span::raw(" ]"),
-                ]),
+                Line::from(input_spans),
             ];
             frame.render_widget(Paragraph::new(lines), inner);
         }
@@ -241,10 +263,16 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal) {
                 let mut spans = vec![
                     Span::styled(format!(" {label} "), if is_active { Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme::BLUE) }),
                     Span::styled("[ ", if is_active { Style::default().fg(theme::YELLOW) } else { Style::default().fg(theme::OVERLAY0) }),
-                    Span::styled(*val, if is_active { Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme::TEXT) }),
                 ];
                 if is_active {
-                    spans.push(Span::styled("█", Style::default().fg(theme::YELLOW)));
+                    spans.extend(caret_spans(
+                        val.as_str(),
+                        caret,
+                        Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
+                        Style::default().fg(theme::YELLOW),
+                    ));
+                } else {
+                    spans.push(Span::styled(*val, Style::default().fg(theme::TEXT)));
                 }
                 spans.push(Span::styled(" ]", if is_active { Style::default().fg(theme::YELLOW) } else { Style::default().fg(theme::OVERLAY0) }));
                 frame.render_widget(Paragraph::new(Line::from(spans)), rows[idx]);
@@ -282,18 +310,23 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal) {
             frame.render_widget(block, popup_area);
 
             if *creating_new {
+                let mut input_spans = vec![
+                    Span::raw("   [ "),
+                ];
+                input_spans.extend(caret_spans(
+                    new_album_input,
+                    caret,
+                    Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD),
+                    Style::default().fg(theme::GREEN),
+                ));
+                input_spans.push(Span::raw(" ]"));
                 let lines = vec![
                     Line::raw(""),
                     Line::from(vec![
                         Span::styled("  󰉋 Create New Album & Move Track: ", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
                     ]),
                     Line::raw(""),
-                    Line::from(vec![
-                        Span::raw("   [ "),
-                        Span::styled(new_album_input, Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)),
-                        Span::styled("█", Style::default().fg(theme::GREEN)),
-                        Span::raw(" ]"),
-                    ]),
+                    Line::from(input_spans),
                     Line::raw(""),
                     Line::from(vec![
                         Span::styled("   (Press Enter to create & move track, Esc to go back)", Style::default().fg(theme::OVERLAY0)),
