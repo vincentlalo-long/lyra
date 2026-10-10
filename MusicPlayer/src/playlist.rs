@@ -224,6 +224,54 @@ impl Playlist {
         Some(path)
     }
 
+    /// Advance `playing_index` inside a precomputed visible (filtered) set.
+    /// A playing track outside the set restarts from the first visible one.
+    /// Returns `None` when the visible set is empty.
+    pub fn next_track_path_filtered(&mut self, indices: &[usize]) -> Option<PathBuf> {
+        if self.songs.is_empty() || indices.is_empty() {
+            return None;
+        }
+        let next_index = match self.playing_index {
+            Some(cur) => match indices.iter().position(|&i| i == cur) {
+                Some(pos) => indices[(pos + 1) % indices.len()],
+                None => indices[0],
+            },
+            None => indices[0],
+        };
+        let path = self.songs.get(next_index)?.clone();
+        self.playing_index = Some(next_index);
+        self.selected = next_index;
+        Some(path)
+    }
+
+    /// Step `playing_index` backwards inside a visible (filtered) set.
+    pub fn prev_track_path_filtered(&mut self, indices: &[usize]) -> Option<PathBuf> {
+        if self.songs.is_empty() || indices.is_empty() {
+            return None;
+        }
+        let prev_index = match self.playing_index {
+            Some(cur) => match indices.iter().position(|&i| i == cur) {
+                Some(pos) => indices[(pos + indices.len() - 1) % indices.len()],
+                None => indices[0],
+            },
+            None => indices[0],
+        };
+        let path = self.songs.get(prev_index)?.clone();
+        self.playing_index = Some(prev_index);
+        self.selected = prev_index;
+        Some(path)
+    }
+
+    /// True when the playing track is the last of the visible set
+    /// (used by RepeatMode::Off to stop instead of leaking into
+    /// hidden tracks).
+    pub fn playing_is_last_visible(&self, indices: &[usize]) -> bool {
+        match self.playing_index {
+            Some(cur) => indices.iter().position(|&i| i == cur).is_some_and(|pos| pos + 1 >= indices.len()),
+            None => false,
+        }
+    }
+
     pub fn set_songs(&mut self, songs: Vec<PathBuf>) {
         self.songs = songs;
         self.selected = 0;
@@ -238,6 +286,30 @@ impl Playlist {
                 self.songs.push(song);
             }
         }
+    }
+
+    /// Inserts one song (sorted, deduped) while keeping `playing_index`
+    /// and `selected` glued to the same tracks by path identity — so a
+    /// background download landing mid-playback never shifts the cursor
+    /// or the now-playing highlight. Returns true when newly added.
+    #[cfg_attr(not(feature = "download"), allow(dead_code))]
+    pub fn insert_sorted(&mut self, path: PathBuf) -> bool {
+        if self.songs.contains(&path) {
+            return false;
+        }
+        let playing = self.playing_index.and_then(|i| self.songs.get(i).cloned());
+        let selected = self.songs.get(self.selected).cloned();
+        self.songs.push(path);
+        self.songs.sort();
+        if let Some(p) = playing {
+            self.playing_index = self.songs.iter().position(|s| s == &p);
+        }
+        if let Some(s) = selected {
+            if let Some(pos) = self.songs.iter().position(|x| x == &s) {
+                self.selected = pos;
+            }
+        }
+        true
     }
 
     /// Removes the currently selected song from the playlist.
@@ -438,8 +510,7 @@ pub fn load_m3u(path: &Path) -> Vec<PathBuf> {
     }
 
     #[test]
-    fn test_append_songs_deduplicates() {
-        let mut playlist = make_playlist();
+    fn test_append_songs_deduplicates() {        let mut playlist = make_playlist();
         let initial_len = playlist.songs.len();
         // Append an existing song and a new song
         playlist.append_songs(vec![
@@ -448,6 +519,34 @@ pub fn load_m3u(path: &Path) -> Vec<PathBuf> {
         ]);
         assert_eq!(playlist.songs.len(), initial_len + 1);
         assert_eq!(playlist.songs.last(), Some(&PathBuf::from("song_new.mp3")));
+    }
+
+    #[cfg(feature = "download")]
+    #[test]
+    fn test_insert_sorted_preserves_cursors_by_identity() {
+        let mut playlist = Playlist {
+            songs: vec![PathBuf::from("a.mp3"), PathBuf::from("c.mp3"), PathBuf::from("e.mp3")],
+            selected: 1, // c.mp3
+            playing_index: Some(1), // c.mp3
+            state: ListState::default(),
+        };
+        // New download sorts BEFORE the playing track.
+        assert!(playlist.insert_sorted(PathBuf::from("b.mp3")));
+        assert_eq!(
+            playlist.songs,
+            vec![
+                PathBuf::from("a.mp3"),
+                PathBuf::from("b.mp3"),
+                PathBuf::from("c.mp3"),
+                PathBuf::from("e.mp3"),
+            ]
+        );
+        assert_eq!(playlist.selected, 2, "cursor must follow c.mp3");
+        assert_eq!(playlist.playing_index, Some(2), "now-playing must follow c.mp3");
+        // Duplicates are ignored without touching cursors.
+        assert!(!playlist.insert_sorted(PathBuf::from("b.mp3")));
+        assert_eq!(playlist.selected, 2);
+        assert_eq!(playlist.playing_index, Some(2));
     }
 
     #[test]

@@ -251,9 +251,18 @@ fn render_path_edit_modal(frame: &mut Frame, app: &App, edit_idx: usize) {
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
+/// Truncates to at most `max` chars so fixed-width table columns
+/// never overflow the modal (wide glyphs aside, this bounds the damage).
+fn truncate_cells(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        s.chars().take(max.saturating_sub(1)).collect::<String>() + "…"
+    }
+}
+
 /// Floating modal for Community Plugin Store / Download UI (Mockup)
-fn render_plugin_store_modal(frame: &mut Frame, app: &App) {
-    let screen = frame.area();
+fn render_plugin_store_modal(frame: &mut Frame, app: &App) {    let screen = frame.area();
     let popup_w = 84.min(screen.width.saturating_sub(4));
     let popup_h = 22.min(screen.height.saturating_sub(4));
 
@@ -307,14 +316,20 @@ fn render_plugin_store_modal(frame: &mut Frame, app: &App) {
             (" 󰇚 Download  ", Style::default().fg(theme::BASE).bg(theme::BLUE).add_modifier(Modifier::BOLD))
         };
 
+        // Row budget: " ❯ "(3) + name(28) + version(13) + author(16) + badge(15)
+        // = 75 cols, fits the 82-col inner area so the status badge
+        // (e.g. "Coming Soon") is never clipped. The Enter hint lives in
+        // the modal's bottom title bar instead of per-row.
+        let name = truncate_cells(&plugin.name, 28);
+        let version = truncate_cells(&plugin.version, 11);
+        let author = truncate_cells(&plugin.author, 14);
         if is_sel {
             lines.push(Line::from(vec![
                 Span::styled(" ❯ ", Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("{:<34}", plugin.name), Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
-                Span::styled(format!(" {:<11} ", plugin.version), Style::default().fg(theme::SUBTEXT0)),
-                Span::styled(format!(" {:<18} ", plugin.author), Style::default().fg(theme::BLUE)),
+                Span::styled(format!("{name:<28}"), Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
+                Span::styled(format!(" {version:<11} "), Style::default().fg(theme::SUBTEXT0)),
+                Span::styled(format!(" {author:<14} "), Style::default().fg(theme::BLUE)),
                 Span::styled(status_badge, status_style),
-                Span::styled(" ◀ Enter: Install ▶", Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD)),
             ]));
             lines.push(Line::from(vec![
                 Span::raw("     "),
@@ -323,9 +338,9 @@ fn render_plugin_store_modal(frame: &mut Frame, app: &App) {
         } else {
             lines.push(Line::from(vec![
                 Span::raw("   "),
-                Span::styled(format!("{:<34}", plugin.name), Style::default().fg(theme::TEXT)),
-                Span::styled(format!(" {:<11} ", plugin.version), Style::default().fg(theme::OVERLAY0)),
-                Span::styled(format!(" {:<18} ", plugin.author), Style::default().fg(theme::SUBTEXT0)),
+                Span::styled(format!("{name:<28}"), Style::default().fg(theme::TEXT)),
+                Span::styled(format!(" {version:<11} "), Style::default().fg(theme::OVERLAY0)),
+                Span::styled(format!(" {author:<14} "), Style::default().fg(theme::SUBTEXT0)),
                 Span::styled(status_badge, status_style),
             ]));
             lines.push(Line::from(vec![

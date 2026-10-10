@@ -143,7 +143,7 @@ impl App {
 
         #[cfg(feature = "mpris")]
         let (mpris, media_rx) = crate::mpris::spawn();
-        Ok(Self {
+        let mut app = Self {
             view_mode: ViewMode::Playlist,
             browser: FileBrowser::new(music_folder),
             playlist: Playlist::new(music_folder),
@@ -204,11 +204,22 @@ impl App {
             selected_scroll_tracker: (0, Instant::now()),
             queue_scroll_tracker: (0, Instant::now()),
             browser_modal: None,
-        })
+        };
+        // Derive runtime flags from saved plugin states (a plugin disabled
+        // in a previous session stays off — no recompile needed).
+        // Lyrics layout defaults ON when its plugin ships enabled.
+        let lyrics_on = app.plugin_enabled("lyrics");
+        app.sync_plugin_runtime_flags(lyrics_on);
+        Ok(app)
     }
 
-    /// Toggle lyrics display mode (Studio Mode <-> Karaoke Mode)
+    /// Toggle lyrics display mode (Studio Mode <-> Karaoke Mode).
+    /// Refused while the lyrics plugin is disabled.
     pub fn toggle_lyrics(&mut self) {
+        if !self.plugin_enabled("lyrics") {
+            self.set_toast("Lyrics plugin is disabled (enable it in [5] Plugins)".to_string());
+            return;
+        }
         self.show_lyrics = !self.show_lyrics;
         self.set_toast(if self.show_lyrics {
             "Lyrics: ON (Karaoke)".to_string()
@@ -217,10 +228,44 @@ impl App {
         });
     }
 
-    /// Name of the upcoming track (preferring queue, falling back to library)
-    pub fn get_up_next_name(&self) -> Option<String> {
+    /// Name of the upcoming track (preferring queue, falling back to library).
+    /// Respects an active playlist filter, like audio advance does.
+    pub fn get_up_next_name(&mut self) -> Option<String> {
         if let Some(next_queue) = self.queue.items.front() {
             return Some(format!("{} (queue)", short_name(next_queue)));
+        }
+        #[cfg(feature = "genre")]
+        let indices = self.visible_playlist_indices();
+        #[cfg(not(feature = "genre"))]
+        let indices = {
+            let q = self.search_query.clone();
+            self.playlist.filtered_indices(&q)
+        };
+        let filter_active = !self.search_query.is_empty() || {
+            #[cfg(feature = "genre")]
+            {
+                self.plugin_enabled("genre") && !self.genre_filters.is_empty()
+            }
+            #[cfg(not(feature = "genre"))]
+            {
+                false
+            }
+        };
+        if filter_active {
+            if indices.is_empty() {
+                return None;
+            }
+            let pos = match self.playlist.playing_index {
+                Some(cur) => indices
+                    .iter()
+                    .position(|&i| i == cur)
+                    .map(|p| (p + 1) % indices.len()),
+                None => Some(0),
+            };
+            return pos
+                .and_then(|p| indices.get(p))
+                .and_then(|&i| self.playlist.songs.get(i))
+                .map(|next_song| format!("{} (library)", short_name(next_song)));
         }
         if let Some(playing_idx) = self.playlist.playing_index {
             if !self.playlist.songs.is_empty() {
@@ -479,7 +524,19 @@ mod tests {
     #[test]
     fn test_custom_plugin_uninstall_and_no_auto_restore() {
         if let Ok(mut app) = App::new(std::path::Path::new(".")) {
-            // Open store and install first plugin
+            // Open store and install first plugin. "Coming Soon" entries
+            // are not installable, so stage a fake installable one.
+            app.downloadable_plugins.insert(
+                0,
+                crate::plugin::DownloadablePlugin {
+                    id: "test-fake-plugin".into(),
+                    name: "Fake Test Plugin".into(),
+                    version: "v0.1.0".into(),
+                    author: "tests".into(),
+                    description: "Staged by unit test".into(),
+                    is_installed: false,
+                },
+            );
             app.show_plugin_store = true;
             app.store_selected = 0;
             let installed_name = app.downloadable_plugins[0].name.clone();
@@ -520,6 +577,53 @@ mod tests {
             // Only 'r' restores it
             app.restore_selected_plugin();
             assert!(!app.plugins[0].is_removed);
+        }
+    }
+
+    #[test]
+    fn test_coming_soon_store_item_not_installable() {
+        if let Ok(mut app) = App::new(std::path::Path::new(".")) {
+            app.downloadable_plugins.insert(
+                0,
+                crate::plugin::DownloadablePlugin {
+                    id: "soon-plugin".into(),
+                    name: "Soon Plugin".into(),
+                    version: "Coming Soon".into(),
+                    author: "tests".into(),
+                    description: "Not yet available".into(),
+                    is_installed: false,
+                },
+            );
+            app.show_plugin_store = true;
+            app.store_selected = 0;
+            let n_before = app.plugins.len();
+            app.install_store_plugin();
+            assert!(!app.downloadable_plugins[0].is_installed);
+            assert_eq!(app.plugins.len(), n_before);
+            assert!(app.toast_text().is_some_and(|t| t.contains("coming soon")));
+        }
+    }
+
+    #[test]
+    fn test_plugin_disable_takes_effect_without_recompile() {
+        if let Ok(mut app) = App::new(std::path::Path::new(".")) {
+            assert!(app.plugin_enabled("notify"));
+            // Disable notify like a user would in the Plugins view.
+            let idx = app.plugins.iter().position(|p| p.id == "notify").unwrap();
+            app.plugin_selected = idx;
+            app.toggle_selected_plugin();
+            assert!(!app.plugin_enabled("notify"));
+            assert!(!app.notifications_enabled);
+            // Lyrics layout follows its plugin.
+            let lidx = app.plugins.iter().position(|p| p.id == "lyrics").unwrap();
+            app.plugin_selected = lidx;
+            if app.plugin_enabled("lyrics") {
+                app.toggle_selected_plugin();
+            }
+            assert!(!app.plugin_enabled("lyrics"));
+            assert!(!app.show_lyrics);
+            app.toggle_lyrics();
+            assert!(!app.show_lyrics, "manual toggle must not revive a disabled plugin");
         }
     }
 }

@@ -125,7 +125,8 @@ impl App {
         });
     }
 
-    /// Opens modal to edit track metadata (Title, Artist, Album) or rename album folder
+    /// Opens modal to edit track metadata (Title, Artist, Album, File name)
+    /// or rename album folder
     pub fn browser_edit_prompt(&mut self) {
         let filtered = self.browser.filtered_indices(&self.search_query);
         let Some(&entry_idx) = filtered.get(self.browser.selected) else {
@@ -153,14 +154,173 @@ impl App {
             } else {
                 meta.title
             };
+            let file_name = entry_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             self.browser_modal = Some(BrowserActionModal::EditTrack {
                 target_file: entry_path,
                 field_idx: 0,
                 title,
                 artist: meta.artist,
                 album: meta.album,
+                file_name,
             });
         }
+    }
+
+    /// Remaps every in-memory reference of one track file after a
+    /// rename/move: playlist, queue, now-playing, metadata cache, genres.
+    fn remap_track_path(&mut self, old: &Path, new: &Path) {
+        for song in self.playlist.songs.iter_mut() {
+            if song == old {
+                *song = new.to_path_buf();
+            }
+        }
+        for item in self.queue.items.iter_mut() {
+            if item == old {
+                *item = new.to_path_buf();
+            }
+        }
+        for item in self.queue.history.iter_mut() {
+            if item == old {
+                *item = new.to_path_buf();
+            }
+        }
+        if self.current_playing_path.as_deref() == Some(old) {
+            self.current_playing_path = Some(new.to_path_buf());
+        }
+        self.meta_cache.remove(old);
+        self.meta_cache.remove(new);
+        #[cfg(feature = "genre")]
+        self.genre_db.remap_paths(old, new);
+    }
+
+    /// Remaps every in-memory reference under a renamed album directory.
+    /// Playing/selected cursors are preserved by path identity.
+    fn remap_album_dir(&mut self, old_dir: &Path, new_dir: &Path) {
+        let playing_path = self.current_playing_path.clone();
+        let selected_path = self.playlist.songs.get(self.playlist.selected).cloned();
+        let map_prefix = |p: &Path| {
+            p.strip_prefix(old_dir)
+                .ok()
+                .map(|rest| new_dir.join(rest))
+        };
+        for song in self.playlist.songs.iter_mut() {
+            if let Some(mapped) = map_prefix(song) {
+                *song = mapped;
+            }
+        }
+        for item in self.queue.items.iter_mut() {
+            if let Some(mapped) = map_prefix(item) {
+                *item = mapped;
+            }
+        }
+        for item in self.queue.history.iter_mut() {
+            if let Some(mapped) = map_prefix(item) {
+                *item = mapped;
+            }
+        }
+        if let Some(cur) = playing_path {
+            if let Some(mapped) = map_prefix(&cur) {
+                self.current_playing_path = Some(mapped);
+                self.cover = None; // reloaded lazily on next play_track
+            }
+        }
+        // Restore cursors by identity (a plain refresh would lose them).
+        if let Some(sel) = selected_path {
+            if let Some(mapped) = map_prefix(&sel) {
+                if let Some(pos) = self.playlist.songs.iter().position(|p| p == &mapped) {
+                    self.playlist.selected = pos;
+                }
+            }
+        }
+        if let Some(cur) = self.current_playing_path.clone() {
+            if let Some(pos) = self.playlist.songs.iter().position(|p| p == &cur) {
+                self.playlist.playing_index = Some(pos);
+            } else {
+                self.playlist.playing_index = None;
+            }
+        }
+        self.meta_cache.retain(|k, _| k.strip_prefix(old_dir).is_err());
+        #[cfg(feature = "genre")]
+        self.genre_db.remap_paths(old_dir, new_dir);
+        // Follow the rename when it touches the browsed / library root.
+        if self.browser.current_dir == old_dir {
+            self.browser.current_dir = new_dir.to_path_buf();
+        }
+        if self.music_folder == old_dir {
+            self.music_folder = new_dir.to_path_buf();
+            let path_str = new_dir.to_string_lossy().to_string();
+            if let Some(item) = self.config_paths.iter_mut().find(|p| p.id == "music_folder") {
+                item.path = path_str.clone();
+            }
+            let _ = crate::config::Config::save_setting("music_folder", &path_str);
+        }
+    }
+
+    /// Opens the cover-art picker for the selected track (`B` in Browser).
+    pub fn browser_set_cover_prompt(&mut self) {
+        let filtered = self.browser.filtered_indices(&self.search_query);
+        let Some(&entry_idx) = filtered.get(self.browser.selected) else {
+            return;
+        };
+        let Some(entry_path) = self.browser.entries.get(entry_idx).cloned() else {
+            return;
+        };
+        if !entry_path.is_file() {
+            self.set_toast("Select a music track to change its cover art".to_string());
+            return;
+        }
+        let start = entry_path.parent().unwrap_or(&self.browser.current_dir).to_path_buf();
+        self.browser_modal = Some(BrowserActionModal::SetCover {
+            target_file: entry_path,
+            picker: crate::browser::FileBrowser::for_images(&start),
+        });
+    }
+
+    /// Embeds `image_path` as the track's front cover (ID3 APIC) and saves
+    /// a `cover.jpg` next to the track for file-based fallbacks.
+    fn embed_track_cover(&mut self, target_file: &Path, image_path: &Path) {
+        let ext = image_path
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        let mime_type = match ext.as_str() {
+            "png" => "image/png",
+            "webp" => "image/webp",
+            _ => "image/jpeg",
+        };
+        let data = match std::fs::read(image_path) {
+            Ok(d) => d,
+            Err(e) => {
+                self.set_toast(format!("Failed to read image: {e}"));
+                return;
+            }
+        };
+        let mut tag = id3::Tag::read_from_path(target_file).unwrap_or_else(|_| id3::Tag::new());
+        tag.add_frame(id3::frame::Picture {
+            mime_type: mime_type.to_string(),
+            picture_type: id3::frame::PictureType::CoverFront,
+            description: String::new(),
+            data,
+        });
+        if let Err(e) = tag.write_to_path(target_file, id3::Version::Id3v24) {
+            self.set_toast(format!("Failed to write cover art: {e}"));
+            return;
+        }
+        // Sibling cover.jpg keeps folder-based fallbacks in sync.
+        if let Some(parent) = target_file.parent() {
+            let _ = std::fs::write(parent.join("cover.jpg"), std::fs::read(image_path).unwrap_or_default());
+        }
+        self.meta_cache.remove(target_file);
+        // Refresh the live cover when it belongs to the playing track.
+        if self.current_playing_path.as_deref() == Some(target_file) {
+            self.cover = Some(crate::cover::AlbumArt::load_for_song(target_file));
+        }
+        self.browser.refresh();
+        let name = target_file
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        self.set_toast(format!("󰄬 Updated cover art for: {name}"));
     }
 
     /// Handles keyboard events when a browser action modal is active
@@ -264,6 +424,9 @@ impl App {
                             } else {
                                 match std::fs::rename(&target_dir, &new_dir) {
                                     Ok(_) => {
+                                        // Keep playlist/queue/now-playing/genres
+                                        // pointing at the moved files.
+                                        self.remap_album_dir(&target_dir, &new_dir);
                                         self.browser.refresh();
                                         if let Some(pos) = self.browser.entries.iter().position(|p| p == &new_dir) {
                                             self.browser.selected = pos;
@@ -288,6 +451,7 @@ impl App {
                 mut title,
                 mut artist,
                 mut album,
+                mut file_name,
             } => {
                 if has_ctrl {
                     match key.code {
@@ -296,6 +460,7 @@ impl App {
                                 0 => title.clear(),
                                 1 => artist.clear(),
                                 2 => album.clear(),
+                                3 => file_name.clear(),
                                 _ => {}
                             }
                             self.browser_modal = Some(BrowserActionModal::EditTrack {
@@ -304,6 +469,7 @@ impl App {
                                 title,
                                 artist,
                                 album,
+                                file_name,
                             });
                             return true;
                         }
@@ -312,6 +478,7 @@ impl App {
                                 0 => crate::input::delete_last_word(&mut title),
                                 1 => crate::input::delete_last_word(&mut artist),
                                 2 => crate::input::delete_last_word(&mut album),
+                                3 => crate::input::delete_last_word(&mut file_name),
                                 _ => {}
                             }
                             self.browser_modal = Some(BrowserActionModal::EditTrack {
@@ -320,6 +487,7 @@ impl App {
                                 title,
                                 artist,
                                 album,
+                                file_name,
                             });
                             return true;
                         }
@@ -331,23 +499,25 @@ impl App {
                         self.set_toast("Track metadata edit cancelled".to_string());
                     }
                     KeyCode::Tab | KeyCode::Down => {
-                        field_idx = (field_idx + 1) % 3;
+                        field_idx = (field_idx + 1) % 4;
                         self.browser_modal = Some(BrowserActionModal::EditTrack {
                             target_file,
                             field_idx,
                             title,
                             artist,
                             album,
+                            file_name,
                         });
                     }
                     KeyCode::Up => {
-                        field_idx = (field_idx + 2) % 3;
+                        field_idx = (field_idx + 3) % 4;
                         self.browser_modal = Some(BrowserActionModal::EditTrack {
                             target_file,
                             field_idx,
                             title,
                             artist,
                             album,
+                            file_name,
                         });
                     }
                     KeyCode::Backspace => {
@@ -355,6 +525,7 @@ impl App {
                             0 => { title.pop(); }
                             1 => { artist.pop(); }
                             2 => { album.pop(); }
+                            3 => { file_name.pop(); }
                             _ => {}
                         }
                         self.browser_modal = Some(BrowserActionModal::EditTrack {
@@ -363,6 +534,7 @@ impl App {
                             title,
                             artist,
                             album,
+                            file_name,
                         });
                     }
                     KeyCode::Char(c) => {
@@ -370,6 +542,7 @@ impl App {
                             0 => { title.push(c); }
                             1 => { artist.push(c); }
                             2 => { album.push(c); }
+                            3 => { file_name.push(c); }
                             _ => {}
                         }
                         self.browser_modal = Some(BrowserActionModal::EditTrack {
@@ -378,10 +551,11 @@ impl App {
                             title,
                             artist,
                             album,
+                            file_name,
                         });
                     }
                     KeyCode::Enter => {
-                        if field_idx < 2 && !key.modifiers.contains(KeyModifiers::CONTROL) {
+                        if field_idx < 3 && !key.modifiers.contains(KeyModifiers::CONTROL) {
                             field_idx += 1;
                             self.browser_modal = Some(BrowserActionModal::EditTrack {
                                 target_file,
@@ -389,9 +563,11 @@ impl App {
                                 title,
                                 artist,
                                 album,
+                                file_name,
                             });
                         } else {
-                            // Save ID3 tags
+                            // Save ID3 tags, then rename the file when the
+                            // file-name field changed.
                             let mut tag = id3::Tag::read_from_path(&target_file).unwrap_or_else(|_| id3::Tag::new());
                             tag.set_title(title.trim());
                             tag.set_artist(artist.trim());
@@ -400,8 +576,39 @@ impl App {
                             if let Err(e) = tag.write_to_path(&target_file, id3::Version::Id3v24) {
                                 self.set_toast(format!("Failed to write ID3 tags: {e}"));
                             } else {
-                                self.meta_cache.remove(&target_file);
-                                let _ = self.song_meta(&target_file);
+                                let mut final_path = target_file.clone();
+                                let wanted = file_name.trim();
+                                let current = target_file
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().to_string())
+                                    .unwrap_or_default();
+                                if !wanted.is_empty() && wanted != current {
+                                    // Keep the .mp3 extension when omitted.
+                                    let wanted_name = if std::path::Path::new(wanted).extension().is_some() {
+                                        wanted.to_string()
+                                    } else {
+                                        format!("{wanted}.mp3")
+                                    };
+                                    if let Some(parent) = target_file.parent() {
+                                        let dest = parent.join(&wanted_name);
+                                        match std::fs::rename(&target_file, &dest) {
+                                            Ok(_) => {
+                                                self.remap_track_path(&target_file, &dest);
+                                                final_path = dest;
+                                            }
+                                            Err(e) => {
+                                                self.set_toast(format!("Tags saved, but rename failed: {e}"));
+                                                self.meta_cache.remove(&target_file);
+                                                let _ = self.song_meta(&target_file);
+                                                self.browser.refresh();
+                                                return true;
+                                            }
+                                        }
+                                    }
+                                }
+                                self.meta_cache.remove(&final_path);
+                                let _ = self.song_meta(&final_path);
+                                self.browser.refresh();
                                 self.set_toast(format!("󰄬 Updated metadata for: {}", title.trim()));
                             }
                         }
@@ -413,6 +620,7 @@ impl App {
                             title,
                             artist,
                             album,
+                            file_name,
                         });
                     }
                 }
@@ -559,6 +767,43 @@ impl App {
                     }
                 }
             }
+            BrowserActionModal::SetCover { target_file, mut picker } => {
+                match key.code {
+                    KeyCode::Esc => {
+                        self.set_toast("Cover change cancelled".to_string());
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        picker.previous("");
+                        self.browser_modal = Some(BrowserActionModal::SetCover { target_file, picker });
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        picker.next("");
+                        self.browser_modal = Some(BrowserActionModal::SetCover { target_file, picker });
+                    }
+                    KeyCode::Enter | KeyCode::Char(' ') => {
+                        let chosen = picker.entries.get(picker.selected).cloned();
+                        match chosen {
+                            Some(p) if p.is_dir() => {
+                                picker.enter();
+                                self.browser_modal = Some(BrowserActionModal::SetCover { target_file, picker });
+                            }
+                            Some(img) => {
+                                self.embed_track_cover(&target_file, &img);
+                            }
+                            None => {
+                                self.browser_modal = Some(BrowserActionModal::SetCover { target_file, picker });
+                            }
+                        }
+                    }
+                    KeyCode::Backspace => {
+                        picker.go_parent();
+                        self.browser_modal = Some(BrowserActionModal::SetCover { target_file, picker });
+                    }
+                    _ => {
+                        self.browser_modal = Some(BrowserActionModal::SetCover { target_file, picker });
+                    }
+                }
+            }
         }
 
         true
@@ -585,11 +830,9 @@ impl App {
                     let _ = tag.write_to_path(&dest_path, id3::Version::Id3v24);
                 }
 
-                // Update playlist songs if present
-                if let Some(pos) = self.playlist.songs.iter().position(|p| p == &source_file) {
-                    self.playlist.songs[pos] = dest_path.clone();
-                }
-                self.meta_cache.remove(&source_file);
+                // Update every in-memory reference (playlist, queue,
+                // now-playing, cache, genres) by path identity.
+                self.remap_track_path(&source_file, &dest_path);
                 let _ = self.song_meta(&dest_path);
 
                 self.browser.refresh();

@@ -150,7 +150,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     if app.view_mode == ViewMode::Extensions {
         extensions::render(frame, app, layout_chunks[1]);
-    } else if app.show_lyrics && app.view_mode != ViewMode::Plugins {
+    } else if app.show_lyrics && app.plugin_enabled("lyrics") && app.view_mode != ViewMode::Plugins {
         // Karaoke Mode (Lyric ON): Cover art on the left, wide lyrics area on the right
         let body_chunks = Layout::default()
             .direction(Direction::Horizontal)

@@ -9,6 +9,38 @@ impl App {
         self.plugins.len() + self.config_paths.len() + 1
     }
 
+    /// Runtime state of a plugin: enabled flag AND not removed.
+    /// This is the single source of truth every feature gate must use —
+    /// no recompile needed, toggling here takes effect immediately.
+    pub fn plugin_enabled(&self, id: &str) -> bool {
+        self.plugins
+            .iter()
+            .find(|p| p.id == id)
+            .is_some_and(|p| p.enabled && !p.is_removed)
+    }
+
+    /// Re-derives mirrored runtime flags from plugin states.
+    /// Call after any toggle/remove/restore (and at startup).
+    /// `preserve_lyrics_choice`: when true (interactive toggle), turning the
+    /// lyrics plugin back ON restores the karaoke layout.
+    pub fn sync_plugin_runtime_flags(&mut self, preserve_lyrics_choice: bool) {
+        self.notifications_enabled = self.plugin_enabled("notify");
+        if !self.plugin_enabled("lyrics") {
+            self.show_lyrics = false;
+        } else if preserve_lyrics_choice {
+            self.show_lyrics = true;
+        }
+        // A disabled genre plugin must not keep filtering the library.
+        if !self.plugin_enabled("genre") {
+            #[cfg(feature = "genre")]
+            {
+                self.genre_filters.clear();
+                self.genre_picker = None;
+                self.genre_tagger = None;
+            }
+        }
+    }
+
     /// Toggles enable/disable of the selected plugin, or triggers path edit, or opens the store.
     pub fn toggle_selected_plugin(&mut self) {
         let n_plugins = self.plugins.len();
@@ -26,13 +58,9 @@ impl App {
                 let status = if p.enabled { "Enabled" } else { "Disabled" };
                 self.set_toast(format!("Plugin '{name}': {status}"));
             }
-            let id = self.plugins[self.plugin_selected].id.clone();
             let enabled = self.plugins[self.plugin_selected].enabled;
-            match id.as_str() {
-                "notify" => self.notifications_enabled = enabled,
-                "lyrics" => self.show_lyrics = enabled,
-                _ => {}
-            }
+            // Disabled plugins take effect immediately — no recompile needed.
+            self.sync_plugin_runtime_flags(enabled);
             let _ = crate::plugin::ManagedPlugin::save_plugins(&self.plugins);
         } else if self.plugin_selected < n_plugins + n_paths {
             let path_idx = self.plugin_selected - n_plugins;
@@ -68,6 +96,7 @@ impl App {
             p_mut.is_removed = true;
             p_mut.enabled = false;
             let name = p_mut.name.clone();
+            self.sync_plugin_runtime_flags(false);
             let _ = crate::plugin::ManagedPlugin::save_plugins(&self.plugins);
             self.set_toast(format!("Removed plugin: {name} (press 'r' to restore)"));
         } else {
@@ -82,6 +111,7 @@ impl App {
             p.is_removed = false;
             p.enabled = true;
             let name = p.name.clone();
+            self.sync_plugin_runtime_flags(true);
             let _ = crate::plugin::ManagedPlugin::save_plugins(&self.plugins);
             self.set_toast(format!("Restored plugin: {name}"));
         }
@@ -150,26 +180,37 @@ impl App {
 
     /// In Plugin Store: installs/downloads the selected community plugin (mock UI)
     pub fn install_store_plugin(&mut self) {
-        if let Some(item) = self.downloadable_plugins.get_mut(self.store_selected) {
-            item.is_installed = true;
-            let name = item.name.clone();
-            let version = item.version.clone();
-            let id = item.id.clone();
-            let desc = item.description.clone();
-            if !self.plugins.iter().any(|p| p.id == id) {
-                self.plugins.push(crate::plugin::ManagedPlugin {
-                    id,
-                    name: name.clone(),
-                    version: version.clone(),
-                    description: desc,
-                    enabled: true,
-                    is_removed: false,
-                    is_builtin: false,
-                });
-                let _ = crate::plugin::ManagedPlugin::save_plugins(&self.plugins);
-            }
-            self.set_toast(format!("[Mock UI] Downloaded & installed '{name}' {version}!"));
+        let Some(item) = self.downloadable_plugins.get(self.store_selected).cloned() else {
+            return;
+        };
+        if item.version.contains("Coming Soon") {
+            self.set_toast(format!("'{}' is coming soon — not installable yet", item.name));
+            return;
         }
+        if item.is_installed {
+            self.set_toast(format!("'{}' is already installed", item.name));
+            return;
+        }
+        if let Some(installed) = self.downloadable_plugins.get_mut(self.store_selected) {
+            installed.is_installed = true;
+        }
+        let name = item.name.clone();
+        let version = item.version.clone();
+        let id = item.id.clone();
+        let desc = item.description.clone();
+        if !self.plugins.iter().any(|p| p.id == id) {
+            self.plugins.push(crate::plugin::ManagedPlugin {
+                id,
+                name: name.clone(),
+                version: version.clone(),
+                description: desc,
+                enabled: true,
+                is_removed: false,
+                is_builtin: false,
+            });
+            let _ = crate::plugin::ManagedPlugin::save_plugins(&self.plugins);
+        }
+        self.set_toast(format!("[Mock UI] Downloaded & installed '{name}' {version}!"));
     }
 
     /// Adjusts or toggles the selected setting in the Plugins view.

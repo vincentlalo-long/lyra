@@ -4,15 +4,24 @@ use super::{App, ViewMode, short_name};
 
 impl App {
     /// Visible playlist indices: `/` search ANDed with the multiple genre filters.
+    /// When the genre plugin is disabled, genre filters are ignored entirely.
     pub fn visible_playlist_indices(&mut self) -> Vec<usize> {
         let query = self.search_query.clone();
-        let genres = self.genre_filters.clone();
+        let genres = if self.plugin_enabled("genre") {
+            self.genre_filters.clone()
+        } else {
+            Vec::new()
+        };
         self.playlist
             .filtered_indices(&query, &genres, &mut self.genre_db)
     }
 
     /// `f`: open the genre picker (reloads sidecar so external edits show up).
     pub fn open_genre_picker(&mut self) {
+        if !self.plugin_enabled("genre") {
+            self.set_toast("Genre plugin is disabled (enable it in [5] Plugins)".to_string());
+            return;
+        }
         self.genre_db.reload_sidecar();
         let genres = self.genre_db.all_known_genres(&self.playlist.songs);
         if genres.is_empty() {
@@ -24,6 +33,14 @@ impl App {
 
     /// `Enter` in the picker: enqueue every song matching any of the picked genres.
     pub fn enqueue_picked_genre(&mut self) {
+        let picked_empty = self
+            .genre_picker
+            .as_ref()
+            .is_some_and(|p| p.picked_genres().is_empty());
+        if picked_empty {
+            self.set_toast("Tick genres with Space/Enter first".to_string());
+            return;
+        }
         let Some(picker) = self.genre_picker.take() else {
             return;
         };
@@ -48,6 +65,14 @@ impl App {
     /// `f` in the picker: filter the Playlist view to the
     /// picked genres (multiple choice OR match). Esc clears the filter.
     pub fn filter_by_picked_genre(&mut self) {
+        let picked_empty = self
+            .genre_picker
+            .as_ref()
+            .is_some_and(|p| p.picked_genres().is_empty());
+        if picked_empty {
+            self.set_toast("Tick genres with Space/Enter first (nothing selected)".to_string());
+            return;
+        }
         let Some(picker) = self.genre_picker.take() else {
             return;
         };
@@ -88,6 +113,10 @@ impl App {
 
     /// `t`: Opens the interactive Genre Tagger / Editor for the selected song
     pub fn open_genre_tagger(&mut self) {
+        if !self.plugin_enabled("genre") {
+            self.set_toast("Genre plugin is disabled (enable it in [5] Plugins)".to_string());
+            return;
+        }
         let target_path = match self.view_mode {
             ViewMode::Playlist => self.playlist.current_selected_song(),
             ViewMode::Browser => {

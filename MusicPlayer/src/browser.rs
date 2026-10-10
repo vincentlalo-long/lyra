@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use ratatui::widgets::ListState;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub enum BrowserActionModal {
     NewAlbum {
         input: String,
@@ -13,10 +13,11 @@ pub enum BrowserActionModal {
     },
     EditTrack {
         target_file: PathBuf,
-        field_idx: usize, // 0: Title, 1: Artist, 2: Album
+        field_idx: usize, // 0: Title, 1: Artist, 2: Album, 3: File name
         title: String,
         artist: String,
         album: String,
+        file_name: String,
     },
     MoveTrack {
         target_file: PathBuf,
@@ -25,8 +26,14 @@ pub enum BrowserActionModal {
         creating_new: bool,
         new_album_input: String,
     },
+    /// Replace embedded cover art of a track by picking an image file.
+    SetCover {
+        target_file: PathBuf,
+        picker: FileBrowser,
+    },
 }
 
+#[derive(Clone, Debug)]
 pub struct FileBrowser {
     pub current_dir: PathBuf,
     pub entries: Vec<PathBuf>,

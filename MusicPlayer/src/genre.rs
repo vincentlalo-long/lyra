@@ -321,13 +321,7 @@ impl GenreDB {
         self.tcon_cache.insert(raw_key, cleaned.clone());
 
         // 1. Save to sidecar JSON (filter to canonical/clean entries)
-        if let Some(path) = sidecar_path() {
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            let json_text = serde_json::to_string_pretty(&self.sidecar).unwrap_or_default();
-            let _ = std::fs::write(path, json_text);
-        }
+        self.save_sidecar();
 
         // 2. Best-effort update ID3 TCON tag in the MP3 file
         if song.is_file() {
@@ -341,6 +335,64 @@ impl GenreDB {
         }
 
         Ok(())
+    }
+
+    /// Persists the in-memory sidecar map to `genres.json`.
+    fn save_sidecar(&self) {
+        if let Some(path) = sidecar_path() {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let json_text = serde_json::to_string_pretty(&self.sidecar).unwrap_or_default();
+            let _ = std::fs::write(path, json_text);
+        }
+    }
+
+    /// Rewrites sidecar/tcon keys when a track file or album directory is
+    /// renamed/moved, so genre tags follow the file instead of going stale.
+    /// `old`/`new` are absolute paths (file or dir prefix).
+    pub fn remap_paths(&mut self, old: &Path, new: &Path) {
+        let mut prefixes = vec![old.to_string_lossy().into_owned()];
+        if let Ok(canon) = std::fs::canonicalize(old) {
+            let c = canon.to_string_lossy().into_owned();
+            if !prefixes.contains(&c) {
+                prefixes.push(c);
+            }
+        }
+        // Canonical form of the destination for stable new keys.
+        let new_canon = std::fs::canonicalize(new)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| new.to_string_lossy().into_owned());
+
+        let mut moved: Vec<(String, Vec<String>)> = Vec::new();
+        self.sidecar.retain(|k, v| {
+            if let Some(rest) = prefixes.iter().find_map(|p| {
+                if k == p {
+                    Some(String::new())
+                } else {
+                    k.strip_prefix(format!("{p}/").as_str()).map(|r| r.to_string())
+                }
+            }) {
+                let new_key = if rest.is_empty() {
+                    new_canon.clone()
+                } else {
+                    format!("{new_canon}/{rest}")
+                };
+                moved.push((new_key, v.clone()));
+                false
+            } else {
+                true
+            }
+        });
+        for (k, v) in moved {
+            self.sidecar.insert(k, v);
+        }
+        // TCON entries are keyed by canonical path: drop stale ones
+        // (they re-populate lazily from the file's own tag).
+        self.tcon_cache.retain(|k, _| {
+            !prefixes.iter().any(|p| k == p || k.starts_with(&format!("{p}/")))
+        });
+        self.save_sidecar();
     }
 }
 
@@ -407,20 +459,18 @@ impl GenrePicker {
         self.genres.get(self.selected).map(|(g, _)| g.as_str())
     }
 
-    /// Returns list of picked genres. If none explicitly checked with Space/Enter,
-    /// falls back to the single item at the cursor.
+    /// Returns explicitly checked genres only. No cursor fallback:
+    /// pressing Apply with nothing ticked must NOT silently filter
+    /// by whatever row the cursor happens to sit on.
     pub fn picked_genres(&self) -> Vec<String> {
-        if !self.selected_set.is_empty() {
-            self.genres
-                .iter()
-                .filter(|(g, _)| self.selected_set.contains(&g.to_lowercase()))
-                .map(|(g, _)| g.clone())
-                .collect()
-        } else if let Some((g, _)) = self.genres.get(self.selected.min(self.genres.len().saturating_sub(1))) {
-            vec![g.clone()]
-        } else {
-            Vec::new()
+        if self.selected_set.is_empty() {
+            return Vec::new();
         }
+        self.genres
+            .iter()
+            .filter(|(g, _)| self.selected_set.contains(&g.to_lowercase()))
+            .map(|(g, _)| g.clone())
+            .collect()
     }
 }
 
@@ -499,8 +549,8 @@ mod tests {
             ("Jazz".to_string(), 2),
         ];
         let mut picker = GenrePicker::new(genres);
-        // Default: nothing selected -> cursor fallback
-        assert_eq!(picker.picked_genres(), vec!["Pop".to_string()]);
+        // Default: nothing ticked -> empty (no phantom filter).
+        assert!(picker.picked_genres().is_empty());
         assert!(!picker.is_selected("Pop"));
 
         // Toggle cursor item (Pop)

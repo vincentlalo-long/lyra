@@ -88,7 +88,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default()
         .title(title)
         .title_bottom(Line::from(vec![
-            Span::styled(" [Enter: Open/Play | N/+: New Album | d: Delete | m: Move | e: Edit | i: Import | L: Set Library] ", Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD)),
+            Span::styled(" [Enter: Open/Play | N/+: New Album | d: Delete | m: Move | e: Edit | B: Cover | i: Import | L: Set Library] ", Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD)),
         ]))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
@@ -197,9 +197,10 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal) {
             title,
             artist,
             album,
+            file_name,
         } => {
             let popup_w = 70.min(screen.width.saturating_sub(4));
-            let popup_h = 13.min(screen.height.saturating_sub(2));
+            let popup_h = 15.min(screen.height.saturating_sub(2));
             let popup_area = center_popup(screen, popup_w, popup_h);
 
             frame.render_widget(Clear, popup_area);
@@ -208,7 +209,7 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal) {
             let block = Block::default()
                 .title(format!(" 󰎆 Edit Track Metadata: {fname} "))
                 .title_bottom(Line::from(vec![
-                    Span::styled(" [Tab/↑/↓: Nav | Enter: Next/Save ID3 | Esc: Cancel] ", Style::default().fg(theme::OVERLAY0)),
+                    Span::styled(" [Tab/↑/↓: Nav | Enter: Next/Save+Rename | Esc: Cancel] ", Style::default().fg(theme::OVERLAY0)),
                 ]))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
@@ -223,6 +224,7 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal) {
                     Constraint::Length(2), // Field 0: Title
                     Constraint::Length(2), // Field 1: Artist
                     Constraint::Length(2), // Field 2: Album
+                    Constraint::Length(2), // Field 3: File name
                     Constraint::Min(1),    // Submit hint
                 ])
                 .split(inner);
@@ -231,6 +233,7 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal) {
                 ("Title:  ", title),
                 ("Artist: ", artist),
                 ("Album:  ", album),
+                ("File:   ", file_name),
             ];
 
             for (idx, (label, val)) in fields.iter().enumerate() {
@@ -248,9 +251,9 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal) {
             }
 
             let save_btn = Line::from(vec![
-                Span::styled("  [ 󰐊 Press Enter on Album to Save ID3 Tags ]", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
+                Span::styled("  [ 󰐊 Press Enter on File to Save ID3 Tags + Rename ]", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
             ]);
-            frame.render_widget(Paragraph::new(save_btn).alignment(Alignment::Center), rows[3]);
+            frame.render_widget(Paragraph::new(save_btn).alignment(Alignment::Center), rows[4]);
         }
         BrowserActionModal::MoveTrack {
             target_file,
@@ -332,6 +335,49 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal) {
 
                 frame.render_widget(List::new(list_items), inner);
             }
+        }
+        BrowserActionModal::SetCover { target_file, picker } => {
+            let popup_w = 70.min(screen.width.saturating_sub(4));
+            let popup_h = 18.min(screen.height.saturating_sub(2));
+            let popup_area = center_popup(screen, popup_w, popup_h);
+
+            frame.render_widget(Clear, popup_area);
+
+            let fname = target_file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let block = Block::default()
+                .title(format!(" 󰋩 Set Cover Art: {fname} "))
+                .title_bottom(Line::from(vec![
+                    Span::styled(" [↑/↓: Select | Enter: Open/Apply | ←: Parent | Esc: Cancel] ", Style::default().fg(theme::OVERLAY0)),
+                ]))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD));
+
+            let inner = block.inner(popup_area);
+            frame.render_widget(block, popup_area);
+
+            let cur = picker.current_dir.to_string_lossy().to_string();
+            let mut list_items = vec![ListItem::new(Line::from(vec![
+                Span::styled(format!(" 󰉋 {cur}"), Style::default().fg(theme::BLUE)),
+            ]))];
+            for (idx, p) in picker.entries.iter().enumerate() {
+                let is_sel = picker.selected == idx;
+                let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                let prefix = if is_sel { "▶ " } else { "  " };
+                let (icon, style) = if p.is_dir() {
+                    ("󰉋 ", Style::default().fg(theme::BLUE))
+                } else if is_sel {
+                    ("󰋩 ", Style::default().fg(theme::YELLOW).bg(theme::SURFACE0).add_modifier(Modifier::BOLD))
+                } else {
+                    ("󰋩 ", Style::default().fg(theme::TEXT))
+                };
+                list_items.push(ListItem::new(Line::from(vec![
+                    Span::styled(prefix, Style::default().fg(theme::YELLOW)),
+                    Span::styled(icon, Style::default().fg(theme::BLUE)),
+                    Span::styled(name, style),
+                ])));
+            }
+            frame.render_widget(List::new(list_items), inner);
         }
     }
 }

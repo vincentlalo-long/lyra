@@ -83,9 +83,15 @@ fn main() -> Result<()> {
 fn run_loop(terminal: &mut terminal::Tui, app: &mut App) -> Result<()> {
     loop {
         // Island / media-key / playerctl presses (MPRIS input side).
+        // Always drained (unbounded channel); only handled when enabled.
         #[cfg(feature = "mpris")]
-        while let Ok(key) = app.media_rx.try_recv() {
-            app.handle_media_key(key);
+        {
+            let mpris_on = app.plugin_enabled("mpris");
+            while let Ok(key) = app.media_rx.try_recv() {
+                if mpris_on {
+                    app.handle_media_key(key);
+                }
+            }
         }
 
         // Commit debounced seek when user finishes seeking
@@ -93,7 +99,9 @@ fn run_loop(terminal: &mut terminal::Tui, app: &mut App) -> Result<()> {
 
         // Publish playing state + position to the dynamic island (MPRIS).
         #[cfg(feature = "mpris")]
-        app.mpris_tick();
+        if app.plugin_enabled("mpris") {
+            app.mpris_tick();
+        }
 
         // Auto-advance to next track when current song finishes
         app.check_auto_advance();

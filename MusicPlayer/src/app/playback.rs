@@ -14,7 +14,9 @@ impl App {
         };
         // Mirror repeat mode as MPRIS loop status for the island.
         #[cfg(feature = "mpris")]
-        self.sync_mpris_loop();
+        if self.plugin_enabled("mpris") {
+            self.sync_mpris_loop();
+        }
     }
 
     /// Syncs MPRIS loop status. Queue-loop has no MPRIS equivalent and maps
@@ -41,7 +43,9 @@ impl App {
         self.queue.set_loop(on);
         self.queue.persist();
         #[cfg(feature = "mpris")]
-        self.sync_mpris_loop();
+        if self.plugin_enabled("mpris") {
+            self.sync_mpris_loop();
+        }
         self.set_toast(if on {
             "Queue loop: ON".to_string()
         } else {
@@ -234,8 +238,16 @@ impl App {
         if self.audio.play(song_path).is_ok() {
             self.current_playing_path = Some(song_path.to_path_buf());
             self.playlist.select_and_mark_playing(song_path);
-            self.lyrics = Lyrics::load_for_song(song_path);
-            self.cover = Some(AlbumArt::load_for_song(song_path));
+            self.lyrics = if self.plugin_enabled("lyrics") {
+                Lyrics::load_for_song(song_path)
+            } else {
+                None
+            };
+            self.cover = if self.plugin_enabled("artwork") {
+                Some(AlbumArt::load_for_song(song_path))
+            } else {
+                None
+            };
             // Best-effort desktop notification (quickshell/mako/dunst/swaync).
             // Never affects playback; disable with LYRA_NO_NOTIFY=1.
             #[cfg(feature = "notify")]
@@ -244,7 +256,7 @@ impl App {
             }
             // Publish track to the dynamic island via MPRIS (no-op without D-Bus).
             #[cfg(feature = "mpris")]
-            {
+            if self.plugin_enabled("mpris") {
                 let track = crate::mpris::track_for_song(
                     song_path,
                     self.audio.duration,
@@ -253,7 +265,9 @@ impl App {
                 self.mpris.set_track(track);
             }
             #[cfg(feature = "mpris")]
-        self.sync_mpris_loop();
+            if self.plugin_enabled("mpris") {
+                self.sync_mpris_loop();
+            }
         }
     }
 
@@ -449,8 +463,36 @@ impl App {
         self.set_toast(format!("Loaded {count} songs from {folder_name} into Playlist (Switch to [1] Playlist to play)"));
     }
 
-    pub fn play_next_track(&mut self) {
-        // The scratchpad drains first; the library is the fallback.
+    /// True when a `/` search query or genre filter currently narrows
+    /// the playlist (a disabled genre plugin never counts as filtering).
+    fn playlist_filter_active(&self) -> bool {
+        if !self.search_query.is_empty() {
+            return true;
+        }
+        #[cfg(feature = "genre")]
+        {
+            self.plugin_enabled("genre") && !self.genre_filters.is_empty()
+        }
+        #[cfg(not(feature = "genre"))]
+        {
+            false
+        }
+    }
+
+    /// Visible playlist indices regardless of compile features.
+    fn playlist_visible_indices_any(&mut self) -> Vec<usize> {
+        #[cfg(feature = "genre")]
+        {
+            self.visible_playlist_indices()
+        }
+        #[cfg(not(feature = "genre"))]
+        {
+            let q = self.search_query.clone();
+            self.playlist.filtered_indices(&q)
+        }
+    }
+
+    pub fn play_next_track(&mut self) {        // The scratchpad drains first; the library is the fallback.
         if !self.queue.is_empty() {
             let current = self.current_playing_path.clone();
             let was_from_queue = self.queue.now_from_queue;
@@ -463,7 +505,13 @@ impl App {
             }
         }
         self.queue.now_from_queue = false;
-        if let Some(next_path) = self.playlist.next_track_path() {
+        // An active filter narrows audio advance too — not just the cursor.
+        if self.playlist_filter_active() {
+            let indices = self.playlist_visible_indices_any();
+            if let Some(next_path) = self.playlist.next_track_path_filtered(&indices) {
+                self.play_track(&next_path);
+            }
+        } else if let Some(next_path) = self.playlist.next_track_path() {
             self.play_track(&next_path);
         }
     }
@@ -480,7 +528,12 @@ impl App {
             }
         }
         self.queue.now_from_queue = false;
-        if let Some(prev_path) = self.playlist.prev_track_path() {
+        if self.playlist_filter_active() {
+            let indices = self.playlist_visible_indices_any();
+            if let Some(prev_path) = self.playlist.prev_track_path_filtered(&indices) {
+                self.play_track(&prev_path);
+            }
+        } else if let Some(prev_path) = self.playlist.prev_track_path() {
             self.play_track(&prev_path);
         }
     }
@@ -509,7 +562,14 @@ impl App {
                     self.play_next_track();
                 }
                 RepeatMode::Off => {
-                    if let Some(current) = self.playlist.playing_index {
+                    // Stop at the end of the *visible* list so playback
+                    // never leaks into filtered-out tracks.
+                    if self.playlist_filter_active() {
+                        let indices = self.playlist_visible_indices_any();
+                        if !self.playlist.playing_is_last_visible(&indices) {
+                            self.play_next_track();
+                        }
+                    } else if let Some(current) = self.playlist.playing_index {
                         if current + 1 < self.playlist.songs.len() {
                             self.play_next_track();
                         }

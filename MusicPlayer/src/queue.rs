@@ -5,6 +5,10 @@ use std::{
 };
 use ratatui::widgets::ListState;
 
+/// How many played tracks Prev can walk back through. Beyond this,
+/// the oldest entries are dropped on push so memory stays flat.
+pub const MAX_HISTORY: usize = 200;
+
 /// Ephemeral "play next" list (scratchpad).
 ///
 /// The library (`Playlist.songs`) is browsable and never loses entries;
@@ -14,6 +18,8 @@ pub struct PlayQueue {
     /// Upcoming tracks, head = next to play.
     pub items: VecDeque<PathBuf>,
     /// Tracks already played through the queue (for Prev support).
+    /// Capped at [`MAX_HISTORY`] — Prev walks back within the window,
+    /// so an all-day/looped session can't grow this Vec without bound.
     pub history: Vec<PathBuf>,
     /// True when the currently playing track came from the queue.
     pub now_from_queue: bool,
@@ -69,7 +75,7 @@ impl PlayQueue {
     pub fn pop_next(&mut self, current: Option<PathBuf>, current_from_queue: bool) -> Option<PathBuf> {
         if current_from_queue {
             if let Some(cur) = current {
-                self.history.push(cur);
+                self.push_history(cur);
             }
         }
         if self.items.is_empty() && self.loop_enabled && !self.loop_snapshot.is_empty() {
@@ -101,12 +107,12 @@ impl PlayQueue {
         }
         if current_from_queue {
             if let Some(cur) = current {
-                self.history.push(cur);
+                self.push_history(cur);
             }
         }
         for _ in 0..idx {
             if let Some(skipped) = self.items.pop_front() {
-                self.history.push(skipped);
+                self.push_history(skipped);
             }
         }
         let target = self.items.pop_front()?;
@@ -203,6 +209,16 @@ impl PlayQueue {
             self.selected = 0;
         } else if self.selected >= self.items.len() {
             self.selected = self.items.len() - 1;
+        }
+    }
+
+    /// Pushes to history, dropping the oldest entries past [`MAX_HISTORY`]
+    /// so a long/looped session keeps flat memory.
+    fn push_history(&mut self, path: PathBuf) {
+        self.history.push(path);
+        let overflow = self.history.len().saturating_sub(MAX_HISTORY);
+        if overflow > 0 {
+            self.history.drain(..overflow);
         }
     }
 
@@ -464,8 +480,7 @@ mod tests {
     }
 
     #[test]
-    fn test_queue_loop_refills_on_drain() {
-        let mut q = make_queue(&["a", "b"]);
+    fn test_queue_loop_refills_on_drain() {        let mut q = make_queue(&["a", "b"]);
         q.set_loop(true);
 
         assert_eq!(q.pop_next(None, false), Some(PathBuf::from("a")));
@@ -477,6 +492,27 @@ mod tests {
         q.set_loop(false);
         assert_eq!(q.pop_next(None, false), Some(PathBuf::from("b")));
         assert_eq!(q.pop_next(None, false), None);
+    }
+
+    #[test]
+    fn test_history_capped_for_long_looped_sessions() {
+        let mut q = make_queue(&["a", "b"]);
+        q.set_loop(true);
+        // Simulate 3 full days of looping: history must stay flat.
+        for i in 0..1000 {
+            let cur = Some(PathBuf::from(format!("track-{i}")));
+            let _ = q.pop_next(cur, true);
+        }
+        assert_eq!(q.history.len(), MAX_HISTORY);
+        // Newest entries are kept (Prev still works in the window).
+        assert_eq!(q.history.last(), Some(&PathBuf::from("track-999")));
+        // jump_to bulk-skips respect the cap too.
+        let mut q2 = make_queue(&["x", "y", "z"]);
+        for i in 0..(MAX_HISTORY + 50) {
+            q2.enqueue_back(PathBuf::from(format!("n-{i}")));
+        }
+        let _ = q2.jump_to(MAX_HISTORY + 49, Some(PathBuf::from("cur")), true);
+        assert!(q2.history.len() <= MAX_HISTORY);
     }
 
     #[test]
