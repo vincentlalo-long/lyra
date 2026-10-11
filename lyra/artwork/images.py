@@ -177,14 +177,23 @@ def stage_remote_image(url: str) -> Optional[str]:
     """Download a remote image into the local disk cache on demand.
 
     Returns the local cache path on success (for crop editing etc.),
-    or None when the download fails.
+    or None when the download fails. Bytes are stored ORIGINAL
+    (no square normalization) so later cropping keeps full freedom.
+    """
+    return fetch_original(url)
+
+
+def fetch_original(url: str, timeout: float = 8.0) -> Optional[str]:
+    """Fetch a remote image's original bytes into the disk cache.
+
+    Returns the local cache path when a non-empty file is present
+    afterwards (already cached or freshly downloaded), else None.
     """
     if not url or not url.startswith(("http://", "https://")):
         return None
     cached_path = cache_mod.image_path_for_url(url)
     if os.path.exists(cached_path) and os.path.getsize(cached_path) > 0:
         return cached_path
-    data = _fetch_bytes(url)
-    if data and os.path.exists(cached_path):
+    if _fetch_bytes(url, timeout=timeout) and os.path.exists(cached_path):
         return cached_path
     return None

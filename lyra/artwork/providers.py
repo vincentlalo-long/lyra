@@ -352,8 +352,17 @@ def search_candidates(
 
 
 def prefetch_candidates(candidates: List[Dict[str, Any]], max_workers: int = 4) -> None:
-    """Download candidate images in background so local preview files exist immediately."""
-    from .images import download_cover_image
+    """Download candidate images in background so local preview files exist immediately.
+
+    Original bytes/aspect are preserved (no square normalization): the
+    crop editor and the final custom-cover path need the full frame.
+    Also purges legacy v2 squares once (see cache.CACHE_VERSION).
+    """
+    from .images import fetch_original
+    try:
+        cache_mod.purge_legacy_images()
+    except Exception:
+        pass
     to_fetch = []
     for c in candidates:
         url = c.get("cover_url")
@@ -361,10 +370,10 @@ def prefetch_candidates(candidates: List[Dict[str, Any]], max_workers: int = 4) 
         if cpath:
             c["cached_path"] = cpath
             if url and (not os.path.exists(cpath) or os.path.getsize(cpath) == 0):
-                to_fetch.append((url, cpath))
+                to_fetch.append(url)
     if to_fetch:
         with ThreadPoolExecutor(max_workers=min(max_workers, len(to_fetch))) as pool:
-            futures = [pool.submit(download_cover_image, u, p) for u, p in to_fetch]
+            futures = [pool.submit(fetch_original, u) for u in to_fetch]
             for fut in futures:
                 try:
                     fut.result()
