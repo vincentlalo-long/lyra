@@ -203,6 +203,7 @@ impl App {
         self.download.crop_staging = false;
         self.download.show_crop_modal = false;
         self.download.crop_source_file = None;
+        self.download.crop_preview = None;
         self.download.crop_img_size = None;
         self.download.file_hover_preview = None;
         self.download.file_hover_path = None;

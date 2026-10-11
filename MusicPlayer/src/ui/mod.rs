@@ -277,7 +277,14 @@ pub fn post_render(app: &mut App) -> std::io::Result<()> {
     }
 
     #[cfg(feature = "download")]
-    let (target_art, state_path) = if app.download.show_cover_file_picker {
+    let (target_art, state_path) = if app.download.show_crop_modal {
+        // Crop editor: live result preview (same file each move, so the
+        // input handler clears the kitty cache to force a rewrite).
+        (
+            app.download.crop_preview.as_ref(),
+            app.download.crop_source_file.clone().map(PathBuf::from),
+        )
+    } else if app.download.show_cover_file_picker {
         (
             app.download.file_hover_preview.as_ref(),
             app.download.file_hover_path.clone().map(PathBuf::from),

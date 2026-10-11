@@ -148,25 +148,35 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
         return true;
     }
 
-    // 0.7 Crop-focus editor (fixed 1:1 frame over the source image)
+    // 0.7 Crop-focus editor (live WYSIWYG result preview).
+    // Arrows move the fixed 1:1 frame in 5% steps, Shift+arrows fine-tune 1%.
     if app.download.show_crop_modal {
         const STEP: f32 = 0.05;
+        const FINE_STEP: f32 = 0.01;
+        let step = if event.modifiers.contains(KeyModifiers::SHIFT) { FINE_STEP } else { STEP };
         let clamp01 = |v: f32| v.clamp(0.0, 1.0);
+        // Moving the frame rebuilds the preview; drop the kitty cache so
+        // post_render rewrites the pixels (same path, new content).
+        let mut moved = false;
         match event.code {
             KeyCode::Esc => {
                 app.download.show_crop_modal = false;
             }
             KeyCode::Left | KeyCode::Char('h') => {
-                app.download.crop_cursor.0 = clamp01(app.download.crop_cursor.0 - STEP);
+                app.download.crop_cursor.0 = clamp01(app.download.crop_cursor.0 - step);
+                moved = true;
             }
             KeyCode::Right | KeyCode::Char('l') => {
-                app.download.crop_cursor.0 = clamp01(app.download.crop_cursor.0 + STEP);
+                app.download.crop_cursor.0 = clamp01(app.download.crop_cursor.0 + step);
+                moved = true;
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                app.download.crop_cursor.1 = clamp01(app.download.crop_cursor.1 - STEP);
+                app.download.crop_cursor.1 = clamp01(app.download.crop_cursor.1 - step);
+                moved = true;
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                app.download.crop_cursor.1 = clamp01(app.download.crop_cursor.1 + STEP);
+                app.download.crop_cursor.1 = clamp01(app.download.crop_cursor.1 + step);
+                moved = true;
             }
             KeyCode::Char('c') | KeyCode::Char('C') => {
                 app.download.cover_focus = None;
@@ -194,6 +204,10 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
                 app.set_toast(format!("Crop focus: ({fx:.2}, {fy:.2}) + mode center_crop"));
             }
             _ => {}
+        }
+        if moved {
+            app.download.refresh_crop_preview();
+            app.last_kitty_rendered = None;
         }
         return true;
     }

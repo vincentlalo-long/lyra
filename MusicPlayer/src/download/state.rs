@@ -70,6 +70,9 @@ pub struct DownloadState {
     /// the final download must go through the local file for `--crop-focus`
     /// to take effect (remote URLs are re-fetched without focus).
     pub crop_source_file: Option<String>,
+    /// Live WYSIWYG preview of the 1:1 result at the current focal point,
+    /// rebuilt on every frame move (like termshop's downscaled live preview).
+    pub crop_preview: Option<crate::cover::AlbumArt>,
     /// Confirmed focal point (0..1) sent as `--crop-focus`, if any.
     pub cover_focus: Option<(f32, f32)>,
     /// A remote image is being staged for the crop editor right now.
@@ -154,6 +157,7 @@ impl DownloadState {
             crop_cursor: (0.5, 0.5),
             crop_img_size: None,
             crop_source_file: None,
+            crop_preview: None,
             cover_focus: None,
             crop_staging: false,
 
@@ -352,8 +356,30 @@ impl DownloadState {
         self.crop_img_size = Some((w, h));
         self.crop_source_file = Some(path);
         self.crop_cursor = self.cover_focus.unwrap_or((0.5, 0.5));
+        self.refresh_crop_preview();
         self.show_crop_modal = true;
         true
+    }
+
+    /// Rebuilds the live result preview: crops the source to the 1:1
+    /// window at the current focal point (same math as Python's
+    /// `process_cover_art` center_crop, so WYSIWYG is exact).
+    pub fn refresh_crop_preview(&mut self) {
+        let art = self.crop_source_file.clone().and_then(|p| image::open(&p).ok()).and_then(|img| {
+            let (w, h) = (img.width(), img.height());
+            if w == 0 || h == 0 {
+                return None;
+            }
+            let side = w.min(h);
+            let (fx, fy) = (self.crop_cursor.0.clamp(0.0, 1.0), self.crop_cursor.1.clamp(0.0, 1.0));
+            let max_left = w - side;
+            let max_top = h - side;
+            let left = ((max_left as f32) * fx).round() as u32;
+            let top = ((max_top as f32) * fy).round() as u32;
+            let cropped = image::imageops::crop_imm(&img, left.min(max_left), top.min(max_top), side, side).to_image();
+            Some(crate::cover::AlbumArt::from_dynamic_image(image::DynamicImage::ImageRgba8(cropped)))
+        });
+        self.crop_preview = art;
     }
 
     /// Refresh decoded preview image based on currently selected candidate or custom local cover
@@ -492,8 +518,7 @@ mod tests {
     }
 
     #[test]
-    fn test_open_crop_modal_with_local_file() {
-        let mut state = DownloadState::new(std::path::Path::new("/tmp"));
+    fn test_open_crop_modal_with_local_file() {        let mut state = DownloadState::new(std::path::Path::new("/tmp"));
         // Wide image so the 1:1 frame can actually move.
         let wide = std::env::temp_dir().join("test_crop_wide.png");
         let img = image::RgbImage::new(400, 200);
@@ -505,6 +530,39 @@ mod tests {
         assert_eq!(state.crop_img_size, Some((400, 200)));
 
         let _ = std::fs::remove_file(&wide);
+    }
+
+    #[test]
+    fn test_crop_preview_matches_final_crop_math() {
+        use image::{Rgb, RgbImage, Rgba};
+        let mut state = DownloadState::new(std::path::Path::new("/tmp"));
+        // Left half blue, right half red.
+        let path = std::env::temp_dir().join("test_crop_wysiwyg.png");
+        let mut raw = RgbImage::new(400, 200);
+        for (x, _, px) in raw.enumerate_pixels_mut() {
+            *px = if x < 200 { Rgb([30, 30, 200]) } else { Rgb([200, 30, 30]) };
+        }
+        let _ = raw.save(&path);
+
+        state.form_custom_cover = Some(path.to_string_lossy().to_string());
+        assert!(state.open_crop_modal());
+        // Focus hard left: 200x200 window at x=0 must be all blue.
+        state.crop_cursor = (0.0, 0.5);
+        state.refresh_crop_preview();
+        let art = state.crop_preview.as_ref().expect("preview must exist");
+        let img = art.image.as_ref().expect("preview pixels must exist");
+        assert_eq!((img.width(), img.height()), (200, 200));
+        assert_eq!(*img.get_pixel(0, 0), Rgba([30, 30, 200, 255]));
+        assert_eq!(*img.get_pixel(199, 199), Rgba([30, 30, 200, 255]));
+
+        // Focus hard right: window at x=200 must be all red.
+        state.crop_cursor = (1.0, 0.5);
+        state.refresh_crop_preview();
+        let art = state.crop_preview.as_ref().expect("preview must exist");
+        let img = art.image.as_ref().expect("preview pixels must exist");
+        assert_eq!(*img.get_pixel(0, 0), Rgba([200, 30, 30, 255]));
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
