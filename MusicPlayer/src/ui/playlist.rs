@@ -166,7 +166,15 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     #[cfg(not(feature = "genre"))]
     let genre_badge = "";
 
-    let title = format!(" 󰲸 Track List ({count_label}){genre_badge} ");
+    // Queued tracks drain before the library, so their count lives in the
+    // title: the scratchpad is never invisible while it has entries.
+    let queue_badge = if app.queue.is_empty() {
+        String::new()
+    } else {
+        format!(" [{} queued → plays first] ", app.queue.len())
+    };
+
+    let title = format!(" 󰲸 Track List ({count_label}){genre_badge}{queue_badge} ");
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)

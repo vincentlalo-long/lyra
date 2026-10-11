@@ -237,7 +237,12 @@ impl App {
         self.queue.now_from_queue = false;
         if self.audio.play(song_path).is_ok() {
             self.current_playing_path = Some(song_path.to_path_buf());
-            self.playlist.select_and_mark_playing(song_path);
+            if self.playlist.select_and_mark_playing(song_path) {
+                // The track lived outside the library list (queued from
+                // another folder, daylist, ...): it joined the visible
+                // playlist instead of playing invisibly.
+                self.set_toast(format!("Added to library: {}", short_name(song_path)));
+            }
             self.lyrics = if self.plugin_enabled("lyrics") {
                 Lyrics::load_for_song(song_path)
             } else {

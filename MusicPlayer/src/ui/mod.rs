@@ -101,10 +101,17 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         };
 
         let is_compact = layout_chunks[0].width < 96;
+        // Queue tab carries its length so the scratchpad is visible even
+        // when you're not looking at it (it drains before the library).
+        let queue_label = if app.queue.is_empty() {
+            "Queue".to_string()
+        } else {
+            format!("Queue ({})", app.queue.len())
+        };
         if is_compact {
             left_spans.push(Span::styled(" [1] Playlist ", playlist_tab_style));
             left_spans.push(Span::raw(" "));
-            left_spans.push(Span::styled(" [2] Queue ", queue_tab_style));
+            left_spans.push(Span::styled(format!(" [2] {queue_label} "), queue_tab_style));
             left_spans.push(Span::raw(" "));
             left_spans.push(Span::styled(" [3] Browser ", browser_tab_style));
             left_spans.push(Span::raw(" "));
@@ -114,7 +121,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         } else {
             left_spans.push(Span::styled(" [1] 󰲸 Playlist ", playlist_tab_style));
             left_spans.push(Span::raw(" "));
-            left_spans.push(Span::styled(" [2] 󰐗 Queue ", queue_tab_style));
+            left_spans.push(Span::styled(format!(" [2] 󰐗 {queue_label} "), queue_tab_style));
             left_spans.push(Span::raw(" "));
             left_spans.push(Span::styled(" [3] 󰉋 Browser ", browser_tab_style));
             left_spans.push(Span::raw(" "));

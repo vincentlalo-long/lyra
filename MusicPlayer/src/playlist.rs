@@ -170,15 +170,21 @@ impl Playlist {
         }
     }
 
-    pub fn select_and_mark_playing(&mut self, song_path: &Path) {
+    /// Marks `song_path` as playing + selected. A track outside the
+    /// library list is appended first (foreign queue/browser files join
+    /// the visible library instead of vanishing); returns true then so
+    /// the caller can say so out loud instead of mutating silently.
+    pub fn select_and_mark_playing(&mut self, song_path: &Path) -> bool {
         if let Some(index) = self.songs.iter().position(|p| p == song_path) {
             self.playing_index = Some(index);
             self.selected = index;
+            false
         } else {
             self.songs.push(song_path.to_path_buf());
             let new_index = self.songs.len() - 1;
             self.playing_index = Some(new_index);
             self.selected = new_index;
+            true
         }
     }
 
