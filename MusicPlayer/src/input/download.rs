@@ -181,6 +181,16 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
                 // Focus only affects center_crop: switch the mode so the
                 // choice visibly takes effect on download.
                 app.download.form_cover_mode = "center_crop".to_string();
+                // Pin the cropped file as the custom cover. Without this,
+                // a remote candidate would be re-fetched from its URL at
+                // download time and the focus silently ignored.
+                if app.download.form_custom_cover.is_none() {
+                    if let Some(src) = app.download.crop_source_file.clone() {
+                        app.download.form_custom_cover = Some(src);
+                        app.download.selected_cover = None;
+                        app.download.update_cover_preview();
+                    }
+                }
                 app.set_toast(format!("Crop focus: ({fx:.2}, {fy:.2}) + mode center_crop"));
             }
             _ => {}
@@ -840,6 +850,79 @@ mod tests {
             let key_5 = KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE);
             handle_download_key(&mut app, key_5);
             assert_eq!(app.view_mode, ViewMode::Plugins);
+        }
+    }
+
+    #[test]
+    fn test_crop_editor_key_flow_sets_focus() {
+        let temp_dir = std::env::temp_dir();
+        if let Ok(mut app) = App::new(&temp_dir) {
+            let wide = std::env::temp_dir().join("test_crop_keys.png");
+            let img = image::RgbImage::new(400, 200);
+            let _ = img.save(&wide);
+
+            app.download.show_metadata_form = true;
+            app.download.form_field_idx = 5; // Cover row
+            app.download.form_custom_cover = Some(wide.to_string_lossy().to_string());
+
+            // `r` opens the crop editor.
+            handle_download_key(&mut app, KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+            assert!(app.download.show_crop_modal);
+
+            // Move frame right + down, then confirm.
+            handle_download_key(&mut app, KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+            handle_download_key(&mut app, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+            handle_download_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+            assert!(!app.download.show_crop_modal);
+            let (fx, fy) = app.download.cover_focus.expect("focus must be set");
+            assert!((fx - 0.55).abs() < 1e-6);
+            assert!((fy - 0.55).abs() < 1e-6);
+            assert_eq!(app.download.form_cover_mode, "center_crop");
+
+            let _ = std::fs::remove_file(&wide);
+        }
+    }
+
+    #[test]
+    fn test_crop_confirm_pins_remote_candidate_as_local() {
+        use crate::download::events::CoverCandidate;
+        let temp_dir = std::env::temp_dir();
+        if let Ok(mut app) = App::new(&temp_dir) {
+            let wide = std::env::temp_dir().join("test_crop_remote.png");
+            let img = image::RgbImage::new(400, 200);
+            let _ = img.save(&wide);
+
+            app.download.show_metadata_form = true;
+            app.download.form_field_idx = 5; // Cover row
+            // Remote candidate with a prefetched disk cache, no local pick.
+            app.download.cover_candidates = vec![CoverCandidate {
+                source: "itunes".into(),
+                artist: "A".into(),
+                title: "T".into(),
+                album: "Alb".into(),
+                year: String::new(),
+                cover_url: "https://example.com/cover.jpg".into(),
+                score: 90.0,
+                cached_path: Some(wide.to_string_lossy().to_string()),
+            }];
+            app.download.selected_cover = Some(0);
+            assert!(app.download.form_custom_cover.is_none());
+
+            handle_download_key(&mut app, KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+            assert!(app.download.show_crop_modal);
+            handle_download_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+            // The cached file must be pinned as custom cover, otherwise the
+            // final download re-fetches the URL and silently drops focus.
+            assert_eq!(
+                app.download.form_custom_cover,
+                Some(wide.to_string_lossy().to_string())
+            );
+            assert_eq!(app.download.selected_cover, None);
+            assert!(app.download.cover_focus.is_some());
+
+            let _ = std::fs::remove_file(&wide);
         }
     }
 

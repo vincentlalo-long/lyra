@@ -197,6 +197,15 @@ impl App {
         self.download.selected_cover = None;
         self.download.is_cover_loading = true;
         self.download.lyrics_probe = None;
+        // Fresh cover state per download: a previous crop focus / staging
+        // must never leak into the next form.
+        self.download.cover_focus = None;
+        self.download.crop_staging = false;
+        self.download.show_crop_modal = false;
+        self.download.crop_source_file = None;
+        self.download.crop_img_size = None;
+        self.download.file_hover_preview = None;
+        self.download.file_hover_path = None;
         let src = self.download.cover_source.clone();
         self.downloader.fetch_covers_query(artist, title, None, Some(src));
         // Background subtitle probe for the Lyrics-row badge (silent on failure).

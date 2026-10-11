@@ -65,6 +65,11 @@ pub struct DownloadState {
     pub show_crop_modal: bool,
     pub crop_cursor: (f32, f32),
     pub crop_img_size: Option<(u32, u32)>,
+    /// Local file the crop editor is opened on (custom pick or candidate
+    /// cache). Remembered so confirming can pin it as the custom cover:
+    /// the final download must go through the local file for `--crop-focus`
+    /// to take effect (remote URLs are re-fetched without focus).
+    pub crop_source_file: Option<String>,
     /// Confirmed focal point (0..1) sent as `--crop-focus`, if any.
     pub cover_focus: Option<(f32, f32)>,
     /// A remote image is being staged for the crop editor right now.
@@ -122,7 +127,9 @@ impl DownloadState {
             suggested_genres: Vec::new(),
             selected_genre_idx: None,
             form_dir: initial_dir.to_path_buf(),
-            form_cover_mode: "auto".to_string(),
+            // Default to center_crop so picked local files are cropped,
+            // not blur-padded ("auto" falls through to blur in Python).
+            form_cover_mode: "center_crop".to_string(),
             lyrics_probe: None,
             cover_source: "auto".to_string(),
             form_lyrics_mode: 0,
@@ -146,6 +153,7 @@ impl DownloadState {
             show_crop_modal: false,
             crop_cursor: (0.5, 0.5),
             crop_img_size: None,
+            crop_source_file: None,
             cover_focus: None,
             crop_staging: false,
 
@@ -342,6 +350,7 @@ impl DownloadState {
             return false;
         }
         self.crop_img_size = Some((w, h));
+        self.crop_source_file = Some(path);
         self.crop_cursor = self.cover_focus.unwrap_or((0.5, 0.5));
         self.show_crop_modal = true;
         true
@@ -483,8 +492,23 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_search_limit() {
+    fn test_open_crop_modal_with_local_file() {
         let mut state = DownloadState::new(std::path::Path::new("/tmp"));
+        // Wide image so the 1:1 frame can actually move.
+        let wide = std::env::temp_dir().join("test_crop_wide.png");
+        let img = image::RgbImage::new(400, 200);
+        let _ = img.save(&wide);
+
+        state.form_custom_cover = Some(wide.to_string_lossy().to_string());
+        assert!(state.open_crop_modal());
+        assert!(state.show_crop_modal);
+        assert_eq!(state.crop_img_size, Some((400, 200)));
+
+        let _ = std::fs::remove_file(&wide);
+    }
+
+    #[test]
+    fn test_expand_search_limit() {        let mut state = DownloadState::new(std::path::Path::new("/tmp"));
         assert_eq!(state.search_limit, 15);
         assert_eq!(state.expand_search_limit(), 25);
         assert_eq!(state.expand_search_limit(), 35);
