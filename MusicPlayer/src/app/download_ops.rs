@@ -8,6 +8,21 @@ impl App {
         if !self.download.show_metadata_form {
             return;
         }
+        // A confirmed crop focus only takes effect through a local file
+        // (remote URLs are re-fetched without focus). If the user cropped
+        // and then picked another remote candidate, pin its prefetched
+        // cache here so the focus is never silently dropped.
+        if self.download.cover_focus.is_some() && self.download.form_custom_cover.is_none() {
+            let pinned = self.download.selected_cover
+                .and_then(|i| self.download.cover_candidates.get(i))
+                .and_then(|c| c.cached_path.clone())
+                .filter(|p| std::path::Path::new(p).is_file());
+            if let Some(path) = pinned {
+                self.download.form_custom_cover = Some(path);
+                self.download.selected_cover = None;
+                self.download.update_cover_preview();
+            }
+        }
         let custom_cover = if let Some(local_path) = self.download.form_custom_cover.as_ref().filter(|s| !s.is_empty()) {
             Some(local_path.clone())
         } else {
@@ -382,6 +397,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::download::events::CoverCandidate;
 
     #[test]
     fn test_collect_existing_artists_discovers_subfolder_tracks() {
@@ -402,5 +418,43 @@ mod tests {
         }
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_submit_pins_remote_candidate_when_focus_set() {
+        let temp_dir = std::env::temp_dir();
+        if let Ok(mut app) = App::new(&temp_dir) {
+            let cached = std::env::temp_dir().join("test_submit_pin.png");
+            let img = image::RgbImage::new(400, 200);
+            let _ = img.save(&cached);
+
+            // Cropped earlier, then user picked another remote candidate.
+            app.download.show_metadata_form = true;
+            app.download.form_url = "https://example.com/watch?v=x".to_string();
+            app.download.cover_focus = Some((0.2, 0.8));
+            app.download.form_custom_cover = None;
+            app.download.cover_candidates = vec![CoverCandidate {
+                source: "web".into(),
+                artist: "A".into(),
+                title: "T".into(),
+                album: "Alb".into(),
+                year: String::new(),
+                cover_url: "https://example.com/new.jpg".into(),
+                score: 80.0,
+                cached_path: Some(cached.to_string_lossy().to_string()),
+            }];
+            app.download.selected_cover = Some(0);
+
+            app.start_metadata_download();
+
+            // Pinned to the prefetched file so focus survives the submit.
+            assert_eq!(
+                app.download.form_custom_cover,
+                Some(cached.to_string_lossy().to_string())
+            );
+            assert_eq!(app.download.selected_cover, None);
+
+            let _ = std::fs::remove_file(&cached);
+        }
     }
 }
