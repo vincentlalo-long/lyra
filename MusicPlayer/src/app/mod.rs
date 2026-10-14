@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 #[cfg(feature = "mpris")]
 use std::sync::mpsc;
+use std::sync::mpsc as plugin_mpsc;
 use std::time::Instant;
 use std::collections::HashMap;
 use anyhow::Result;
@@ -124,10 +125,33 @@ pub struct App {
     /// Caret (char index) inside the active browser-modal text input.
     /// Reset to end-of-text whenever a modal opens or its field changes.
     pub browser_caret: usize,
+    /// Screen rect of the draggable seekbar (set every frame by
+    /// `ui::controls`). `None` before the first render.
+    pub seekbar_rect: Option<ratatui::layout::Rect>,
+    /// True while the user is dragging the seekbar with the mouse.
+    /// While set, `Drag` events keep re-seeking (debounced in audio).
+    pub seeking_drag: bool,
+    /// Active semantic theme (roles). Changed via `set_theme()`.
+    pub theme: crate::theme::Theme,
+    /// Active theme preset name (`mocha` default).
+    pub theme_name: String,
+    /// Background community-plugin installer: sending side (cloned per job).
+    pub plugin_dl_tx: plugin_mpsc::Sender<crate::plugin_dl::InstallEvent>,
+    /// Receiving side, drained every main-loop tick (`check_plugin_downloads`).
+    pub plugin_dl_rx: plugin_mpsc::Receiver<crate::plugin_dl::InstallEvent>,
+    /// Id of the plugin currently downloading, if any (one at a time).
+    pub plugin_dl_active: Option<String>,
+    /// Override for the community-plugin data root (tests / dev).
+    /// `None` = resolve via `DownloadablePlugin::data_root()`.
+    pub plugin_data_root: Option<PathBuf>,
 }
 
 /// How long a toast stays visible.
 const TOAST_TTL_SECS: u64 = 3;
+/// Cap for the in-memory song metadata cache. Without a cap a 10k-song
+/// library pins 10k `PathBuf + 3xString + Duration` for the whole session.
+/// When full we evict everything and start fresh (cheap: re-probed lazily).
+const MAX_META_CACHE: usize = 1500;
 
 pub fn short_name(path: &Path) -> String {
     path.file_stem()
@@ -146,6 +170,8 @@ impl App {
 
         #[cfg(feature = "mpris")]
         let (mpris, media_rx) = crate::mpris::spawn();
+        let (plugin_dl_tx, plugin_dl_rx) =
+            plugin_mpsc::channel::<crate::plugin_dl::InstallEvent>();
         let mut app = Self {
             view_mode: ViewMode::Playlist,
             browser: FileBrowser::new(music_folder),
@@ -172,6 +198,9 @@ impl App {
                         dp.is_installed = true;
                     }
                 }
+                // Reconcile with disk: mock-era flags without files are cleared,
+                // manually-placed plugin dirs are picked up.
+                crate::plugin::DownloadablePlugin::refresh_installed_from_disk(&mut dps);
                 dps
             },
             editing_path_index: None,
@@ -208,7 +237,22 @@ impl App {
             queue_scroll_tracker: (0, Instant::now()),
             browser_modal: None,
             browser_caret: 0,
+            seekbar_rect: None,
+            seeking_drag: false,
+            theme: crate::theme::Theme::mocha(),
+            theme_name: "mocha".to_string(),
+            plugin_dl_tx,
+            plugin_dl_rx,
+            plugin_dl_active: None,
+            plugin_data_root: None,
         };
+        // Theme preset: LYRA_THEME env wins, then config file `theme`.
+        let theme_choice = std::env::var("LYRA_THEME")
+            .ok()
+            .or(config.theme.clone());
+        if let Some(name) = theme_choice {
+            app.set_theme(&name);
+        }
         // Derive runtime flags from saved plugin states (a plugin disabled
         // in a previous session stays off — no recompile needed).
         // Lyrics layout defaults ON when its plugin ships enabled.
@@ -291,11 +335,50 @@ impl App {
 
     /// Returns cached metadata (ID3 tags + duration) for `path`, probing it
     /// lazily on first access and storing it in memory for the rest of the session.
+    /// Capped at [`MAX_META_CACHE`] entries to avoid pinning huge libraries in RAM.
     pub fn song_meta(&mut self, path: &Path) -> crate::meta::SongMeta {
+        if self.meta_cache.len() >= MAX_META_CACHE && !self.meta_cache.contains_key(path) {
+            // Simple eviction: drop half to amortize clearing cost.
+            // HashMap order is arbitrary but this bounds RAM without LRU bookkeeping.
+            let to_drop: Vec<PathBuf> = self.meta_cache.keys().take(MAX_META_CACHE / 2).cloned().collect();
+            for k in to_drop {
+                self.meta_cache.remove(&k);
+            }
+        }
         self.meta_cache
             .entry(path.to_path_buf())
             .or_insert_with(|| crate::meta::song_meta(path))
             .clone()
+    }
+
+    /// Explicitly drop one cached entry (call after rename/delete/move).
+    #[allow(dead_code)]
+    pub fn invalidate_meta(&mut self, path: &Path) {
+        self.meta_cache.remove(path);
+    }
+
+    /// Switch the semantic theme by preset name. Unknown names fall back
+    /// to Mocha (see `Theme::from_name`). Persists nothing by itself —
+    /// callers save `theme` into the config file when appropriate.
+    pub fn set_theme(&mut self, name: &str) {
+        let t = crate::theme::Theme::from_name(name);
+        self.theme_name = t.name.to_string();
+        self.theme = t;
+    }
+
+    /// Cycle mocha -> gruvbox -> tokyo-night -> dracula -> nord -> latte.
+    /// Used by the `X` keybinding and the theme plugin preview.
+    pub fn cycle_theme(&mut self) {
+        let next = match self.theme_name.as_str() {
+            "mocha" => "gruvbox",
+            "gruvbox" => "tokyo-night",
+            "tokyo-night" => "dracula",
+            "dracula" => "nord",
+            "nord" => "latte",
+            _ => "mocha",
+        };
+        self.set_theme(next);
+        self.set_toast(format!("Theme: {next}"));
     }
 
     /// Shows a transient one-line feedback message in the header.
@@ -536,7 +619,12 @@ mod tests {
     fn test_custom_plugin_uninstall_and_no_auto_restore() {
         if let Ok(mut app) = App::new(std::path::Path::new(".")) {
             // Open store and install first plugin. "Coming Soon" entries
-            // are not installable, so stage a fake installable one.
+            // are not installable, so stage a fake installable one backed
+            // by a real file:// single-file source into a temp data root.
+            let plug_tmp = std::env::temp_dir().join(format!("lyra_store_{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&plug_tmp);
+            std::fs::write(plug_tmp.join("fake_plugin.py"), "def run(payload):\n    return {'status':'ok'}\n").unwrap();
+            app.plugin_data_root = Some(plug_tmp.join("data"));
             app.downloadable_plugins.insert(
                 0,
                 crate::plugin::DownloadablePlugin {
@@ -546,12 +634,24 @@ mod tests {
                     author: "tests".into(),
                     description: "Staged by unit test".into(),
                     is_installed: false,
+                    url: format!("file://{}", plug_tmp.join("fake_plugin.py").display()),
+                    sha256: String::new(),
+                    min_version: String::new(),
                 },
             );
             app.show_plugin_store = true;
             app.store_selected = 0;
             let installed_name = app.downloadable_plugins[0].name.clone();
             app.install_store_plugin();
+            // Real installs run on a background thread: pump events until done.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+            while !app.downloadable_plugins[0].is_installed
+                && std::time::Instant::now() < deadline
+            {
+                app.check_plugin_downloads();
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            app.check_plugin_downloads();
 
             assert!(app.downloadable_plugins[0].is_installed);
             let custom_idx = app.plugins.iter().position(|p| p.name == installed_name);
@@ -588,6 +688,10 @@ mod tests {
             // Only 'r' restores it
             app.restore_selected_plugin();
             assert!(!app.plugins[0].is_removed);
+
+            // Uninstall wiped the downloaded files too.
+            assert!(!plug_tmp.join("data").join("test-fake-plugin").exists());
+            let _ = std::fs::remove_dir_all(&plug_tmp);
         }
     }
 
@@ -602,6 +706,9 @@ mod tests {
                     author: "tests".into(),
                     description: "Not yet available".into(),
                     is_installed: false,
+                    url: String::new(),
+                    sha256: String::new(),
+                    min_version: String::new(),
                 },
             );
             app.show_plugin_store = true;

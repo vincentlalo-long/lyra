@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph},
     Frame,
 };
-use crate::{app::App, theme};
+use crate::app::App;
 
 /// Centered genre picker: `j/k` move, `Enter` queues the whole genre,
 /// `f` filters the Playlist view, `Esc` closes.
@@ -47,19 +47,19 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
         let style = if is_selected {
             Style::default()
-                .fg(theme::YELLOW)
-                .bg(theme::SURFACE0)
+                .fg(app.theme.warning)
+                .bg(app.theme.selected_bg)
                 .add_modifier(Modifier::BOLD)
         } else if is_checked {
-            Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)
+            Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(app.theme.text)
         };
 
         let line = Line::from(vec![
             Span::styled(format!("{prefix} {check_sym} "), style),
             Span::styled(format!("{genre} "), style),
-            Span::styled(format!("({count})"), Style::default().fg(theme::OVERLAY0)),
+            Span::styled(format!("({count})"), Style::default().fg(app.theme.faint)),
         ]);
         items.push(ListItem::new(line));
     }
@@ -69,11 +69,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let apply_prefix = if is_apply_selected { "▶ " } else { "  " };
     let apply_style = if is_apply_selected {
         Style::default()
-            .fg(theme::GREEN)
-            .bg(theme::SURFACE0)
+            .fg(app.theme.success)
+            .bg(app.theme.selected_bg)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD)
+        Style::default().fg(app.theme.info).add_modifier(Modifier::BOLD)
     };
     items.push(ListItem::new(Line::from(vec![
         Span::styled(format!("{apply_prefix}󰄲 [ Apply Filter (f) ]"), apply_style),
@@ -91,7 +91,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD));
+        .border_style(Style::default().fg(app.theme.border_focused).add_modifier(Modifier::BOLD));
 
     let inner = block.inner(popup_area);
     frame.render_widget(Clear, popup_area);
@@ -106,7 +106,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(
             " Enter/Space: Select • f: Apply Filter • q: Enqueue • Esc: Close ",
-            Style::default().fg(theme::OVERLAY0),
+            Style::default().fg(app.theme.faint),
         )])),
         chunks[1],
     );

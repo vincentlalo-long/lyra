@@ -951,7 +951,7 @@ mod tests {
             app.download.snap_cursor_to_end();
 
             // Plain arrows move the caret now (text untouched)...
-            let key_right = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
+            let _key_right = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
             let key_left = KeyEvent::new(KeyCode::Left, KeyModifiers::NONE);
             handle_download_key(&mut app, key_left);
             assert_eq!(app.download.form_album, "Old Album");

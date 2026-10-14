@@ -145,6 +145,10 @@ impl App {
                 let id = p.id.clone();
                 let name = p.name.clone();
                 self.plugins.remove(self.plugin_selected);
+                // Also wipe the downloaded files (best effort).
+                if let Some(root) = self.community_root() {
+                    crate::plugin_dl::uninstall(&id, &root);
+                }
                 if let Some(sp) = self.downloadable_plugins.iter_mut().find(|item| item.id == id) {
                     sp.is_installed = false;
                 }
@@ -242,7 +246,50 @@ impl App {
         }
     }
 
-    /// In Plugin Store: installs/downloads the selected community plugin (mock UI)
+    /// Data root for community plugins (test override wins).
+    pub fn community_root(&self) -> Option<PathBuf> {
+        self.plugin_data_root
+            .clone()
+            .or_else(crate::plugin::DownloadablePlugin::data_root)
+    }
+
+    /// Drains background installer events (called every main-loop tick).
+    pub fn check_plugin_downloads(&mut self) {
+        while let Ok(ev) = self.plugin_dl_rx.try_recv() {
+            match ev {
+                crate::plugin_dl::InstallEvent::Progress { id: _, message } => {
+                    self.set_toast(message);
+                }
+                crate::plugin_dl::InstallEvent::Done { id, name } => {
+                    self.plugin_dl_active = None;
+                    if let Some(item) = self.downloadable_plugins.iter_mut().find(|p| p.id == id) {
+                        item.is_installed = true;
+                        if !self.plugins.iter().any(|p| p.id == id) {
+                            self.plugins.push(crate::plugin::ManagedPlugin {
+                                id: id.clone(),
+                                name: name.clone(),
+                                version: item.version.clone(),
+                                description: item.description.clone(),
+                                enabled: true,
+                                is_removed: false,
+                                is_builtin: false,
+                            });
+                            let _ = crate::plugin::ManagedPlugin::save_plugins(&self.plugins);
+                        }
+                    }
+                    self.set_toast(format!("Downloaded & installed '{name}'!"));
+                }
+                crate::plugin_dl::InstallEvent::Failed { id: _, message } => {
+                    self.plugin_dl_active = None;
+                    self.set_toast(format!("Install failed: {message}"));
+                }
+            }
+        }
+    }
+
+    /// In Plugin Store: really installs the selected community plugin.
+    /// Version-gated, hashed, and downloaded on a background thread —
+    /// the entry lands in `<data>/plugins/<id>/plugin.py`.
     pub fn install_store_plugin(&mut self) {
         let Some(item) = self.downloadable_plugins.get(self.store_selected).cloned() else {
             return;
@@ -255,26 +302,92 @@ impl App {
             self.set_toast(format!("'{}' is already installed", item.name));
             return;
         }
-        if let Some(installed) = self.downloadable_plugins.get_mut(self.store_selected) {
-            installed.is_installed = true;
+        if let Some(active) = &self.plugin_dl_active {
+            self.set_toast(format!("Already downloading '{active}' — wait for it to finish"));
+            return;
         }
-        let name = item.name.clone();
-        let version = item.version.clone();
-        let id = item.id.clone();
-        let desc = item.description.clone();
-        if !self.plugins.iter().any(|p| p.id == id) {
-            self.plugins.push(crate::plugin::ManagedPlugin {
-                id,
-                name: name.clone(),
-                version: version.clone(),
-                description: desc,
-                enabled: true,
-                is_removed: false,
-                is_builtin: false,
-            });
-            let _ = crate::plugin::ManagedPlugin::save_plugins(&self.plugins);
+        if let Err(e) = crate::plugin::check_min_version(&item.min_version) {
+            self.set_toast(format!("Cannot install '{}': {e}", item.name));
+            return;
         }
-        self.set_toast(format!("[Mock UI] Downloaded & installed '{name}' {version}!"));
+        let Some(root) = self.community_root() else {
+            self.set_toast("Cannot install: no data directory (HOME unset)".to_string());
+            return;
+        };
+        // Fail fast when there is provably nothing to fetch: no URL and no
+        // local entry dir (e.g. release tarball without the source tree).
+        if item.url.trim().is_empty() {
+            let has_local = crate::plugin_dl::plugin_entry_path(&item).is_some();
+            if !has_local {
+                self.set_toast(format!(
+                    "'{}' has no download url and is not bundled with this install; update lyra or add the source manually",
+                    item.name
+                ));
+                return;
+            }
+        }
+        let tx = self.plugin_dl_tx.clone();
+        self.plugin_dl_active = Some(item.id.clone());
+        self.set_toast(format!("Downloading '{}' ...", item.name));
+        std::thread::spawn(move || {
+            let id = item.id.clone();
+            let name = item.name.clone();
+            match crate::plugin_dl::install_blocking(&item, &root, Some(tx.clone())) {
+                Ok(_) => {
+                    let _ = tx.send(crate::plugin_dl::InstallEvent::Done { id, name });
+                }
+                Err(message) => {
+                    let _ = tx.send(crate::plugin_dl::InstallEvent::Failed { id, message });
+                }
+            }
+        });
+    }
+
+    /// In Plugin Store (`x`): executes an installed plugin with a `list`
+    /// probe payload and shows its reply. Plugins should answer `list`
+    /// with their capabilities (see template_plugin).
+    pub fn run_store_plugin(&mut self) {
+        let Some(item) = self.downloadable_plugins.get(self.store_selected).cloned() else {
+            return;
+        };
+        if !item.is_installed {
+            self.set_toast(format!("'{}' is not installed — press Enter to install", item.name));
+            return;
+        }
+        let Some(root) = self.community_root() else {
+            self.set_toast("Cannot run: no data directory (HOME unset)".to_string());
+            return;
+        };
+        // Installed files win; fall back to a repo-checkout entry dir.
+        let dir = {
+            let d = root.join(&item.id);
+            if d.join("plugin.py").is_file() {
+                d
+            } else {
+                match crate::plugin_dl::plugin_entry_path(&item) {
+                    Some(e) => e,
+                    None => {
+                        self.set_toast(format!("'{}' files not found; reinstall it", item.name));
+                        return;
+                    }
+                }
+            }
+        };
+        match crate::plugin_dl::run_community_plugin(&item.id, &dir, r#"{"action":"list"}"#) {
+            Ok(v) => {
+                let status = v.get("status").and_then(|s| s.as_str()).unwrap_or("?");
+                let msg = v.get("message").and_then(|s| s.as_str()).unwrap_or("");
+                let mut text = format!("'{}': {status} — {msg}", item.name);
+                // Toasts are one line; keep them readable.
+                const MAX: usize = 110;
+                if text.len() > MAX {
+                    text.truncate(MAX);
+                    text.push('…');
+                }
+                self.set_toast(text);
+            }
+            Err(e) => self.set_toast(format!("Run failed: {e}")),
+        }
     }
 
     /// Adjusts the selected setting in the Plugins view:

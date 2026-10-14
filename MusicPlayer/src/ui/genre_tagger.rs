@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
     Frame,
 };
-use crate::{app::App, theme};
+use crate::app::App;
 
 pub fn render(frame: &mut Frame, app: &App) {
     let Some(tagger) = &app.genre_tagger else {
@@ -36,13 +36,12 @@ pub fn render(frame: &mut Frame, app: &App) {
 
     frame.render_widget(Clear, popup_area);
 
-    let border_color = if tagger.focus_suggestions { theme::BLUE } else { theme::PEACH };
     let block = Block::default()
         .title(" 󰎆 Tag / Edit Song Genres ")
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(border_color).add_modifier(Modifier::BOLD));
+        .border_style(Style::default().fg(app.theme.border_focused).add_modifier(Modifier::BOLD));
 
     let inner = block.inner(popup_area);
     frame.render_widget(block, popup_area);
@@ -59,44 +58,44 @@ pub fn render(frame: &mut Frame, app: &App) {
 
     // 1. Song Title
     let title_line = Line::from(vec![
-        Span::styled("󰝚 Track: ", Style::default().fg(theme::OVERLAY0)),
-        Span::styled(&tagger.song_title, Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)),
+        Span::styled("󰝚 Track: ", Style::default().fg(app.theme.faint)),
+        Span::styled(&tagger.song_title, Style::default().fg(app.theme.text).add_modifier(Modifier::BOLD)),
     ]);
     frame.render_widget(Paragraph::new(title_line), rows[0]);
 
     // 2. Input Box
     let input_focused = !tagger.focus_suggestions;
     let mut input_spans = vec![
-        Span::styled("Tags: ", Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD)),
+        Span::styled("Tags: ", Style::default().fg(app.theme.info).add_modifier(Modifier::BOLD)),
     ];
     if tagger.input.is_empty() && !input_focused {
-        input_spans.push(Span::styled("Type genre tags separated by comma (e.g. Pop, Ballad)...", Style::default().fg(theme::OVERLAY0)));
+        input_spans.push(Span::styled("Type genre tags separated by comma (e.g. Pop, Ballad)...", Style::default().fg(app.theme.faint)));
     } else {
-        input_spans.push(Span::styled(&tagger.input, Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)));
+        input_spans.push(Span::styled(&tagger.input, Style::default().fg(app.theme.text).add_modifier(Modifier::BOLD)));
         if input_focused {
-            input_spans.push(Span::styled("█", Style::default().fg(theme::PEACH)));
+            input_spans.push(Span::styled("█", Style::default().fg(app.theme.hint)));
         }
     }
 
     let input_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(if input_focused { theme::PEACH } else { theme::SURFACE2 }));
+        .border_style(Style::default().fg(if input_focused { app.theme.hint } else { app.theme.faint }));
     frame.render_widget(Paragraph::new(Line::from(input_spans)).block(input_block), rows[1]);
 
     // 3. Suggestions Carousel / Chips
     let mut chip_spans = vec![
-        Span::styled("󰛩 Suggestions: ", Style::default().fg(theme::OVERLAY0)),
+        Span::styled("󰛩 Suggestions: ", Style::default().fg(app.theme.faint)),
     ];
     let start_idx = tagger.selected_suggestion.saturating_sub(3);
     for (i, sug) in tagger.suggestions.iter().enumerate().skip(start_idx).take(7) {
         let is_cur = i == tagger.selected_suggestion;
         let style = if is_cur && tagger.focus_suggestions {
-            Style::default().fg(theme::BASE).bg(theme::YELLOW).add_modifier(Modifier::BOLD)
+            Style::default().fg(app.theme.ink).bg(app.theme.warning).add_modifier(Modifier::BOLD)
         } else if is_cur {
-            Style::default().fg(theme::YELLOW).add_modifier(Modifier::UNDERLINED)
+            Style::default().fg(app.theme.warning).add_modifier(Modifier::UNDERLINED)
         } else {
-            Style::default().fg(theme::SUBTEXT0)
+            Style::default().fg(app.theme.muted)
         };
         chip_spans.push(Span::styled(format!("[{sug}]"), style));
         chip_spans.push(Span::raw(" "));
@@ -106,17 +105,17 @@ pub fn render(frame: &mut Frame, app: &App) {
     // 4. Instructions
     let hint_line = if tagger.focus_suggestions {
         Line::from(vec![
-            Span::styled("Suggestions: ", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
-            Span::styled("[←/→/h/l: Select | Space/Enter: Add tag | Tab/↑: Back to text]", Style::default().fg(theme::TEXT)),
+            Span::styled("Suggestions: ", Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
+            Span::styled("[←/→/h/l: Select | Space/Enter: Add tag | Tab/↑: Back to text]", Style::default().fg(app.theme.text)),
         ])
     } else {
         Line::from(vec![
-            Span::styled("[Enter", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
-            Span::styled(": Save | ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Tab/↓", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
-            Span::styled(": Browse suggestions | ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Esc", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
-            Span::styled(": Cancel]", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("[Enter", Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
+            Span::styled(": Save | ", Style::default().fg(app.theme.faint)),
+            Span::styled("Tab/↓", Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
+            Span::styled(": Browse suggestions | ", Style::default().fg(app.theme.faint)),
+            Span::styled("Esc", Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
+            Span::styled(": Cancel]", Style::default().fg(app.theme.faint)),
         ])
     };
     frame.render_widget(Paragraph::new(hint_line).alignment(Alignment::Center), rows[3]);

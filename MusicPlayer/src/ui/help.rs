@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
-use crate::{app::App, theme};
+use crate::app::App;
 
 pub fn render(frame: &mut Frame, app: &App) {
     let screen_area = frame.area();
@@ -33,150 +33,158 @@ pub fn render(frame: &mut Frame, app: &App) {
         .split(vertical_chunks[1])[1];
 
     let lines = vec![
-        Line::from(Span::styled("  Navigation & Views", Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("  Navigation & Views", Style::default().fg(app.theme.info).add_modifier(Modifier::BOLD))),
         Line::from(vec![
-            Span::styled("    Tab / 1-5  ", Style::default().fg(theme::YELLOW)),
+            Span::styled("    Tab / 1-5  ", Style::default().fg(app.theme.warning)),
             Span::styled(
                 "Switch Playlist / Queue / Browser / Extensions / Plugins",
-                Style::default().fg(theme::TEXT),
+                Style::default().fg(app.theme.text),
             ),
         ]),
         Line::from(vec![
-            Span::styled("    ↑ / k      ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Move cursor up (in lists & settings)", Style::default().fg(theme::TEXT)),
+            Span::styled("    ↑ / k      ", Style::default().fg(app.theme.warning)),
+            Span::styled("Move cursor up (in lists & settings)", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    ↓ / j      ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Move cursor down (in lists & settings)", Style::default().fg(theme::TEXT)),
+            Span::styled("    ↓ / j      ", Style::default().fg(app.theme.warning)),
+            Span::styled("Move cursor down (in lists & settings)", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    PgUp / PgDn", Style::default().fg(theme::YELLOW)),
-            Span::styled("Scroll page up / down", Style::default().fg(theme::TEXT)),
+            Span::styled("    PgUp / PgDn", Style::default().fg(app.theme.warning)),
+            Span::styled("Scroll page up / down", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    g / G      ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Jump to top / bottom", Style::default().fg(theme::TEXT)),
+            Span::styled("    g / G      ", Style::default().fg(app.theme.warning)),
+            Span::styled("Jump to top / bottom", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    C          ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Jump cursor to currently playing track", Style::default().fg(theme::TEXT)),
+            Span::styled("    C          ", Style::default().fg(app.theme.warning)),
+            Span::styled("Jump cursor to currently playing track", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    Enter / l  ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Play (Playlist) | Open folder / Add track (Browser) | Toggle (Plugins)", Style::default().fg(theme::TEXT)),
+            Span::styled("    Enter / l  ", Style::default().fg(app.theme.warning)),
+            Span::styled("Play (Playlist) | Open folder / Add track (Browser) | Toggle (Plugins)", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    Bksp / h   ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Go to parent directory (in Browser)", Style::default().fg(theme::TEXT)),
+            Span::styled("    Bksp / h   ", Style::default().fg(app.theme.warning)),
+            Span::styled("Go to parent directory (in Browser)", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    P          ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Load folder into Playlist without auto-playing (in Browser)", Style::default().fg(theme::TEXT)),
+            Span::styled("    P          ", Style::default().fg(app.theme.warning)),
+            Span::styled("Load folder into Playlist without auto-playing (in Browser)", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    i / I      ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Import track or album into active Playlist", Style::default().fg(theme::TEXT)),
+            Span::styled("    i / I      ", Style::default().fg(app.theme.warning)),
+            Span::styled("Import track or album into active Playlist", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    L          ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Set current folder as permanent Music Library (in Browser)", Style::default().fg(theme::TEXT)),
+            Span::styled("    L          ", Style::default().fg(app.theme.warning)),
+            Span::styled("Set current folder as permanent Music Library (in Browser)", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    d / Del    ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Remove song from Playlist (no file deletion)", Style::default().fg(theme::TEXT)),
+            Span::styled("    d / Del    ", Style::default().fg(app.theme.warning)),
+            Span::styled("Remove song from Playlist (no file deletion)", Style::default().fg(app.theme.text)),
         ]),
         Line::raw(""),
-        Line::from(Span::styled("  Playback & Controls", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("  Playback & Controls", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD))),
         Line::from(vec![
-            Span::styled("    Space      ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Play/Pause playback (or Toggle in Plugins)", Style::default().fg(theme::TEXT)),
+            Span::styled("    Space      ", Style::default().fg(app.theme.warning)),
+            Span::styled("Play/Pause playback (or Toggle in Plugins)", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    ← / h      ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Seek -5s (Up in Browser | Decrease in Plugins)", Style::default().fg(theme::TEXT)),
+            Span::styled("    ← / h      ", Style::default().fg(app.theme.warning)),
+            Span::styled("Seek -5s (Up in Browser | Decrease in Plugins)", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    → / l      ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Seek +5s (Open in Browser | Increase in Plugins)", Style::default().fg(theme::TEXT)),
+            Span::styled("    → / l      ", Style::default().fg(app.theme.warning)),
+            Span::styled("Seek +5s (Open in Browser | Increase in Plugins)", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    [ / ]      ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Seek backward / forward 5s (any view)", Style::default().fg(theme::TEXT)),
+            Span::styled("    [ / ]      ", Style::default().fg(app.theme.warning)),
+            Span::styled("Seek backward / forward 5s (any view)", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    n / p      ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Next / Previous track", Style::default().fg(theme::TEXT)),
+            Span::styled("    Mouse drag ", Style::default().fg(app.theme.warning)),
+            Span::styled("Drag the progress seekbar to seek (scroll on it: ±5s)", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    + / -      ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Volume Up / Down (also adjusts in Plugins)", Style::default().fg(theme::TEXT)),
+            Span::styled("    X          ", Style::default().fg(app.theme.warning)),
+            Span::styled("Cycle theme (mocha → gruvbox → tokyo → dracula → nord → latte)", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    m          ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Toggle Mute", Style::default().fg(theme::TEXT)),
+            Span::styled("    n / p      ", Style::default().fg(app.theme.warning)),
+            Span::styled("Next / Previous track", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    r          ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Cycle Repeat Mode (All -> One -> Off)", Style::default().fg(theme::TEXT)),
+            Span::styled("    + / -      ", Style::default().fg(app.theme.warning)),
+            Span::styled("Volume Up / Down (also adjusts in Plugins)", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    L          ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Toggle Queue Loop", Style::default().fg(theme::TEXT)),
+            Span::styled("    m          ", Style::default().fg(app.theme.warning)),
+            Span::styled("Toggle Mute", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    Ctrl+r / R ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Replay current track from 00:00", Style::default().fg(theme::TEXT)),
+            Span::styled("    r          ", Style::default().fg(app.theme.warning)),
+            Span::styled("Cycle Repeat Mode (All -> One -> Off)", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    v / y      ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Toggle Lyrics on / off (Studio <-> Karaoke)", Style::default().fg(theme::TEXT)),
-        ]),
-        Line::raw(""),
-        Line::from(Span::styled("  Queue (Scratchpad, never deletes files)", Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD))),
-        Line::from(vec![
-            Span::styled("    a / A      ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Queue song or folder/m3u (at tail / next up)", Style::default().fg(theme::TEXT)),
+            Span::styled("    L          ", Style::default().fg(app.theme.warning)),
+            Span::styled("Toggle Queue Loop", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    d / e      ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Unqueue track / Replace via Browser", Style::default().fg(theme::TEXT)),
+            Span::styled("    Ctrl+r / R ", Style::default().fg(app.theme.warning)),
+            Span::styled("Replay current track from 00:00", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    c / z      ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Clear entire queue / Shuffle queue", Style::default().fg(theme::TEXT)),
-        ]),
-        Line::from(vec![
-            Span::styled("    w / o      ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Save / Load today's day-list (.m3u)", Style::default().fg(theme::TEXT)),
+            Span::styled("    v / y      ", Style::default().fg(app.theme.warning)),
+            Span::styled("Toggle Lyrics on / off (Studio <-> Karaoke)", Style::default().fg(app.theme.text)),
         ]),
         Line::raw(""),
-        Line::from(Span::styled("  Plugin Manager & Settings", Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("  Queue (Scratchpad, never deletes files)", Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD))),
         Line::from(vec![
-            Span::styled("    Space/Enter", Style::default().fg(theme::YELLOW)),
-            Span::styled("Toggle Plugin / Edit Path / Open Store", Style::default().fg(theme::TEXT)),
+            Span::styled("    a / A      ", Style::default().fg(app.theme.warning)),
+            Span::styled("Queue song or folder/m3u (at tail / next up)", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    d / Del    ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Remove selected plugin from active list", Style::default().fg(theme::TEXT)),
+            Span::styled("    d / e      ", Style::default().fg(app.theme.warning)),
+            Span::styled("Unqueue track / Replace via Browser", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    r          ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Restore removed plugin", Style::default().fg(theme::TEXT)),
+            Span::styled("    c / z      ", Style::default().fg(app.theme.warning)),
+            Span::styled("Clear entire queue / Shuffle queue", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    e          ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Edit selected path (Enter to save, Esc to cancel)", Style::default().fg(theme::TEXT)),
-        ]),
-        Line::from(vec![
-            Span::styled("    D          ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Open Community Plugin Store modal", Style::default().fg(theme::TEXT)),
+            Span::styled("    w / o      ", Style::default().fg(app.theme.warning)),
+            Span::styled("Save / Load today's day-list (.m3u)", Style::default().fg(app.theme.text)),
         ]),
         Line::raw(""),
-        Line::from(Span::styled("  Search & System Tools", Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("  Plugin Manager & Settings", Style::default().fg(app.theme.info).add_modifier(Modifier::BOLD))),
+        Line::from(vec![
+            Span::styled("    Space/Enter", Style::default().fg(app.theme.warning)),
+            Span::styled("Toggle Plugin / Edit Path / Open Store", Style::default().fg(app.theme.text)),
+        ]),
+        Line::from(vec![
+            Span::styled("    d / Del    ", Style::default().fg(app.theme.warning)),
+            Span::styled("Remove selected plugin from active list", Style::default().fg(app.theme.text)),
+        ]),
+        Line::from(vec![
+            Span::styled("    r          ", Style::default().fg(app.theme.warning)),
+            Span::styled("Restore removed plugin", Style::default().fg(app.theme.text)),
+        ]),
+        Line::from(vec![
+            Span::styled("    e          ", Style::default().fg(app.theme.warning)),
+            Span::styled("Edit selected path (Enter to save, Esc to cancel)", Style::default().fg(app.theme.text)),
+        ]),
+        Line::from(vec![
+            Span::styled("    D          ", Style::default().fg(app.theme.warning)),
+            Span::styled("Open Community Plugin Store modal", Style::default().fg(app.theme.text)),
+        ]),
+        Line::raw(""),
+        Line::from(Span::styled("  Search & System Tools", Style::default().fg(app.theme.hint).add_modifier(Modifier::BOLD))),
         Line::from(vec![
             Span::styled(
                 if cfg!(feature = "genre") { "    / / f      " } else { "    /          " },
-                Style::default().fg(theme::YELLOW),
+                Style::default().fg(app.theme.warning),
             ),
             Span::styled(
                 if cfg!(feature = "genre") {
@@ -184,28 +192,28 @@ pub fn render(frame: &mut Frame, app: &App) {
                 } else {
                     "Search / Filter library (Esc to cancel)"
                 },
-                Style::default().fg(theme::TEXT),
+                Style::default().fg(app.theme.text),
             ),
         ]),
         Line::from(vec![
-            Span::styled("    t / T      ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Tag / Edit genre for selected song (Playlist & Browser)", Style::default().fg(theme::TEXT)),
+            Span::styled("    t / T      ", Style::default().fg(app.theme.warning)),
+            Span::styled("Tag / Edit genre for selected song (Playlist & Browser)", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    s          ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Safe scan subdirs (Enter:Replace, a:Add, q:Queue)", Style::default().fg(theme::TEXT)),
+            Span::styled("    s          ", Style::default().fg(app.theme.warning)),
+            Span::styled("Safe scan subdirs (Enter:Replace, a:Add, q:Queue)", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    .          ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Toggle hidden dotfiles in Browser", Style::default().fg(theme::TEXT)),
+            Span::styled("    .          ", Style::default().fg(app.theme.warning)),
+            Span::styled("Toggle hidden dotfiles in Browser", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    ?          ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Toggle this Help popup", Style::default().fg(theme::TEXT)),
+            Span::styled("    ?          ", Style::default().fg(app.theme.warning)),
+            Span::styled("Toggle this Help popup", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    q          ", Style::default().fg(theme::YELLOW)),
-            Span::styled("Quit Lyra", Style::default().fg(theme::TEXT)),
+            Span::styled("    q          ", Style::default().fg(app.theme.warning)),
+            Span::styled("Quit Lyra", Style::default().fg(app.theme.text)),
         ]),
     ];
 
@@ -218,11 +226,11 @@ pub fn render(frame: &mut Frame, app: &App) {
         .title(" 󰋖 Help & Keybindings ")
         .title_alignment(Alignment::Center)
         .title_bottom(Line::from(vec![
-            Span::styled(" [↑/↓/PgUp/PgDn: Scroll | Esc/?: Close] ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled(" [↑/↓/PgUp/PgDn: Scroll | Esc/?: Close] ", Style::default().fg(app.theme.faint)),
         ]))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD));
+        .border_style(Style::default().fg(app.theme.border_focused).add_modifier(Modifier::BOLD));
 
     frame.render_widget(Clear, popup_area);
     frame.render_widget(Paragraph::new(lines).block(block).scroll((scroll, 0)), popup_area);
@@ -234,8 +242,8 @@ pub fn render(frame: &mut Frame, app: &App) {
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
             .end_symbol(None)
-            .thumb_style(Style::default().fg(theme::MAUVE))
-            .track_style(Style::default().fg(theme::SURFACE0));
+            .thumb_style(Style::default().fg(app.theme.accent))
+            .track_style(Style::default().fg(app.theme.progress_track));
         frame.render_stateful_widget(
             scrollbar,
             popup_area.inner(Margin { vertical: 1, horizontal: 0 }),

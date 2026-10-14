@@ -2,6 +2,7 @@ use std::io::{self, Stdout};
 use anyhow::Result;
 use crossterm::{
     execute,
+    event::{DisableMouseCapture, EnableMouseCapture},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
@@ -12,7 +13,7 @@ pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 pub fn init() -> Result<Tui> {
     enable_raw_mode()?;
     let mut standard_output = io::stdout();
-    execute!(standard_output, EnterAlternateScreen)?;
+    execute!(standard_output, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(standard_output);
     let terminal = Terminal::new(backend)?;
     Ok(terminal)
@@ -22,7 +23,7 @@ pub fn init() -> Result<Tui> {
 pub fn restore(mut terminal: Tui) -> Result<()> {
     let _ = crate::cover::clear_kitty_image(terminal.backend_mut());
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(terminal.backend_mut(), DisableMouseCapture, LeaveAlternateScreen)?;
     terminal.show_cursor()?;
     Ok(())
 }

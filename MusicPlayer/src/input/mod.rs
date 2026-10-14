@@ -3,6 +3,7 @@ use crate::app::{App, ViewMode};
 
 #[cfg(feature = "download")]
 mod download;
+pub mod mouse;
 
 pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
     // If Help popup is open, handle scroll & dismissal
@@ -222,6 +223,9 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 app.install_store_plugin();
+            }
+            KeyCode::Char('x') | KeyCode::Char('X') => {
+                app.run_store_plugin();
             }
             _ => {}
         }
@@ -519,6 +523,12 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
             } else {
                 app.set_toast("Genre plugin is disabled (enable it in [5] Plugins)".to_string())
             }
+        }
+
+        // Theme switcher (mocha -> gruvbox -> tokyo-night). `t` stays with
+        // the genre tagger, so theme cycling lives on capital `X`.
+        KeyCode::Char('X') => {
+            app.cycle_theme();
         }
 
         // Seek forward / backward (5 seconds), or adjust setting in Plugins, or navigate in Browser

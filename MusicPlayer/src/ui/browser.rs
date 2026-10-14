@@ -6,9 +6,8 @@ use ratatui::{
     Frame,
 };
 use crate::{
-    app::App,
+    app::{App, ViewMode},
     browser::BrowserActionModal,
-    theme,
 };
 
 /// Splits an input around the caret so the `█` block renders at the
@@ -63,22 +62,22 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
         let style = if is_selected && is_playing {
             Style::default()
-                .fg(theme::GREEN)
-                .bg(theme::SURFACE0)
+                .fg(app.theme.success)
+                .bg(app.theme.selected_bg)
                 .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else if is_selected {
             Style::default()
-                .fg(theme::YELLOW)
-                .bg(theme::SURFACE0)
+                .fg(app.theme.warning)
+                .bg(app.theme.selected_bg)
                 .add_modifier(Modifier::BOLD)
         } else if is_playing {
-            Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)
+            Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)
         } else if entry_path.is_dir() {
-            Style::default().fg(theme::BLUE)
+            Style::default().fg(app.theme.info)
         } else if is_playlist {
-            Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD)
+            Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(app.theme.text)
         };
 
         let prefix = if is_selected { "❯ " } else { "  " };
@@ -98,14 +97,19 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let count_info = format!("({} items)", filtered.len());
     let title = format!(" 󰉋 {display_path} {count_info} [{hidden_icon}] ");
 
+    let border_color = if app.view_mode == ViewMode::Browser {
+        app.theme.border_focused
+    } else {
+        app.theme.border
+    };
     let block = Block::default()
         .title(title)
         .title_bottom(Line::from(vec![
-            Span::styled(" [Enter: Open/Play | N/+: New Album | d: Delete | m: Move | e: Edit | B: Cover | i: Import | L: Set Library] ", Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD)),
+            Span::styled(" [Enter: Open/Play | N/+: New Album | d: Delete | m: Move | e: Edit | B: Cover | i: Import | L: Set Library] ", Style::default().fg(app.theme.hint).add_modifier(Modifier::BOLD)),
         ]))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::MAUVE));
+        .border_style(Style::default().fg(border_color));
 
     let list_widget = List::new(list_items).block(block);
 
@@ -118,8 +122,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
             .end_symbol(None)
-            .thumb_style(Style::default().fg(theme::MAUVE))
-            .track_style(Style::default().fg(theme::SURFACE0));
+            .thumb_style(Style::default().fg(app.theme.accent))
+            .track_style(Style::default().fg(app.theme.progress_track));
         frame.render_stateful_widget(
             scrollbar,
             area.inner(Margin { vertical: 1, horizontal: 0 }),
@@ -129,11 +133,16 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
     // Render interactive modal if active
     if let Some(modal) = app.browser_modal.clone() {
-        render_browser_modal(frame, &modal, app.browser_caret);
+        render_browser_modal(frame, &modal, app.browser_caret, &app.theme);
     }
 }
 
-fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal, caret: usize) {
+fn render_browser_modal(
+    frame: &mut Frame,
+    modal: &BrowserActionModal,
+    caret: usize,
+    theme: &crate::theme::Theme,
+) {
     let screen = frame.area();
 
     match modal {
@@ -147,11 +156,11 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal, caret: us
             let block = Block::default()
                 .title(" 󰉋 Create New Album / Folder ")
                 .title_bottom(Line::from(vec![
-                    Span::styled(" [Enter: Create | Esc: Cancel] ", Style::default().fg(theme::OVERLAY0)),
+                    Span::styled(" [Enter: Create | Esc: Cancel] ", Style::default().fg(theme.faint)),
                 ]))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD));
+                .border_style(Style::default().fg(theme.border_focused).add_modifier(Modifier::BOLD));
 
             let inner = block.inner(popup_area);
             frame.render_widget(block, popup_area);
@@ -162,13 +171,13 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal, caret: us
             input_spans.extend(caret_spans(
                 input,
                 caret,
-                Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD),
-                Style::default().fg(theme::GREEN),
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+                Style::default().fg(theme.success),
             ));
             input_spans.push(Span::raw(" ]"));
             let lines = vec![
                 Line::from(vec![
-                    Span::styled(" Enter album name: ", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
+                    Span::styled(" Enter album name: ", Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)),
                 ]),                Line::raw(""),
                 Line::from(input_spans),
             ];
@@ -185,11 +194,11 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal, caret: us
             let block = Block::default()
                 .title(format!(" 󰏫 Rename Album: {old_name} "))
                 .title_bottom(Line::from(vec![
-                    Span::styled(" [Enter: Save | Esc: Cancel] ", Style::default().fg(theme::OVERLAY0)),
+                    Span::styled(" [Enter: Save | Esc: Cancel] ", Style::default().fg(theme.faint)),
                 ]))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD));
+                .border_style(Style::default().fg(theme.border_focused).add_modifier(Modifier::BOLD));
 
             let inner = block.inner(popup_area);
             frame.render_widget(block, popup_area);
@@ -200,13 +209,13 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal, caret: us
             input_spans.extend(caret_spans(
                 input,
                 caret,
-                Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD),
-                Style::default().fg(theme::PEACH),
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+                Style::default().fg(theme.hint),
             ));
             input_spans.push(Span::raw(" ]"));
             let lines = vec![
                 Line::from(vec![
-                    Span::styled(" New album name: ", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
+                    Span::styled(" New album name: ", Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)),
                 ]),
                 Line::raw(""),
                 Line::from(input_spans),
@@ -231,11 +240,11 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal, caret: us
             let block = Block::default()
                 .title(format!(" 󰎆 Edit Track Metadata: {fname} "))
                 .title_bottom(Line::from(vec![
-                    Span::styled(" [Tab/↑/↓: Nav | Enter: Next/Save+Rename | Esc: Cancel] ", Style::default().fg(theme::OVERLAY0)),
+                    Span::styled(" [Tab/↑/↓: Nav | Enter: Next/Save+Rename | Esc: Cancel] ", Style::default().fg(theme.faint)),
                 ]))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD));
+                .border_style(Style::default().fg(theme.border_focused).add_modifier(Modifier::BOLD));
 
             let inner = block.inner(popup_area);
             frame.render_widget(block, popup_area);
@@ -261,25 +270,25 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal, caret: us
             for (idx, (label, val)) in fields.iter().enumerate() {
                 let is_active = *field_idx == idx;
                 let mut spans = vec![
-                    Span::styled(format!(" {label} "), if is_active { Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme::BLUE) }),
-                    Span::styled("[ ", if is_active { Style::default().fg(theme::YELLOW) } else { Style::default().fg(theme::OVERLAY0) }),
+                    Span::styled(format!(" {label} "), if is_active { Style::default().fg(theme.warning).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.info) }),
+                    Span::styled("[ ", if is_active { Style::default().fg(theme.warning) } else { Style::default().fg(theme.faint) }),
                 ];
                 if is_active {
                     spans.extend(caret_spans(
                         val.as_str(),
                         caret,
-                        Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
-                        Style::default().fg(theme::YELLOW),
+                        Style::default().fg(theme.warning).add_modifier(Modifier::BOLD),
+                        Style::default().fg(theme.warning),
                     ));
                 } else {
-                    spans.push(Span::styled(*val, Style::default().fg(theme::TEXT)));
+                    spans.push(Span::styled(*val, Style::default().fg(theme.text)));
                 }
-                spans.push(Span::styled(" ]", if is_active { Style::default().fg(theme::YELLOW) } else { Style::default().fg(theme::OVERLAY0) }));
+                spans.push(Span::styled(" ]", if is_active { Style::default().fg(theme.warning) } else { Style::default().fg(theme.faint) }));
                 frame.render_widget(Paragraph::new(Line::from(spans)), rows[idx]);
             }
 
             let save_btn = Line::from(vec![
-                Span::styled("  [ 󰐊 Press Enter on File to Save ID3 Tags + Rename ]", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
+                Span::styled("  [ 󰐊 Press Enter on File to Save ID3 Tags + Rename ]", Style::default().fg(theme.success).add_modifier(Modifier::BOLD)),
             ]);
             frame.render_widget(Paragraph::new(save_btn).alignment(Alignment::Center), rows[4]);
         }
@@ -300,11 +309,11 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal, caret: us
             let block = Block::default()
                 .title(format!(" 󰒭 Move Track to Album: {fname} "))
                 .title_bottom(Line::from(vec![
-                    Span::styled(" [↑/↓: Select | Enter: Move | N: Create New Album | Esc: Cancel] ", Style::default().fg(theme::OVERLAY0)),
+                    Span::styled(" [↑/↓: Select | Enter: Move | N: Create New Album | Esc: Cancel] ", Style::default().fg(theme.faint)),
                 ]))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD));
+                .border_style(Style::default().fg(theme.border_focused).add_modifier(Modifier::BOLD));
 
             let inner = block.inner(popup_area);
             frame.render_widget(block, popup_area);
@@ -316,20 +325,20 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal, caret: us
                 input_spans.extend(caret_spans(
                     new_album_input,
                     caret,
-                    Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD),
-                    Style::default().fg(theme::GREEN),
+                    Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+                    Style::default().fg(theme.success),
                 ));
                 input_spans.push(Span::raw(" ]"));
                 let lines = vec![
                     Line::raw(""),
                     Line::from(vec![
-                        Span::styled("  󰉋 Create New Album & Move Track: ", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
+                        Span::styled("  󰉋 Create New Album & Move Track: ", Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)),
                     ]),
                     Line::raw(""),
                     Line::from(input_spans),
                     Line::raw(""),
                     Line::from(vec![
-                        Span::styled("   (Press Enter to create & move track, Esc to go back)", Style::default().fg(theme::OVERLAY0)),
+                        Span::styled("   (Press Enter to create & move track, Esc to go back)", Style::default().fg(theme.faint)),
                     ]),
                 ];
                 frame.render_widget(Paragraph::new(lines), inner);
@@ -341,13 +350,13 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal, caret: us
                     let name = alb_dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                     let prefix = if is_sel { "▶ " } else { "  " };
                     let style = if is_sel {
-                        Style::default().fg(theme::YELLOW).bg(theme::SURFACE0).add_modifier(Modifier::BOLD)
+                        Style::default().fg(theme.warning).bg(theme.selected_bg).add_modifier(Modifier::BOLD)
                     } else {
-                        Style::default().fg(theme::TEXT)
+                        Style::default().fg(theme.text)
                     };
                     list_items.push(ListItem::new(Line::from(vec![
-                        Span::styled(prefix, Style::default().fg(theme::YELLOW)),
-                        Span::styled("󰉋 ", Style::default().fg(theme::BLUE)),
+                        Span::styled(prefix, Style::default().fg(theme.warning)),
+                        Span::styled("󰉋 ", Style::default().fg(theme.info)),
                         Span::styled(name, style),
                     ])));
                 }
@@ -356,13 +365,13 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal, caret: us
                 let is_new_sel = *selected_idx == candidate_albums.len();
                 let new_prefix = if is_new_sel { "▶ " } else { "  " };
                 let new_style = if is_new_sel {
-                    Style::default().fg(theme::GREEN).bg(theme::SURFACE0).add_modifier(Modifier::BOLD)
+                    Style::default().fg(theme.success).bg(theme.selected_bg).add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(theme::GREEN)
+                    Style::default().fg(theme.success)
                 };
                 list_items.push(ListItem::new(Line::from(vec![
-                    Span::styled(new_prefix, Style::default().fg(theme::YELLOW)),
-                    Span::styled("󰐊 ", Style::default().fg(theme::GREEN)),
+                    Span::styled(new_prefix, Style::default().fg(theme.warning)),
+                    Span::styled("󰐊 ", Style::default().fg(theme.success)),
                     Span::styled("[+ Create New Album & Move Here...]", new_style),
                 ])));
 
@@ -380,33 +389,33 @@ fn render_browser_modal(frame: &mut Frame, modal: &BrowserActionModal, caret: us
             let block = Block::default()
                 .title(format!(" 󰋩 Set Cover Art: {fname} "))
                 .title_bottom(Line::from(vec![
-                    Span::styled(" [↑/↓: Select | Enter: Open/Apply | ←: Parent | Esc: Cancel] ", Style::default().fg(theme::OVERLAY0)),
+                    Span::styled(" [↑/↓: Select | Enter: Open/Apply | ←: Parent | Esc: Cancel] ", Style::default().fg(theme.faint)),
                 ]))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD));
+                .border_style(Style::default().fg(theme.border_focused).add_modifier(Modifier::BOLD));
 
             let inner = block.inner(popup_area);
             frame.render_widget(block, popup_area);
 
             let cur = picker.current_dir.to_string_lossy().to_string();
             let mut list_items = vec![ListItem::new(Line::from(vec![
-                Span::styled(format!(" 󰉋 {cur}"), Style::default().fg(theme::BLUE)),
+                Span::styled(format!(" 󰉋 {cur}"), Style::default().fg(theme.info)),
             ]))];
             for (idx, p) in picker.entries.iter().enumerate() {
                 let is_sel = picker.selected == idx;
                 let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                 let prefix = if is_sel { "▶ " } else { "  " };
                 let (icon, style) = if p.is_dir() {
-                    ("󰉋 ", Style::default().fg(theme::BLUE))
+                    ("󰉋 ", Style::default().fg(theme.info))
                 } else if is_sel {
-                    ("󰋩 ", Style::default().fg(theme::YELLOW).bg(theme::SURFACE0).add_modifier(Modifier::BOLD))
+                    ("󰋩 ", Style::default().fg(theme.warning).bg(theme.selected_bg).add_modifier(Modifier::BOLD))
                 } else {
-                    ("󰋩 ", Style::default().fg(theme::TEXT))
+                    ("󰋩 ", Style::default().fg(theme.text))
                 };
                 list_items.push(ListItem::new(Line::from(vec![
-                    Span::styled(prefix, Style::default().fg(theme::YELLOW)),
-                    Span::styled(icon, Style::default().fg(theme::BLUE)),
+                    Span::styled(prefix, Style::default().fg(theme.warning)),
+                    Span::styled(icon, Style::default().fg(theme.info)),
                     Span::styled(name, style),
                 ])));
             }

@@ -3,7 +3,7 @@ pub mod player;
 pub mod seek;
 
 use std::{
-    sync::Arc,
+    path::PathBuf,
     time::{Duration, Instant},
 };
 use rodio::{OutputStream, Sink};
@@ -22,7 +22,9 @@ pub struct AudioPlayer {
     /// `Sink::get_pos()` counts samples since last `append()` (starts at 0),
     /// so after a rebuild-seek the true position is `pos_offset + sink.get_pos()`.
     pos_offset: Duration,
-    /// In-memory cache of the currently playing track (1 song only, ~5-50MB).
-    /// Seeks decode from RAM instead of disk I/O.
-    cached_bytes: Option<Arc<Vec<u8>>>,
+    /// Path of the currently playing track. Seeks reopen this file with a
+    /// buffered streaming decoder instead of holding the whole file in RAM.
+    /// (Old `cached_bytes: Arc<Vec<u8>>` kept 1 full song + decoded PCM in
+    /// memory — 50-200MB for FLAC — and was never cleared.)
+    current_path: Option<PathBuf>,
 }

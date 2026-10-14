@@ -5,18 +5,18 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
-use crate::{app::App, theme};
+use crate::app::{App, ViewMode};
 
 /// Render the interactive Plugin Manager, Path Editor, and Plugin Store UI
 pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default()
         .title(" 󰏖 Plugin Manager & Extension Store ")
         .title_bottom(Line::from(vec![
-            Span::styled(" [↑/↓: Select | Space/Enter: Toggle | ←/→: Adjust Limit | d: Remove | r: Restore | e: Edit Path | D: Store] ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled(" [↑/↓: Select | Space/Enter: Toggle | ←/→: Adjust Limit | d: Remove | r: Restore | e: Edit Path | D: Store] ", Style::default().fg(app.theme.faint)),
         ]))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::BLUE));
+        .border_style(Style::default().fg(if app.view_mode == ViewMode::Plugins { app.theme.border_focused } else { app.theme.border }));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -30,8 +30,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
     // Section 1: Installed Plugins
     lines.push(Line::from(vec![
-        Span::styled("  Installed Plugins", Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD)),
-        Span::styled(" — [Space/Enter: Toggle | d: Remove | r: Restore]", Style::default().fg(theme::OVERLAY0)),
+        Span::styled("  Installed Plugins", Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD)),
+        Span::styled(" — [Space/Enter: Toggle | d: Remove | r: Restore]", Style::default().fg(app.theme.faint)),
     ]));
     lines.push(Line::raw(""));
 
@@ -41,18 +41,18 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         let is_sel = app.plugin_selected == idx;
 
         let (badge, badge_style) = if plugin.is_removed {
-            (" 󰅖 Removed  ", Style::default().fg(theme::RED).bg(theme::SURFACE0).add_modifier(Modifier::CROSSED_OUT))
+            (" 󰅖 Removed  ", Style::default().fg(app.theme.danger).bg(app.theme.selected_bg).add_modifier(Modifier::CROSSED_OUT))
         } else if plugin.enabled {
-            (" 󰄬 Enabled  ", Style::default().fg(theme::BASE).bg(theme::GREEN).add_modifier(Modifier::BOLD))
+            (" 󰄬 Enabled  ", Style::default().fg(app.theme.ink).bg(app.theme.success).add_modifier(Modifier::BOLD))
         } else {
-            (" 󰅖 Disabled ", Style::default().fg(theme::TEXT).bg(theme::SURFACE1))
+            (" 󰅖 Disabled ", Style::default().fg(app.theme.text).bg(app.theme.border))
         };
 
         let action_hint = if is_sel {
             if plugin.is_removed {
-                Span::styled(" ◀ r: Restore ▶ ", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD))
+                Span::styled(" ◀ r: Restore ▶ ", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD))
             } else {
-                Span::styled(" ◀ Space: Toggle | d: Remove ▶ ", Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD))
+                Span::styled(" ◀ Space: Toggle | d: Remove ▶ ", Style::default().fg(app.theme.hint).add_modifier(Modifier::BOLD))
             }
         } else {
             Span::raw("")
@@ -60,31 +60,31 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
         if is_sel {
             lines.push(Line::from(vec![
-                Span::styled(" ❯ ", Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("{:<28}", plugin.name), Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
-                Span::styled(format!(" {:<8} ", plugin.version), Style::default().fg(theme::SUBTEXT0)),
+                Span::styled(" ❯ ", Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{:<28}", plugin.name), Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
+                Span::styled(format!(" {:<8} ", plugin.version), Style::default().fg(app.theme.muted)),
                 Span::styled(badge, badge_style),
                 action_hint,
             ]));
             lines.push(Line::from(vec![
                 Span::raw("     "),
-                Span::styled(&plugin.description, Style::default().fg(theme::TEXT)),
+                Span::styled(&plugin.description, Style::default().fg(app.theme.text)),
             ]));
         } else {
             let name_style = if plugin.is_removed {
-                Style::default().fg(theme::OVERLAY0).add_modifier(Modifier::CROSSED_OUT)
+                Style::default().fg(app.theme.faint).add_modifier(Modifier::CROSSED_OUT)
             } else {
-                Style::default().fg(theme::TEXT)
+                Style::default().fg(app.theme.text)
             };
             lines.push(Line::from(vec![
                 Span::raw("   "),
                 Span::styled(format!("{:<28}", plugin.name), name_style),
-                Span::styled(format!(" {:<8} ", plugin.version), Style::default().fg(theme::OVERLAY0)),
+                Span::styled(format!(" {:<8} ", plugin.version), Style::default().fg(app.theme.faint)),
                 Span::styled(badge, badge_style),
             ]));
             lines.push(Line::from(vec![
                 Span::raw("     "),
-                Span::styled(&plugin.description, Style::default().fg(theme::SUBTEXT0)),
+                Span::styled(&plugin.description, Style::default().fg(app.theme.muted)),
             ]));
         }
         lines.push(Line::raw(""));
@@ -92,8 +92,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
     // Section 2: Configurable Paths
     lines.push(Line::from(vec![
-        Span::styled("  Configurable Storage & Library Paths", Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD)),
-        Span::styled(" — [Enter / e: Edit Path]", Style::default().fg(theme::OVERLAY0)),
+        Span::styled("  Configurable Storage & Library Paths", Style::default().fg(app.theme.hint).add_modifier(Modifier::BOLD)),
+        Span::styled(" — [Enter / e: Edit Path]", Style::default().fg(app.theme.faint)),
     ]));
     lines.push(Line::raw(""));
 
@@ -105,24 +105,24 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
         if is_sel {
             lines.push(Line::from(vec![
-                Span::styled(" ❯ ", Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("{:<24}", path_item.label), Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
-                Span::styled(&path_item.path, Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)),
-                Span::styled("  ◀ Enter/e: Edit ▶", Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD)),
+                Span::styled(" ❯ ", Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{:<24}", path_item.label), Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
+                Span::styled(&path_item.path, Style::default().fg(app.theme.info).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)),
+                Span::styled("  ◀ Enter/e: Edit ▶", Style::default().fg(app.theme.hint).add_modifier(Modifier::BOLD)),
             ]));
             lines.push(Line::from(vec![
                 Span::raw("     "),
-                Span::styled(&path_item.description, Style::default().fg(theme::TEXT)),
+                Span::styled(&path_item.description, Style::default().fg(app.theme.text)),
             ]));
         } else {
             lines.push(Line::from(vec![
                 Span::raw("   "),
-                Span::styled(format!("{:<24}", path_item.label), Style::default().fg(theme::SUBTEXT0)),
-                Span::styled(&path_item.path, Style::default().fg(theme::TEXT)),
+                Span::styled(format!("{:<24}", path_item.label), Style::default().fg(app.theme.muted)),
+                Span::styled(&path_item.path, Style::default().fg(app.theme.text)),
             ]));
             lines.push(Line::from(vec![
                 Span::raw("     "),
-                Span::styled(&path_item.description, Style::default().fg(theme::OVERLAY0)),
+                Span::styled(&path_item.description, Style::default().fg(app.theme.faint)),
             ]));
         }
         lines.push(Line::raw(""));
@@ -137,8 +137,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     item_line_indices.push(lines.len());
     let is_sel_settings = app.plugin_selected == settings_idx;
     lines.push(Line::from(vec![
-        Span::styled("  Download Settings", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
-        Span::styled(" — [←/→ or Enter: Adjust]", Style::default().fg(theme::OVERLAY0)),
+        Span::styled("  Download Settings", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
+        Span::styled(" — [←/→ or Enter: Adjust]", Style::default().fg(app.theme.faint)),
     ]));
     lines.push(Line::raw(""));
     {
@@ -146,24 +146,24 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         let value = format!("< {limit} results >");
         if is_sel_settings {
             lines.push(Line::from(vec![
-                Span::styled(" ❯ ", Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("{:<24}", "Search Result Limit"), Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
-                Span::styled(value, Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)),
-                Span::styled("  ◀ ←/→: Adjust (5/10/15/25/50) ▶", Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD)),
+                Span::styled(" ❯ ", Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{:<24}", "Search Result Limit"), Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
+                Span::styled(value, Style::default().fg(app.theme.info).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)),
+                Span::styled("  ◀ ←/→: Adjust (5/10/15/25/50) ▶", Style::default().fg(app.theme.hint).add_modifier(Modifier::BOLD)),
             ]));
             lines.push(Line::from(vec![
                 Span::raw("     "),
-                Span::styled("How many YouTube results each search fetches (saved)", Style::default().fg(theme::TEXT)),
+                Span::styled("How many YouTube results each search fetches (saved)", Style::default().fg(app.theme.text)),
             ]));
         } else {
             lines.push(Line::from(vec![
                 Span::raw("   "),
-                Span::styled(format!("{:<24}", "Search Result Limit"), Style::default().fg(theme::SUBTEXT0)),
-                Span::styled(value, Style::default().fg(theme::TEXT)),
+                Span::styled(format!("{:<24}", "Search Result Limit"), Style::default().fg(app.theme.muted)),
+                Span::styled(value, Style::default().fg(app.theme.text)),
             ]));
             lines.push(Line::from(vec![
                 Span::raw("     "),
-                Span::styled("How many YouTube results each search fetches (saved)", Style::default().fg(theme::OVERLAY0)),
+                Span::styled("How many YouTube results each search fetches (saved)", Style::default().fg(app.theme.faint)),
             ]));
         }
         lines.push(Line::raw(""));
@@ -179,8 +179,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let is_sel_store = app.plugin_selected == store_item_idx;
 
     lines.push(Line::from(vec![
-        Span::styled("  Download New Plugins", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
-        Span::styled(" — [Community Repository Preview]", Style::default().fg(theme::OVERLAY0)),
+        Span::styled("  Download New Plugins", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
+        Span::styled(" — [Community Repository Preview]", Style::default().fg(app.theme.faint)),
     ]));
     lines.push(Line::raw(""));
 
@@ -188,14 +188,14 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let browse_text = format!(" 󰇚 [ Browse & Download Community Plugins ({avail_count} available) ] ");
     if is_sel_store {
         lines.push(Line::from(vec![
-            Span::styled(" ❯ ", Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD)),
-            Span::styled(browse_text, Style::default().fg(theme::BASE).bg(theme::GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled("  ◀ Enter: Open Store / Download ▶", Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD)),
+            Span::styled(" ❯ ", Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(browse_text, Style::default().fg(app.theme.ink).bg(app.theme.success).add_modifier(Modifier::BOLD)),
+            Span::styled("  ◀ Enter: Open Store / Download ▶", Style::default().fg(app.theme.hint).add_modifier(Modifier::BOLD)),
         ]));
     } else {
         lines.push(Line::from(vec![
             Span::raw("   "),
-            Span::styled(browse_text, Style::default().fg(theme::GREEN).bg(theme::SURFACE0)),
+            Span::styled(browse_text, Style::default().fg(app.theme.success).bg(app.theme.selected_bg)),
         ]));
     }
     lines.push(Line::raw(""));
@@ -220,8 +220,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
             .end_symbol(None)
-            .thumb_style(Style::default().fg(theme::BLUE))
-            .track_style(Style::default().fg(theme::SURFACE0));
+            .thumb_style(Style::default().fg(app.theme.info))
+            .track_style(Style::default().fg(app.theme.progress_track));
         frame.render_stateful_widget(
             scrollbar,
             area.inner(Margin { vertical: 1, horizontal: 0 }),
@@ -272,24 +272,24 @@ fn render_path_edit_modal(frame: &mut Frame, app: &App, edit_idx: usize) {
     let block = Block::default()
         .title(format!(" 󰏫 Edit {label} "))
         .title_bottom(Line::from(vec![
-            Span::styled(" [Enter: Save | Esc: Cancel | Backspace: Delete] ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled(" [Enter: Save | Esc: Cancel | Backspace: Delete] ", Style::default().fg(app.theme.faint)),
         ]))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::PEACH));
+        .border_style(Style::default().fg(app.theme.border_focused));
 
     let inner = block.inner(popup_area);
     frame.render_widget(block, popup_area);
 
     let lines = vec![
         Line::from(vec![
-            Span::styled(" Enter new path: ", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
+            Span::styled(" Enter new path: ", Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
         ]),
         Line::raw(""),
         Line::from(vec![
             Span::raw("  "),
-            Span::styled(&app.editing_path_input, Style::default().fg(theme::TEXT).bg(theme::SURFACE0)),
-            Span::styled("█", Style::default().fg(theme::PEACH)),
+            Span::styled(&app.editing_path_input, Style::default().fg(app.theme.text).bg(app.theme.selected_bg)),
+            Span::styled("█", Style::default().fg(app.theme.hint)),
         ]),
     ];
 
@@ -333,32 +333,32 @@ fn render_plugin_store_modal(frame: &mut Frame, app: &App) {    let screen = fra
     frame.render_widget(Clear, popup_area);
 
     let block = Block::default()
-        .title(" 󰇚 Community Plugin Repository (Store Preview) ")
+        .title("  Community Plugin Store ")
         .title_bottom(Line::from(vec![
-            Span::styled(" [↑/↓: Select | Enter: Install / Download | Esc/q: Close] ", Style::default().fg(theme::OVERLAY0)),
+            Span::styled(" [↑/↓: Select | Enter: Install | x: Run installed | Esc/q: Close] ", Style::default().fg(app.theme.faint)),
         ]))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::GREEN));
+        .border_style(Style::default().fg(app.theme.border_focused));
 
     let inner = block.inner(popup_area);
     frame.render_widget(block, popup_area);
 
     let mut lines = Vec::new();
     lines.push(Line::from(vec![
-        Span::styled("  Available Community Plugins for Lyra", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
-        Span::styled(" — Press Enter to download & install", Style::default().fg(theme::OVERLAY0)),
+        Span::styled("  Available Community Plugins for Lyra", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
+        Span::styled(" — Press Enter to download & install", Style::default().fg(app.theme.faint)),
     ]));
     lines.push(Line::raw(""));
 
     for (idx, plugin) in app.downloadable_plugins.iter().enumerate() {
         let is_sel = app.store_selected == idx;
         let (status_badge, status_style) = if plugin.is_installed {
-            (" 󰄬 Installed ", Style::default().fg(theme::BASE).bg(theme::GREEN).add_modifier(Modifier::BOLD))
+            (" 󰄬 Installed ", Style::default().fg(app.theme.ink).bg(app.theme.success).add_modifier(Modifier::BOLD))
         } else if plugin.version.contains("Coming Soon") {
-            (" 󰥔 Coming Soon ", Style::default().fg(theme::BASE).bg(theme::PEACH).add_modifier(Modifier::BOLD))
+            (" 󰥔 Coming Soon ", Style::default().fg(app.theme.ink).bg(app.theme.hint).add_modifier(Modifier::BOLD))
         } else {
-            (" 󰇚 Download  ", Style::default().fg(theme::BASE).bg(theme::BLUE).add_modifier(Modifier::BOLD))
+            (" 󰇚 Download  ", Style::default().fg(app.theme.ink).bg(app.theme.info).add_modifier(Modifier::BOLD))
         };
 
         // Row budget: " ❯ "(3) + name(28) + version(13) + author(16) + badge(15)
@@ -370,27 +370,27 @@ fn render_plugin_store_modal(frame: &mut Frame, app: &App) {    let screen = fra
         let author = truncate_cells(&plugin.author, 14);
         if is_sel {
             lines.push(Line::from(vec![
-                Span::styled(" ❯ ", Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("{name:<28}"), Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
-                Span::styled(format!(" {version:<11} "), Style::default().fg(theme::SUBTEXT0)),
-                Span::styled(format!(" {author:<14} "), Style::default().fg(theme::BLUE)),
+                Span::styled(" ❯ ", Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{name:<28}"), Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
+                Span::styled(format!(" {version:<11} "), Style::default().fg(app.theme.muted)),
+                Span::styled(format!(" {author:<14} "), Style::default().fg(app.theme.info)),
                 Span::styled(status_badge, status_style),
             ]));
             lines.push(Line::from(vec![
                 Span::raw("     "),
-                Span::styled(&plugin.description, Style::default().fg(theme::TEXT)),
+                Span::styled(&plugin.description, Style::default().fg(app.theme.text)),
             ]));
         } else {
             lines.push(Line::from(vec![
                 Span::raw("   "),
-                Span::styled(format!("{name:<28}"), Style::default().fg(theme::TEXT)),
-                Span::styled(format!(" {version:<11} "), Style::default().fg(theme::OVERLAY0)),
-                Span::styled(format!(" {author:<14} "), Style::default().fg(theme::SUBTEXT0)),
+                Span::styled(format!("{name:<28}"), Style::default().fg(app.theme.text)),
+                Span::styled(format!(" {version:<11} "), Style::default().fg(app.theme.faint)),
+                Span::styled(format!(" {author:<14} "), Style::default().fg(app.theme.muted)),
                 Span::styled(status_badge, status_style),
             ]));
             lines.push(Line::from(vec![
                 Span::raw("     "),
-                Span::styled(&plugin.description, Style::default().fg(theme::SUBTEXT0)),
+                Span::styled(&plugin.description, Style::default().fg(app.theme.muted)),
             ]));
         }
         lines.push(Line::raw(""));

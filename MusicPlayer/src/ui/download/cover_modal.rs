@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
-use crate::{app::App, theme};
+use crate::app::App;
 
 pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
     let screen_area = frame.area();
@@ -37,7 +37,7 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::PURPLE).add_modifier(Modifier::BOLD));
+        .border_style(Style::default().fg(app.theme.border_focused));
     frame.render_widget(main_block, popup_area);
 
     let inner = popup_area.inner(Margin { vertical: 1, horizontal: 1 });
@@ -68,22 +68,17 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
 
     // Search bar
     let is_search_focused = app.download.cover_picker_input_active;
-    let search_border_style = if is_search_focused {
-        Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme::SURFACE1)
-    };
     let search_block = Block::default()
         .title(if is_search_focused { " 󰍉 Search (Active - Enter to search) " } else { " 󰍉 Search (/ to edit) " })
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(search_border_style);
+        .border_style(Style::default().fg(app.theme.border_focused));
 
     let mut search_spans = vec![
-        Span::styled(&app.download.cover_picker_search, if is_search_focused { Style::default().fg(theme::TEXT) } else { Style::default().fg(theme::SUBTEXT0) }),
+        Span::styled(&app.download.cover_picker_search, if is_search_focused { Style::default().fg(app.theme.text) } else { Style::default().fg(app.theme.muted) }),
     ];
     if is_search_focused {
-        search_spans.push(Span::styled("█", Style::default().fg(theme::YELLOW)));
+        search_spans.push(Span::styled("█", Style::default().fg(app.theme.warning)));
     }
     let search_p = Paragraph::new(Line::from(search_spans)).block(search_block);
     frame.render_widget(search_p, left_rows[0]);
@@ -97,9 +92,9 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
     // 0: Local Image option
     let is_local_selected = selected_idx == 0;
     let local_style = if is_local_selected {
-        Style::default().fg(theme::GREEN).bg(theme::SURFACE0).add_modifier(Modifier::BOLD)
+        Style::default().fg(app.theme.success).bg(app.theme.selected_bg).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(theme::TEXT)
+        Style::default().fg(app.theme.text)
     };
 
     let local_label = if let Some(path) = &app.download.form_custom_cover {
@@ -112,7 +107,7 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
         "󰉋 [ Browse local image from disk... ]".to_string()
     };
     list_items.push(ListItem::new(Line::from(vec![
-        Span::styled(if is_local_selected { "▶ " } else { "  " }, Style::default().fg(theme::YELLOW)),
+        Span::styled(if is_local_selected { "▶ " } else { "  " }, Style::default().fg(app.theme.warning)),
         Span::styled(local_label, local_style),
     ])));
 
@@ -120,17 +115,17 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
     for (i, cand) in app.download.cover_candidates.iter().enumerate() {
         let is_cand_selected = selected_idx == i + 1;
         let cand_style = if is_cand_selected {
-            Style::default().fg(theme::YELLOW).bg(theme::SURFACE0).add_modifier(Modifier::BOLD)
+            Style::default().fg(app.theme.warning).bg(app.theme.selected_bg).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(app.theme.text)
         };
 
         let (src_color, src_tag) = match cand.source.as_str() {
-            "itunes" => (theme::BLUE, "[iTunes]"),
-            "deezer" => (theme::MAUVE, "[Deezer]"),
-            "caa" => (theme::PEACH, "[CAA]   "),
-            "web" => (theme::GREEN, "[Web]   "),
-            _ => (theme::OVERLAY0, "[Auto]  "),
+            "itunes" => (app.theme.info, "[iTunes]"),
+            "deezer" => (app.theme.accent, "[Deezer]"),
+            "caa" => (app.theme.hint, "[CAA]   "),
+            "web" => (app.theme.success, "[Web]   "),
+            _ => (app.theme.faint, "[Auto]  "),
         };
 
         let album_disp = if cand.album.is_empty() {
@@ -141,10 +136,10 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
         let album_trunc: String = album_disp.chars().take(22).collect();
 
         list_items.push(ListItem::new(Line::from(vec![
-            Span::styled(if is_cand_selected { "▶ " } else { "  " }, Style::default().fg(theme::YELLOW)),
+            Span::styled(if is_cand_selected { "▶ " } else { "  " }, Style::default().fg(app.theme.warning)),
             Span::styled(src_tag, Style::default().fg(src_color).add_modifier(Modifier::BOLD)),
             Span::styled(format!(" {album_trunc:<22} "), cand_style),
-            Span::styled(format!("({:.0})", cand.score), Style::default().fg(theme::OVERLAY0)),
+            Span::styled(format!("({:.0})", cand.score), Style::default().fg(app.theme.faint)),
         ])));
     }
 
@@ -152,7 +147,7 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
         .title(format!(" Candidates ({}/{}) ", if total_items > 0 { selected_idx + 1 } else { 0 }, total_items))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::BLUE));
+        .border_style(Style::default().fg(app.theme.border_focused));
 
     let mut state = ratatui::widgets::ListState::default();
     state.select(Some(selected_idx));
@@ -161,25 +156,25 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
     // Left hints
     let left_hint = if is_search_focused {
         Line::from(vec![
-            Span::styled("[Enter: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Search", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
-            Span::styled(" | ↓/Tab: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Candidates", Style::default().fg(theme::BLUE)),
-            Span::styled(" | Ctrl+U: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Clear", Style::default().fg(theme::RED)),
-            Span::styled(" | Esc: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Exit Search]", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("[Enter: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Search", Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
+            Span::styled(" | ↓/Tab: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Candidates", Style::default().fg(app.theme.info)),
+            Span::styled(" | Ctrl+U: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Clear", Style::default().fg(app.theme.danger)),
+            Span::styled(" | Esc: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Exit Search]", Style::default().fg(app.theme.faint)),
         ])
     } else {
         Line::from(vec![
-            Span::styled("[↑/↓: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Select", Style::default().fg(theme::YELLOW)),
-            Span::styled(" | Enter: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Apply", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled(" | /: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Search", Style::default().fg(theme::BLUE)),
-            Span::styled(" | b: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Browse File]", Style::default().fg(theme::MAUVE)),
+            Span::styled("[↑/↓: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Select", Style::default().fg(app.theme.warning)),
+            Span::styled(" | Enter: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Apply", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
+            Span::styled(" | /: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Search", Style::default().fg(app.theme.info)),
+            Span::styled(" | b: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Browse File]", Style::default().fg(app.theme.accent)),
         ])
     };
     frame.render_widget(Paragraph::new(left_hint).alignment(Alignment::Center), vert_modal[1]);
@@ -190,7 +185,7 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD));
+        .border_style(Style::default().fg(app.theme.border_focused));
     frame.render_widget(right_block, cols[1]);
 
     let right_inner = cols[1].inner(Margin { vertical: 1, horizontal: 1 });
@@ -245,15 +240,15 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
         if app.download.is_cover_loading {
             let msg = Paragraph::new(vec![
                 Line::from(""),
-                Line::from(Span::styled("󰑮 Searching / downloading...", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled("Querying iTunes, Deezer, CAA & Web", Style::default().fg(theme::OVERLAY0))),
+                Line::from(Span::styled("󰑮 Searching / downloading...", Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("Querying iTunes, Deezer, CAA & Web", Style::default().fg(app.theme.faint))),
             ]).alignment(Alignment::Center);
             frame.render_widget(msg, right_rows[0]);
         } else {
             let msg = Paragraph::new(vec![
                 Line::from(""),
-                Line::from(Span::styled("[ No Image Preview ]", Style::default().fg(theme::OVERLAY0))),
-                Line::from(Span::styled("Select a candidate or pick a local image", Style::default().fg(theme::SUBTEXT0))),
+                Line::from(Span::styled("[ No Image Preview ]", Style::default().fg(app.theme.faint))),
+                Line::from(Span::styled("Select a candidate or pick a local image", Style::default().fg(app.theme.muted))),
             ]).alignment(Alignment::Center);
             frame.render_widget(msg, right_rows[0]);
         }
@@ -264,19 +259,19 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
         if let Some(path) = &app.download.form_custom_cover {
             vec![
                 Line::from(vec![
-                    Span::styled("Type: ", Style::default().fg(theme::OVERLAY0)),
-                    Span::styled("Local Image File", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
+                    Span::styled("Type: ", Style::default().fg(app.theme.faint)),
+                    Span::styled("Local Image File", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
                 ]),
                 Line::from(vec![
-                    Span::styled("Path: ", Style::default().fg(theme::OVERLAY0)),
-                    Span::styled(path.chars().take(34).collect::<String>(), Style::default().fg(theme::TEXT)),
+                    Span::styled("Path: ", Style::default().fg(app.theme.faint)),
+                    Span::styled(path.chars().take(34).collect::<String>(), Style::default().fg(app.theme.text)),
                 ]),
             ]
         } else {
             vec![
                 Line::from(vec![
-                    Span::styled("Type: ", Style::default().fg(theme::OVERLAY0)),
-                    Span::styled("Local File (Press Enter/b to choose)", Style::default().fg(theme::YELLOW)),
+                    Span::styled("Type: ", Style::default().fg(app.theme.faint)),
+                    Span::styled("Local File (Press Enter/b to choose)", Style::default().fg(app.theme.warning)),
                 ]),
             ]
         }
@@ -285,17 +280,17 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
         if let Some(cand) = app.download.cover_candidates.get(cand_idx) {
             vec![
                 Line::from(vec![
-                    Span::styled("Source: ", Style::default().fg(theme::OVERLAY0)),
-                    Span::styled(&cand.source, Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!(" (Score: {:.1})", cand.score), Style::default().fg(theme::YELLOW)),
+                    Span::styled("Source: ", Style::default().fg(app.theme.faint)),
+                    Span::styled(&cand.source, Style::default().fg(app.theme.info).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!(" (Score: {:.1})", cand.score), Style::default().fg(app.theme.warning)),
                 ]),
                 Line::from(vec![
-                    Span::styled("Album:  ", Style::default().fg(theme::OVERLAY0)),
-                    Span::styled(cand.album.chars().take(28).collect::<String>(), Style::default().fg(theme::TEXT)),
+                    Span::styled("Album:  ", Style::default().fg(app.theme.faint)),
+                    Span::styled(cand.album.chars().take(28).collect::<String>(), Style::default().fg(app.theme.text)),
                 ]),
                 Line::from(vec![
-                    Span::styled("Artist: ", Style::default().fg(theme::OVERLAY0)),
-                    Span::styled(cand.artist.chars().take(28).collect::<String>(), Style::default().fg(theme::SUBTEXT0)),
+                    Span::styled("Artist: ", Style::default().fg(app.theme.faint)),
+                    Span::styled(cand.artist.chars().take(28).collect::<String>(), Style::default().fg(app.theme.muted)),
                 ]),
             ]
         } else {
@@ -352,14 +347,14 @@ pub fn render_cover_file_picker_modal(frame: &mut Frame, app: &mut App) {
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD));
+        .border_style(Style::default().fg(app.theme.border_focused));
     frame.render_widget(block, popup_area);
 
     // Current dir
     let curr_str = app.download.cover_file_picker.current_dir.to_string_lossy();
     let path_p = Paragraph::new(Line::from(vec![
-        Span::styled("Folder: ", Style::default().fg(theme::OVERLAY0)),
-        Span::styled(curr_str, Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
+        Span::styled("Folder: ", Style::default().fg(app.theme.faint)),
+        Span::styled(curr_str, Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
     ]));
     frame.render_widget(path_p, left_rows[0]);
 
@@ -378,21 +373,21 @@ pub fn render_cover_file_picker_modal(frame: &mut Frame, app: &mut App) {
         };
 
         let (icon, icon_style) = if is_parent {
-            ("󰉍 ", Style::default().fg(theme::BLUE))
+            ("󰉍 ", Style::default().fg(app.theme.info))
         } else if is_dir {
-            ("󰉋 ", Style::default().fg(theme::BLUE))
+            ("󰉋 ", Style::default().fg(app.theme.info))
         } else {
-            ("󰋩 ", Style::default().fg(theme::GREEN))
+            ("󰋩 ", Style::default().fg(app.theme.success))
         };
 
         let style = if is_selected {
-            Style::default().fg(theme::GREEN).bg(theme::SURFACE0).add_modifier(Modifier::BOLD)
+            Style::default().fg(app.theme.success).bg(app.theme.selected_bg).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(app.theme.text)
         };
 
         list_items.push(ListItem::new(Line::from(vec![
-            Span::styled(icon, if is_selected { Style::default().fg(theme::YELLOW) } else { icon_style }),
+            Span::styled(icon, if is_selected { Style::default().fg(app.theme.warning) } else { icon_style }),
             Span::styled(name, style),
         ])));
     }
@@ -404,17 +399,17 @@ pub fn render_cover_file_picker_modal(frame: &mut Frame, app: &mut App) {
         let mut sc_state = ScrollbarState::new(entries.len()).position(app.download.cover_file_picker.selected);
         frame.render_stateful_widget(
             Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                .thumb_style(Style::default().fg(theme::GREEN))
-                .track_style(Style::default().fg(theme::SURFACE0)),
+                .thumb_style(Style::default().fg(app.theme.success))
+                .track_style(Style::default().fg(app.theme.progress_track)),
             left_rows[1],
             &mut sc_state,
         );
     }
 
     let hint = Line::from(vec![
-        Span::styled("[Enter: ", Style::default().fg(theme::OVERLAY0)),
-        Span::styled("Open Folder / Select Image", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
-        Span::styled(" | Esc: Cancel]", Style::default().fg(theme::OVERLAY0)),
+        Span::styled("[Enter: ", Style::default().fg(app.theme.faint)),
+        Span::styled("Open Folder / Select Image", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
+        Span::styled(" | Esc: Cancel]", Style::default().fg(app.theme.faint)),
     ]);
     frame.render_widget(Paragraph::new(hint).alignment(Alignment::Center), left_rows[2]);
 
@@ -424,7 +419,7 @@ pub fn render_cover_file_picker_modal(frame: &mut Frame, app: &mut App) {
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::GREEN));
+        .border_style(Style::default().fg(app.theme.border_focused));
     let preview_inner = cols[1].inner(Margin { vertical: 1, horizontal: 1 });
     frame.render_widget(preview_block, cols[1]);
 
@@ -468,8 +463,8 @@ pub fn render_cover_file_picker_modal(frame: &mut Frame, app: &mut App) {
         app.kitty_cover_rect = None;
         let msg = Paragraph::new(vec![
             Line::from(""),
-            Line::from(Span::styled("[ No Preview ]", Style::default().fg(theme::OVERLAY0))),
-            Line::from(Span::styled("Highlight an image file", Style::default().fg(theme::SUBTEXT0))),
+            Line::from(Span::styled("[ No Preview ]", Style::default().fg(app.theme.faint))),
+            Line::from(Span::styled("Highlight an image file", Style::default().fg(app.theme.muted))),
         ])
         .alignment(Alignment::Center);
         frame.render_widget(msg, preview_inner);

@@ -5,14 +5,17 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
-use crate::{app::App, cover, theme};
+use crate::{app::App, cover};
 
 pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default()
-        .title(" 󰥠 Cover Art ")
+        .title(Span::styled(
+            " 󰥠 Cover Art ",
+            Style::default().fg(app.theme.accent_dim).add_modifier(Modifier::BOLD),
+        ))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::BLUE));
+        .border_style(Style::default().fg(app.theme.accent_dim));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -58,8 +61,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     for _ in 0..pad_top {
         placeholder_lines.push(Line::raw(""));
     }
-    placeholder_lines.push(Line::from(Span::styled("󰝚", Style::default().fg(theme::OVERLAY0).add_modifier(Modifier::BOLD))));
-    placeholder_lines.push(Line::from(Span::styled("No Cover Art", Style::default().fg(theme::SURFACE2))));
+    placeholder_lines.push(Line::from(Span::styled("󰝚", Style::default().fg(app.theme.faint).add_modifier(Modifier::BOLD))));
+    placeholder_lines.push(Line::from(Span::styled("No Cover Art", Style::default().fg(app.theme.faint))));
 
     let placeholder = Paragraph::new(placeholder_lines).alignment(Alignment::Center);
     frame.render_widget(placeholder, inner);

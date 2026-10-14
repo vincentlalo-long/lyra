@@ -72,7 +72,10 @@ struct RawEvent {
 pub struct Downloader {
     sender: Sender<DownloadEvent>,
     pub receiver: Receiver<DownloadEvent>,
-    child_pid: Arc<Mutex<Option<u32>>>,
+    /// All live download child pids. Previously only the newest pid was
+    /// remembered, so overlapping downloads orphaned `yt-dlp + ffmpeg`.
+    /// Now `cancel()` kills every tracked pid (TERM then KILL).
+    child_pids: Arc<Mutex<Vec<u32>>>,
 }
 
 fn format_python_error(stderr: &str, default_msg: &str) -> String {
@@ -112,16 +115,23 @@ impl Downloader {
         Self {
             sender,
             receiver,
-            child_pid: Arc::new(Mutex::new(None)),
+            child_pids: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
     pub fn cancel(&self) {
-        if let Ok(mut lock) = self.child_pid.lock() {
-            if let Some(pid) = lock.take() {
+        if let Ok(mut lock) = self.child_pids.lock() {
+            for pid in lock.drain(..) {
                 #[cfg(unix)]
                 {
+                    // TERM the process group first (yt-dlp spawns ffmpeg
+                    // children), then the pid itself, then KILL as fallback.
+                    let _ = Command::new("kill")
+                        .args(["-TERM", &format!("-{pid}")])
+                        .status();
                     let _ = Command::new("kill").args(["-TERM", &pid.to_string()]).status();
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    let _ = Command::new("kill").args(["-KILL", &pid.to_string()]).status();
                 }
             }
         }
@@ -398,7 +408,7 @@ impl Downloader {
     pub fn start_download(&self, req: DownloadRequest) {
         let sender = self.sender.clone();
         let script = Self::find_script();
-        let child_pid_clone = Arc::clone(&self.child_pid);
+        let child_pids_clone = Arc::clone(&self.child_pids);
 
         thread::spawn(move || {
             let script_dir = script.parent().unwrap_or(std::path::Path::new("."));
@@ -460,8 +470,8 @@ impl Downloader {
             };
 
             let pid = child.id();
-            if let Ok(mut lock) = child_pid_clone.lock() {
-                *lock = Some(pid);
+            if let Ok(mut lock) = child_pids_clone.lock() {
+                lock.push(pid);
             }
 
             // Concurrently drain stderr in a separate thread to prevent pipe buffer deadlock
@@ -530,10 +540,8 @@ impl Downloader {
 
             let wait_res = child.wait();
 
-            if let Ok(mut lock) = child_pid_clone.lock() {
-                if lock.as_ref() == Some(&pid) {
-                    *lock = None;
-                }
+            if let Ok(mut lock) = child_pids_clone.lock() {
+                lock.retain(|&p| p != pid);
             }
 
             // Check if process finished cleanly with Completed or Error

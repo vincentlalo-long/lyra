@@ -16,6 +16,7 @@ mod mpris;
 mod notify;
 mod playlist;
 pub mod plugin;
+pub mod plugin_dl;
 mod queue;
 mod scanner;
 mod terminal;
@@ -113,16 +114,25 @@ fn run_loop(terminal: &mut terminal::Tui, app: &mut App) -> Result<()> {
         #[cfg(feature = "download")]
         app.check_download_events();
 
+        // Check background community-plugin installer events
+        app.check_plugin_downloads();
+
         terminal.draw(|frame| ui::render(frame, app))?;
         ui::post_render(app)?;
 
         if event::poll(Duration::from_millis(50))? {
-            if let Event::Key(key_event) = event::read()? {
-                if key_event.kind == KeyEventKind::Press {
-                    if !input::handle_key(app, key_event) {
+            match event::read()? {
+                Event::Key(key_event) => {
+                    if key_event.kind == KeyEventKind::Press
+                        && !input::handle_key(app, key_event)
+                    {
                         return Ok(());
                     }
                 }
+                Event::Mouse(mouse_event) => {
+                    input::mouse::handle_mouse(app, mouse_event);
+                }
+                _ => {}
             }
         }
     }

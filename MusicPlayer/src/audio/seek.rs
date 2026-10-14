@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 use rodio::{Decoder, Source};
 
-use super::{cache::SharedAudio, AudioPlayer};
+use super::AudioPlayer;
 
 /// Debounce interval before actually committing seek to hardware sink (150ms)
 const SEEK_DEBOUNCE_MILLIS: u64 = 150;
@@ -38,28 +38,26 @@ impl AudioPlayer {
     ///   smooth entrance without pops/clicks or MP3 bit-reservoir boundary artifacts.
 
     pub(crate) fn apply_seek(&mut self, target: Duration) {
-        if let Some(bytes) = self.cached_bytes.clone() {
-            match Decoder::new(SharedAudio::new(bytes)) {
-                Ok(mut fresh) => {
-                    if fresh.try_seek(target).is_ok() {
-                        let faded = fresh.fade_in(Duration::from_millis(SEEK_FADE_MILLIS));
-                        self.sink.stop();
-                        self.sink.append(faded);
-                        // New source counts from 0, so remember absolute base.
-                        self.pos_offset = target;
-                    } else {
-                        // Cold-seek failed (source would be broken/intact-uncertain):
-                        // keep the live stream and seek it instead of appending
-                        // a source stuck at the wrong position.
-                        let _ = self.sink.try_seek(target);
-                        // Live-seek keeps the sink's absolute counter.
-                        self.pos_offset = Duration::ZERO;
-                    }
-                }
-                Err(_) => {
-                    let _ = self.sink.try_seek(target);
-                    self.pos_offset = Duration::ZERO;
-                }
+        // Streaming seek: reopen the file and seek the fresh decoder.
+        // Debounced to 150ms so rapid keypresses only reopen once.
+        let reopened = self.current_path.clone().and_then(|p| {
+            std::fs::File::open(&p)
+                .ok()
+                .and_then(|f| Decoder::new(std::io::BufReader::new(f)).ok())
+        });
+        if let Some(mut fresh) = reopened {
+            if fresh.try_seek(target).is_ok() {
+                let faded = fresh.fade_in(Duration::from_millis(SEEK_FADE_MILLIS));
+                self.sink.stop();
+                self.sink.append(faded);
+                // New source counts from 0, so remember absolute base.
+                self.pos_offset = target;
+            } else {
+                // Cold-seek failed: keep the live stream and seek it instead
+                // of appending a source stuck at the wrong position.
+                let _ = self.sink.try_seek(target);
+                // Live-seek keeps the sink's absolute counter.
+                self.pos_offset = Duration::ZERO;
             }
         } else {
             let _ = self.sink.try_seek(target);

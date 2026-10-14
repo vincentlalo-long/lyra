@@ -5,9 +5,9 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
     Frame,
 };
-use crate::{scanner::Scanner, theme};
+use crate::scanner::Scanner;
 
-pub fn render(frame: &mut Frame, scanner: &Scanner) {
+pub fn render(frame: &mut Frame, scanner: &Scanner, theme: &crate::theme::Theme) {
     let screen_area = frame.area();
 
     let vertical_chunks = Layout::default()
@@ -38,17 +38,17 @@ pub fn render(frame: &mut Frame, scanner: &Scanner) {
     let progress_bar = format!("[{}{}]", "━".repeat(filled_count), "─".repeat(empty_count));
 
     let title_line = Line::from(vec![
-        Span::styled(format!("{pendulum} {current_clock} "), Style::default().fg(theme::YELLOW)),
-        Span::styled("Scanning Subdirectories ... ", Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("{current_clock} {pendulum}"), Style::default().fg(theme::YELLOW)),
+        Span::styled(format!("{pendulum} {current_clock} "), Style::default().fg(theme.warning)),
+        Span::styled("Scanning Subdirectories ... ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("{current_clock} {pendulum}"), Style::default().fg(theme.warning)),
     ]);
 
     let stats_line = Line::from(Span::styled(
         format!("Folders: {}  |  MP3s: {}", scanner.folders_scanned, scanner.songs_found),
-        Style::default().fg(theme::TEXT),
+        Style::default().fg(theme.text),
     ));
 
-    let bar_line = Line::from(Span::styled(progress_bar, Style::default().fg(theme::BLUE)));
+    let bar_line = Line::from(Span::styled(progress_bar, Style::default().fg(theme.info)));
 
     let dialog_content = Paragraph::new(vec![
         Line::raw(""),
@@ -62,7 +62,7 @@ pub fn render(frame: &mut Frame, scanner: &Scanner) {
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .title(" 󱑂 Background Scanner ")
-            .border_style(Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
+            .border_style(Style::default().fg(theme.border_focused).add_modifier(Modifier::BOLD)),
     );
 
     frame.render_widget(Clear, popup_area);

@@ -5,14 +5,17 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
-use crate::{app::App, theme};
+use crate::app::App;
 
 pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
-        .title(" 󰎈 Lyrics ")
+        .title(Span::styled(
+            " 󰎈 Lyrics ",
+            Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD),
+        ))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::MAUVE));
+        .border_style(Style::default().fg(app.theme.accent));
 
     let lyrics = match &app.lyrics {
         Some(l) if !l.lines.is_empty() => l,
@@ -22,12 +25,12 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
                 Line::raw(""),
                 Line::from(Span::styled(
                     "󰎈  No synchronized lyrics (.lrc) found",
-                    Style::default().fg(theme::OVERLAY0),
+                    Style::default().fg(app.theme.faint),
                 )),
                 Line::raw(""),
                 Line::from(Span::styled(
                     "Drop a matching .lrc file in the same folder",
-                    Style::default().fg(theme::SURFACE2),
+                    Style::default().fg(app.theme.faint),
                 )),
             ])
             .alignment(Alignment::Center)
@@ -70,14 +73,14 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
         // Depth of Field styling
         let (style, prefix, suffix) = match distance {
             0 => (
-                Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
+                Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD),
                 "▶  ",
                 "  ◀",
             ),
-            1 => (Style::default().fg(theme::TEXT), "   ", ""),
-            2 => (Style::default().fg(theme::SUBTEXT0), "   ", ""),
-            3 => (Style::default().fg(theme::OVERLAY0), "   ", ""),
-            _ => (Style::default().fg(theme::SURFACE2), "   ", ""),
+            1 => (Style::default().fg(app.theme.text), "   ", ""),
+            2 => (Style::default().fg(app.theme.muted), "   ", ""),
+            3 => (Style::default().fg(app.theme.faint), "   ", ""),
+            _ => (Style::default().fg(app.theme.faint), "   ", ""),
         };
 
         let formatted = format!("{prefix}{}{suffix}", line_data.text);

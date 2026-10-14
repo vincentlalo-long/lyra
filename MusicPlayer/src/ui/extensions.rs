@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
-use crate::{app::App, theme};
+use crate::app::{App, ViewMode};
 
 /// Render the Extensions Workspace (Tab 4).
 /// Hosts installed interactive plugins (such as YouTube Audio Downloader),
@@ -32,7 +32,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::MAUVE));
+        .border_style(Style::default().fg(if app.view_mode == ViewMode::Extensions { app.theme.border_focused } else { app.theme.border }));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -52,18 +52,18 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let text = vec![
         Line::from(vec![
-            Span::styled("󱊄 No Active Extensions Enabled", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
+            Span::styled("󱊄 No Active Extensions Enabled", Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
         ]),
         Line::raw(""),
         Line::from(vec![
-            Span::styled("All interactive extensions are currently disabled or not installed.", Style::default().fg(theme::TEXT)),
+            Span::styled("All interactive extensions are currently disabled or not installed.", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("Go to [5] Plugins to enable or install community extensions.", Style::default().fg(theme::SUBTEXT0)),
+            Span::styled("Go to [5] Plugins to enable or install community extensions.", Style::default().fg(app.theme.muted)),
         ]),
         Line::raw(""),
         Line::from(vec![
-            Span::styled("Press [5] Plugins Manager  •  [1] Playlist  •  [?] Help", Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD)),
+            Span::styled("Press [5] Plugins Manager  •  [1] Playlist  •  [?] Help", Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD)),
         ]),
     ];
 

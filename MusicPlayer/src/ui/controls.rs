@@ -6,14 +6,16 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
-use crate::{app::{App, RepeatMode}, theme};
+use crate::app::{App, RepeatMode};
 
-pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
+    // Snapshot the semantic theme first (avoids borrow conflicts below).
+    let t = app.theme.clone();
     let block = Block::default()
-        .title(Span::styled(" 󰒓 Controls ", Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(" 󰒓 Controls ", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::MAUVE));
+        .border_style(Style::default().fg(t.border_focused));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -61,19 +63,19 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     let fitted_name = crate::ui::playlist::fit_width(&track_name, avail_w);
 
     let title_line = Line::from(vec![
-        Span::styled(icon, Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
-        Span::styled(label, Style::default().fg(theme::SUBTEXT0)),
-        Span::styled(fitted_name, Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)),
+        Span::styled(icon, Style::default().fg(t.success).add_modifier(Modifier::BOLD)),
+        Span::styled(label, Style::default().fg(t.muted)),
+        Span::styled(fitted_name, Style::default().fg(t.text).add_modifier(Modifier::BOLD)),
     ]);
 
     // Repeat mode display (queue-loop wins: it overrides library looping).
     let (repeat_icon, repeat_text, repeat_color) = if app.queue.loop_enabled {
-        ("󰑖 ", "Loop: Queue", theme::MAUVE)
+        ("󰑖 ", "Loop: Queue", t.accent)
     } else {
         match app.repeat_mode {
-            RepeatMode::Playlist => ("󰑖 ", "Loop: All", theme::BLUE),
-            RepeatMode::Track => ("󰑘 ", "Loop: One", theme::YELLOW),
-            RepeatMode::Off => ("󰑗 ", "Loop: Off", theme::OVERLAY0),
+            RepeatMode::Playlist => ("󰑖 ", "Loop: All", t.info),
+            RepeatMode::Track => ("󰑘 ", "Loop: One", t.warning),
+            RepeatMode::Off => ("󰑗 ", "Loop: Off", t.faint),
         }
     };
 
@@ -90,9 +92,9 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     let vol_bar = format!("[{}●{}]", "━".repeat(vol_filled), "─".repeat(vol_empty.saturating_sub(1)));
 
     let vol_line = Line::from(vec![
-        Span::styled(vol_icon, Style::default().fg(theme::YELLOW)),
-        Span::styled(format!("{vol_percent:>3}% "), Style::default().fg(theme::TEXT)),
-        Span::styled(vol_bar, Style::default().fg(theme::MAUVE)),
+        Span::styled(vol_icon, Style::default().fg(t.warning)),
+        Span::styled(format!("{vol_percent:>3}% "), Style::default().fg(t.text)),
+        Span::styled(vol_bar, Style::default().fg(t.accent)),
         Span::raw(" "),
     ]);
 
@@ -114,6 +116,18 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     let used_width = time_left.len() + time_right.len();
     let bar_width = total_width.saturating_sub(used_width).max(4);
 
+    // Remember the clickable bar rect (excluding the time labels) so mouse
+    // drag events can map x -> seek ratio. Stored every frame.
+    {
+        let bar_x = sub_chunks[1].x + time_left.len() as u16;
+        app.seekbar_rect = Some(Rect {
+            x: bar_x,
+            y: sub_chunks[1].y,
+            width: bar_width as u16,
+            height: 1,
+        });
+    }
+
     const SUB_BLOCKS: [&str; 8] = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
 
     let (full_blocks, partial_char, empty_blocks) = match duration_opt {
@@ -134,25 +148,25 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     let empty_str = " ".repeat(empty_blocks);
 
     let mut spans = vec![
-        Span::styled(time_left, Style::default().fg(theme::BLUE)),
-        Span::styled(filled_str, Style::default().fg(theme::MAUVE)),
+        Span::styled(time_left, Style::default().fg(t.info)),
+        Span::styled(filled_str, Style::default().fg(t.progress_fill)),
     ];
 
     if !partial_char.is_empty() {
         spans.push(Span::styled(
             partial_char,
-            Style::default().fg(theme::MAUVE).bg(theme::SURFACE0),
+            Style::default().fg(t.progress_fill).bg(t.progress_track),
         ));
     }
 
     if empty_blocks > 0 {
         spans.push(Span::styled(
             empty_str,
-            Style::default().bg(theme::SURFACE0),
+            Style::default().bg(t.progress_track),
         ));
     }
 
-    spans.push(Span::styled(time_right, Style::default().fg(theme::BLUE)));
+    spans.push(Span::styled(time_right, Style::default().fg(t.info)));
 
     frame.render_widget(Paragraph::new(Line::from(spans)), sub_chunks[1]);
 }

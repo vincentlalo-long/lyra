@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
-use crate::{app::App, theme};
+use crate::app::App;
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     let screen_area = frame.area();
@@ -47,14 +47,14 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD));
+        .border_style(Style::default().fg(app.theme.border_focused).add_modifier(Modifier::BOLD));
     frame.render_widget(block, popup_area);
 
     // Current dir label
     let curr_path_str = app.download.dir_picker.current_dir.to_string_lossy();
     let path_p = Paragraph::new(Line::from(vec![
-        Span::styled("Current: ", Style::default().fg(theme::OVERLAY0)),
-        Span::styled(curr_path_str, Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
+        Span::styled("Current: ", Style::default().fg(app.theme.faint)),
+        Span::styled(curr_path_str, Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
     ]));
     frame.render_widget(path_p, chunks[0]);
 
@@ -72,14 +72,14 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         };
 
         let style = if is_selected {
-            Style::default().fg(theme::GREEN).bg(theme::SURFACE0).add_modifier(Modifier::BOLD)
+            Style::default().fg(app.theme.success).bg(app.theme.selected_bg).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(app.theme.text)
         };
 
         let icon = if is_parent { "󰉍 " } else { "󰉋 " };
         list_items.push(ListItem::new(Line::from(vec![
-            Span::styled(icon, if is_selected { Style::default().fg(theme::YELLOW) } else { Style::default().fg(theme::BLUE) }),
+            Span::styled(icon, if is_selected { Style::default().fg(app.theme.warning) } else { Style::default().fg(app.theme.info) }),
             Span::styled(name, style),
         ])));
     }
@@ -91,21 +91,21 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         let mut sc_state = ScrollbarState::new(entries.len()).position(app.download.dir_picker.selected);
         frame.render_stateful_widget(
             Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                .thumb_style(Style::default().fg(theme::BLUE))
-                .track_style(Style::default().fg(theme::SURFACE0)),
+                .thumb_style(Style::default().fg(app.theme.info))
+                .track_style(Style::default().fg(app.theme.progress_track)),
             chunks[1],
             &mut sc_state,
         );
     }
 
     let hint = Line::from(vec![
-        Span::styled("[Enter: ", Style::default().fg(theme::OVERLAY0)),
-        Span::styled("Open Folder", Style::default().fg(theme::YELLOW)),
-        Span::styled(" | Space: ", Style::default().fg(theme::OVERLAY0)),
-        Span::styled("Select This Folder", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
-        Span::styled(" | r: ", Style::default().fg(theme::OVERLAY0)),
-        Span::styled("Refresh", Style::default().fg(theme::TEXT)),
-        Span::styled(" | Esc: Cancel]", Style::default().fg(theme::OVERLAY0)),
+        Span::styled("[Enter: ", Style::default().fg(app.theme.faint)),
+        Span::styled("Open Folder", Style::default().fg(app.theme.warning)),
+        Span::styled(" | Space: ", Style::default().fg(app.theme.faint)),
+        Span::styled("Select This Folder", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
+        Span::styled(" | r: ", Style::default().fg(app.theme.faint)),
+        Span::styled("Refresh", Style::default().fg(app.theme.text)),
+        Span::styled(" | Esc: Cancel]", Style::default().fg(app.theme.faint)),
     ]);
     frame.render_widget(Paragraph::new(hint).alignment(Alignment::Center), chunks[2]);
 }

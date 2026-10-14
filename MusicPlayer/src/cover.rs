@@ -62,12 +62,22 @@ impl AlbumArt {
     }
 
     pub fn from_dynamic_image(dyn_img: DynamicImage) -> Self {
-        let rgba = dyn_img.to_rgba8();
+        // Cap stored image at 800px to bound RAM (~2.5MB RGBA max instead
+        // of ~36MB for a 3000x3000 embed). Full-res is only needed for the
+        // 400px Kitty thumbnail + halfblock preview, never for storage.
+        const MAX_DIM: u32 = 800;
+        let (w, h) = (dyn_img.width(), dyn_img.height());
+        let capped = if w > MAX_DIM || h > MAX_DIM {
+            dyn_img.resize(MAX_DIM, MAX_DIM, FilterType::Triangle)
+        } else {
+            dyn_img
+        };
+        let rgba = capped.to_rgba8();
 
         let mut png_base64 = None;
         if is_kitty_supported() {
             // Scale to a clean 400x400 thumbnail for sharp display with minimal bandwidth
-            let thumb = dyn_img.resize_to_fill(400, 400, FilterType::Lanczos3);
+            let thumb = capped.resize_to_fill(400, 400, FilterType::Triangle);
             let mut png_bytes = Vec::new();
             if thumb.write_to(&mut Cursor::new(&mut png_bytes), ImageFormat::Png).is_ok() {
                 png_base64 = Some(to_base64(&png_bytes));

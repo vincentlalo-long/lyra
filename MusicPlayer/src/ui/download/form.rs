@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
     Frame,
 };
-use crate::{app::App, theme};
+use crate::app::App;
 
 pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
     let screen_area = frame.area();
@@ -42,7 +42,7 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD));
+        .border_style(Style::default().fg(app.theme.border_focused));
     frame.render_widget(block, popup_area);
 
     let inner = popup_area.inner(Margin { vertical: 1, horizontal: 1 });
@@ -165,24 +165,24 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
     for (idx, (label, val)) in fields.iter().enumerate() {
         let is_active = app.download.form_field_idx == idx;
         let style = if is_active {
-            Style::default().fg(theme::YELLOW).bg(theme::SURFACE0).add_modifier(Modifier::BOLD)
+            Style::default().fg(app.theme.warning).bg(app.theme.selected_bg).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::TEXT)
+            Style::default().fg(app.theme.text)
         };
 
         let label_style = if is_active {
-            Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)
+            Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::BLUE)
+            Style::default().fg(app.theme.info)
         };
 
         let mut spans = vec![
             Span::styled(format!(" {label} "), label_style),
-            Span::styled("[ ", if is_active { Style::default().fg(theme::YELLOW) } else { Style::default().fg(theme::OVERLAY0) }),
+            Span::styled("[ ", if is_active { Style::default().fg(app.theme.warning) } else { Style::default().fg(app.theme.faint) }),
         ];
 
         if val.is_empty() && idx == 3 && !is_active {
-            spans.push(Span::styled("Auto/iTunes (or type: Pop, Ballad)", Style::default().fg(theme::OVERLAY0)));
+            spans.push(Span::styled("Auto/iTunes (or type: Pop, Ballad)", Style::default().fg(app.theme.faint)));
         } else {
             spans.push(Span::styled(*val, style));
         }
@@ -196,11 +196,11 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
             let after: String = val_str.chars().skip(caret).collect();
             spans.pop();
             spans.push(Span::styled(before, style));
-            spans.push(Span::styled("█", Style::default().fg(theme::YELLOW)));
+            spans.push(Span::styled("█", Style::default().fg(app.theme.warning)));
             spans.push(Span::styled(after, style));
         }
 
-        spans.push(Span::styled(" ]", if is_active { Style::default().fg(theme::YELLOW) } else { Style::default().fg(theme::OVERLAY0) }));
+        spans.push(Span::styled(" ]", if is_active { Style::default().fg(app.theme.warning) } else { Style::default().fg(app.theme.faint) }));
 
         // Artist suggestions badge (Field 1)
         if idx == 1 && !app.download.existing_artists.is_empty() {
@@ -210,7 +210,7 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
             } else {
                 format!(" [󰠃 Ctrl+←/→ {} artists]", count)
             };
-            spans.push(Span::styled(badge_text, Style::default().fg(theme::ROSE)));
+            spans.push(Span::styled(badge_text, Style::default().fg(app.theme.accent_dim)));
         }
 
         // Album suggestions badge (Field 2)
@@ -221,7 +221,7 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
             } else {
                 format!(" [󰀥 Ctrl+←/→ {} albums]", count)
             };
-            spans.push(Span::styled(badge_text, Style::default().fg(theme::PEACH)));
+            spans.push(Span::styled(badge_text, Style::default().fg(app.theme.hint)));
         }
 
         // Genre suggestions badge (Field 3)
@@ -232,14 +232,14 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
             } else {
                 " [󰠃 Ctrl+←/→ genres (type ',' to add)]".to_string()
             };
-            spans.push(Span::styled(badge_text, Style::default().fg(theme::ROSE)));
+            spans.push(Span::styled(badge_text, Style::default().fg(app.theme.accent_dim)));
         }
 
         if idx == 4 && !has_preview_col {
-            spans.push(Span::styled(" [󰉋 Browse]", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)));
+            spans.push(Span::styled(" [󰉋 Browse]", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)));
         }
         if idx == 5 && !has_preview_col {
-            spans.push(Span::styled(" [󰍉 Preview]", Style::default().fg(theme::PURPLE).add_modifier(Modifier::BOLD)));
+            spans.push(Span::styled(" [󰍉 Preview]", Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD)));
         }
 
         frame.render_widget(Paragraph::new(Line::from(spans)), rows[idx]);
@@ -249,15 +249,15 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
     let is_submit_active = app.download.form_field_idx == 7;
     let submit_spans = if is_submit_active {
         vec![
-            Span::styled("▶ ", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled(" [ 󰐊 Start Download ] ", Style::default().fg(theme::BASE).bg(theme::GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled(" ◀", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("▶ ", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
+            Span::styled(" [ 󰐊 Start Download ] ", Style::default().fg(app.theme.ink).bg(app.theme.success).add_modifier(Modifier::BOLD)),
+            Span::styled(" ◀", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
         ]
     } else {
         vec![
             Span::raw("  "),
-            Span::styled("[ 󰐊 Start Download ]", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled(" (Press Enter to start)", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("[ 󰐊 Start Download ]", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
+            Span::styled(" (Press Enter to start)", Style::default().fg(app.theme.faint)),
         ]
     };
     frame.render_widget(Paragraph::new(Line::from(submit_spans)).alignment(Alignment::Center), rows[7]);
@@ -265,80 +265,80 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
     // Full-width Bottom Footer: Hotkey hints across the entire modal width (never covered by artwork!)
     let actions = match app.download.form_field_idx {
         0 => Line::from(vec![
-            Span::styled("[←/→: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Move Cursor", Style::default().fg(theme::TEXT)),
-            Span::styled(" | Tab/↓: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Next", Style::default().fg(theme::TEXT)),
-            Span::styled(" | Ctrl+Enter: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Download", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled(" | Esc: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Cancel]", Style::default().fg(theme::RED)),
+            Span::styled("[←/→: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Move Cursor", Style::default().fg(app.theme.text)),
+            Span::styled(" | Tab/↓: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Next", Style::default().fg(app.theme.text)),
+            Span::styled(" | Ctrl+Enter: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Download", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
+            Span::styled(" | Esc: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Cancel]", Style::default().fg(app.theme.danger)),
         ]),
         1 => Line::from(vec![
-            Span::styled("[←/→: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Move Cursor", Style::default().fg(theme::TEXT)),
-            Span::styled(" | Ctrl+←/→: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled(format!("Cycle Artists ({})", app.download.existing_artists.len()), Style::default().fg(theme::ROSE).add_modifier(Modifier::BOLD)),
-            Span::styled(" | Tab/↓: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Next", Style::default().fg(theme::TEXT)),
-            Span::styled(" | Ctrl+Enter: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Download", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled(" | Esc: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Cancel]", Style::default().fg(theme::RED)),
+            Span::styled("[←/→: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Move Cursor", Style::default().fg(app.theme.text)),
+            Span::styled(" | Ctrl+←/→: ", Style::default().fg(app.theme.faint)),
+            Span::styled(format!("Cycle Artists ({})", app.download.existing_artists.len()), Style::default().fg(app.theme.accent_dim).add_modifier(Modifier::BOLD)),
+            Span::styled(" | Tab/↓: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Next", Style::default().fg(app.theme.text)),
+            Span::styled(" | Ctrl+Enter: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Download", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
+            Span::styled(" | Esc: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Cancel]", Style::default().fg(app.theme.danger)),
         ]),
         2 => Line::from(vec![
-            Span::styled("[←/→: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Move Cursor", Style::default().fg(theme::TEXT)),
-            Span::styled(" | Ctrl+←/→: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled(format!("Cycle Albums ({})", app.download.existing_albums.len()), Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD)),
-            Span::styled(" | Tab/↓: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Next", Style::default().fg(theme::TEXT)),
-            Span::styled(" | Ctrl+Enter: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Download", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled(" | Esc: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Cancel]", Style::default().fg(theme::RED)),
+            Span::styled("[←/→: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Move Cursor", Style::default().fg(app.theme.text)),
+            Span::styled(" | Ctrl+←/→: ", Style::default().fg(app.theme.faint)),
+            Span::styled(format!("Cycle Albums ({})", app.download.existing_albums.len()), Style::default().fg(app.theme.hint).add_modifier(Modifier::BOLD)),
+            Span::styled(" | Tab/↓: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Next", Style::default().fg(app.theme.text)),
+            Span::styled(" | Ctrl+Enter: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Download", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
+            Span::styled(" | Esc: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Cancel]", Style::default().fg(app.theme.danger)),
         ]),
         3 => Line::from(vec![
-            Span::styled("[←/→: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Move Cursor", Style::default().fg(theme::TEXT)),
-            Span::styled(" | Ctrl+←/→: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Cycle Genre", Style::default().fg(theme::ROSE).add_modifier(Modifier::BOLD)),
-            Span::styled(" | , : ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("+More Genres", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
-            Span::styled(" | Tab/↓: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Next", Style::default().fg(theme::TEXT)),
-            Span::styled(" | Ctrl+Enter: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Download", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled(" | Esc: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Cancel]", Style::default().fg(theme::RED)),
+            Span::styled("[←/→: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Move Cursor", Style::default().fg(app.theme.text)),
+            Span::styled(" | Ctrl+←/→: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Cycle Genre", Style::default().fg(app.theme.accent_dim).add_modifier(Modifier::BOLD)),
+            Span::styled(" | , : ", Style::default().fg(app.theme.faint)),
+            Span::styled("+More Genres", Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
+            Span::styled(" | Tab/↓: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Next", Style::default().fg(app.theme.text)),
+            Span::styled(" | Ctrl+Enter: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Download", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
+            Span::styled(" | Esc: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Cancel]", Style::default().fg(app.theme.danger)),
         ]),
         5 => Line::from(vec![
-            Span::styled("[←/→: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Cycle Art", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
-            Span::styled(" | m: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Mode", Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD)),
-            Span::styled(" | s: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Source", Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD)),
-            Span::styled(" | r: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Crop", Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD)),
-            Span::styled(" | p: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Full Picker", Style::default().fg(theme::PURPLE).add_modifier(Modifier::BOLD)),
-            Span::styled(" | b: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Browse File", Style::default().fg(theme::BLUE)),
-            Span::styled(" | Ctrl+Enter: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Download", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled(" | Esc: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Cancel]", Style::default().fg(theme::RED)),
+            Span::styled("[←/→: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Cycle Art", Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
+            Span::styled(" | m: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Mode", Style::default().fg(app.theme.hint).add_modifier(Modifier::BOLD)),
+            Span::styled(" | s: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Source", Style::default().fg(app.theme.info).add_modifier(Modifier::BOLD)),
+            Span::styled(" | r: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Crop", Style::default().fg(app.theme.hint).add_modifier(Modifier::BOLD)),
+            Span::styled(" | p: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Full Picker", Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(" | b: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Browse File", Style::default().fg(app.theme.info)),
+            Span::styled(" | Ctrl+Enter: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Download", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
+            Span::styled(" | Esc: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Cancel]", Style::default().fg(app.theme.danger)),
         ]),
         _ => Line::from(vec![
-            Span::styled("[Tab/↑/↓: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Nav", Style::default().fg(theme::BLUE)),
-            Span::styled(" | Enter: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Next", Style::default().fg(theme::TEXT)),
-            Span::styled(" | Ctrl+Enter: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Download", Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)),
-            Span::styled(" | Esc: ", Style::default().fg(theme::OVERLAY0)),
-            Span::styled("Cancel]", Style::default().fg(theme::RED)),
+            Span::styled("[Tab/↑/↓: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Nav", Style::default().fg(app.theme.info)),
+            Span::styled(" | Enter: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Next", Style::default().fg(app.theme.text)),
+            Span::styled(" | Ctrl+Enter: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Download", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
+            Span::styled(" | Esc: ", Style::default().fg(app.theme.faint)),
+            Span::styled("Cancel]", Style::default().fg(app.theme.danger)),
         ]),
     };
     frame.render_widget(Paragraph::new(actions).alignment(Alignment::Center), footer_area);
@@ -350,7 +350,7 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme::PURPLE).add_modifier(Modifier::BOLD));
+            .border_style(Style::default().fg(app.theme.border_focused));
         let prev_inner = prev_block.inner(prev_area);
         frame.render_widget(prev_block, prev_area);
 
@@ -370,8 +370,8 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
                 for _ in 0..pad {
                     lines.push(Line::raw(""));
                 }
-                lines.push(Line::from(Span::styled("󰑮 Searching...", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD))));
-                lines.push(Line::from(Span::styled("Fetching studio art", Style::default().fg(theme::OVERLAY0))));
+                lines.push(Line::from(Span::styled("󰑮 Searching...", Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD))));
+                lines.push(Line::from(Span::styled("Fetching studio art", Style::default().fg(app.theme.faint))));
                 frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), prev_chunks[0]);
             } else if let Some(art) = &app.download.cover_preview_art {
                 let w = prev_chunks[0].width;
@@ -395,25 +395,25 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
 
                 let (info_text, info_color) = if let Some(cand_idx) = app.download.selected_cover {
                     if let Some(cand) = app.download.cover_candidates.get(cand_idx) {
-                        (format!("{} (score {:.0}) [{}/{}]", cand.source, cand.score, cand_idx + 1, app.download.cover_candidates.len()), theme::GREEN)
+                        (format!("{} (score {:.0}) [{}/{}]", cand.source, cand.score, cand_idx + 1, app.download.cover_candidates.len()), app.theme.success)
                     } else {
-                        ("Selected candidate".to_string(), theme::TEXT)
+                        ("Selected candidate".to_string(), app.theme.text)
                     }
                 } else if app.download.form_custom_cover.is_some() {
-                    ("Custom local image".to_string(), theme::BLUE)
+                    ("Custom local image".to_string(), app.theme.info)
                 } else if let Some(best) = app.download.cover_candidates.first() {
-                    (format!("Auto: {} (score {:.0}) [1/{}]", best.source, best.score, app.download.cover_candidates.len()), theme::GREEN)
+                    (format!("Auto: {} (score {:.0}) [1/{}]", best.source, best.score, app.download.cover_candidates.len()), app.theme.success)
                 } else {
-                    ("YouTube thumbnail".to_string(), theme::YELLOW)
+                    ("YouTube thumbnail".to_string(), app.theme.warning)
                 };
 
                 let footer_lines = vec![
                     Line::from(Span::styled(info_text, Style::default().fg(info_color).add_modifier(Modifier::BOLD))),
                     Line::from(vec![
-                        Span::styled("[←/→: ", Style::default().fg(theme::OVERLAY0)),
-                        Span::styled("Cycle", Style::default().fg(theme::YELLOW)),
-                        Span::styled(" | p: ", Style::default().fg(theme::OVERLAY0)),
-                        Span::styled("Picker]", Style::default().fg(theme::PURPLE)),
+                        Span::styled("[←/→: ", Style::default().fg(app.theme.faint)),
+                        Span::styled("Cycle", Style::default().fg(app.theme.warning)),
+                        Span::styled(" | p: ", Style::default().fg(app.theme.faint)),
+                        Span::styled("Picker]", Style::default().fg(app.theme.accent)),
                     ]),
                 ];
                 frame.render_widget(Paragraph::new(footer_lines).alignment(Alignment::Center), prev_chunks[1]);
@@ -424,8 +424,8 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
                 for _ in 0..pad {
                     lines.push(Line::raw(""));
                 }
-                lines.push(Line::from(Span::styled("󰝚 YouTube Video Art", Style::default().fg(theme::OVERLAY0))));
-                lines.push(Line::from(Span::styled("[Press 'p' to search]", Style::default().fg(theme::PURPLE))));
+                lines.push(Line::from(Span::styled("󰝚 YouTube Video Art", Style::default().fg(app.theme.faint))));
+                lines.push(Line::from(Span::styled("[Press 'p' to search]", Style::default().fg(app.theme.accent))));
                 frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), prev_chunks[0]);
             }
         }

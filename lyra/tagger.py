@@ -13,6 +13,24 @@ from mutagen.id3 import (
 )
 
 
+def suggest_lyrics_lang(title: str = "", artist: str = "", lrc_text: str = "") -> str:
+    """Suggest the USLT lang code: 'vie' for Vietnamese diacritics, else 'eng'.
+
+    Shared by the download pipeline and the vi-vietnamese-support plugin,
+    replacing the previously hardcoded 'eng' value.
+    """
+    try:
+        from plugins.vi_vietnamese_support.plugin import is_vietnamese
+    except Exception:
+        # Lightweight fallback for standalone runs (plugin not on PYTHONPATH).
+        def is_vietnamese(text: str) -> bool:  # type: ignore[misc]
+            vi = set("àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđĐ")
+            return any(c in vi for c in (text or ""))
+
+    blob = f"{title} {artist} {lrc_text or ''}"
+    return "vie" if is_vietnamese(blob) else "eng"
+
+
 def tag_audio_file(
     file_path: str,
     title: str,
@@ -58,7 +76,7 @@ def tag_audio_file(
             tags.add(
                 USLT(
                     encoding=3,
-                    lang="eng",
+                    lang=suggest_lyrics_lang(title, artist, lrc_text),
                     desc="Lyrics",
                     text=plain_lyrics,
                 )

@@ -1,11 +1,11 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
     Frame,
 };
-use crate::{app::App, theme};
+use crate::app::App;
 
 /// Interactive crop editor with a live WYSIWYG result preview: every
 /// frame move re-crops the source to the 1:1 window at the focal point
@@ -41,11 +41,11 @@ pub fn render_crop_modal(frame: &mut Frame, app: &mut App) {
         .title_alignment(Alignment::Center)
         .title_bottom(Line::from(vec![Span::styled(
             " [←/→/↑/↓: Move 5% | Shift: Fine 1% | Enter: Apply | c: Center | Esc: Cancel] ",
-            Style::default().fg(theme::OVERLAY0),
+            Style::default().fg(app.theme.faint),
         )]))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::PEACH).add_modifier(Modifier::BOLD));
+        .border_style(Style::default().fg(app.theme.border_focused));
     let inner = block.inner(popup_area);
     frame.render_widget(block, popup_area);
 
@@ -96,17 +96,17 @@ pub fn render_crop_modal(frame: &mut Frame, app: &mut App) {
             Some((w, h)) => format!(" Source: {w}x{h}px  •  1:1 result above is exactly what gets embedded "),
             None => " Source: unknown ".to_string(),
         },
-        Style::default().fg(theme::OVERLAY0),
+        Style::default().fg(app.theme.faint),
     )])];
     if let Some((cfx, cfy)) = app.download.cover_focus {
         info.push(Line::from(vec![Span::styled(
             format!(" Saved focus: ({cfx:.2}, {cfy:.2}) — Enter overwrites "),
-            Style::default().fg(theme::OVERLAY0),
+            Style::default().fg(app.theme.faint),
         )]));
     } else {
         info.push(Line::from(vec![Span::styled(
             " No saved focus yet — Enter applies the frame above ".to_string(),
-            Style::default().fg(theme::OVERLAY0),
+            Style::default().fg(app.theme.faint),
         )]));
     }
     frame.render_widget(Paragraph::new(info).alignment(Alignment::Center), rows[1]);

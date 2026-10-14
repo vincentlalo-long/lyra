@@ -1,5 +1,25 @@
 [
   {
+    "id": "vi-vietnamese-support",
+    "name": "Vietnamese Lyrics & Search",
+    "version": "v0.1.0",
+    "author": "@vincentlalo-long",
+    "description": "Synced Vietnamese lyrics via LRCLIB + diacritics-insensitive search + vie tagging",
+    "entry": "plugins/vi_vietnamese_support",
+    "status": "active",
+    "min_lyra_version": "v0.2.6"
+  },
+  {
+    "id": "theme-packs",
+    "name": "Theme Packs",
+    "version": "v0.1.1",
+    "author": "@vincentlalo-long",
+    "description": "Semantic color presets (mocha, gruvbox, tokyo-night, dracula, nord, latte) + switcher helper",
+    "entry": "plugins/theme_packs",
+    "status": "active",
+    "min_lyra_version": "v0.2.6"
+  },
+  {
     "id": "ocr-video-lyrics",
     "name": "OCR Video HardCode Lyric to lrc",
     "version": "Coming Soon",

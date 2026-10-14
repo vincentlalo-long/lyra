@@ -5,14 +5,17 @@ use std::{
 
 
 /// Zero-copy in-memory reader for cached track bytes.
-/// `Cursor<Arc<Vec<u8>>>` does not implement `Read/Seek`, so we wrap
-/// `Arc<Vec<u8>> + position` manually. `Send + Sync + 'static` for rodio.
+/// Kept for tests / backward compat. Playback now streams from disk
+/// (`AudioPlayer::play` uses `File + BufReader`) so this is no longer
+/// on the hot path and does not hold songs in RAM.
+#[allow(dead_code)]
 pub(crate) struct SharedAudio {
     data: Arc<Vec<u8>>,
     pos: u64,
 }
 
 impl SharedAudio {
+    #[allow(dead_code)]
     pub(crate) fn new(data: Arc<Vec<u8>>) -> Self {
         Self { data, pos: 0 }
     }

@@ -1,8 +1,8 @@
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{fs::File, io::BufReader, path::Path, time::Duration};
 use anyhow::Result;
 use rodio::{Decoder, OutputStream, Sink, Source};
 
-use super::{cache::SharedAudio, AudioPlayer};
+use super::AudioPlayer;
 
 impl AudioPlayer {
     pub fn new() -> Result<Self> {
@@ -21,19 +21,26 @@ impl AudioPlayer {
             duration: None,
             pending_seek: None,
             pos_offset: Duration::ZERO,
-            cached_bytes: None,
+            current_path: None,
         })
     }
 
+    fn open_stream(song_path: &Path) -> Result<Decoder<BufReader<File>>> {
+        let file = File::open(song_path)?;
+        Decoder::new(BufReader::new(file)).map_err(anyhow::Error::from)
+    }
+
     pub fn play(&mut self, song_path: &Path) -> Result<()> {
-        // Cache the whole track in RAM once: rapid seeks then decode from
-        // memory instead of issuing disk seek()+re-parse on every keypress.
-        let bytes = Arc::new(std::fs::read(song_path)?);
-        let audio_source = Decoder::new(SharedAudio::new(Arc::clone(&bytes)))?;
+        // Streaming playback: decode directly from disk via BufReader.
+        // Previously the whole file was loaded with `fs::read` into an
+        // `Arc<Vec<u8>>` and kept for the session (~5-50MB MP3, 50-200MB
+        // FLAC, plus decoded PCM on top). Now RAM stays flat regardless
+        // of file size; seeks reopen the file (see `seek.rs`).
+        let audio_source = Self::open_stream(song_path)?;
 
         self.pending_seek = None;
         self.pos_offset = Duration::ZERO;
-        self.cached_bytes = Some(Arc::clone(&bytes));
+        self.current_path = Some(song_path.to_path_buf());
         self.duration = audio_source.total_duration();
 
         self.sink.stop();

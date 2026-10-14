@@ -29,10 +29,7 @@ use ratatui::{
 
 #[cfg(feature = "download")]
 use std::path::PathBuf;
-use crate::{
-    app::{App, ViewMode},
-    theme,
-};
+use crate::app::{App, ViewMode};
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     let layout_chunks = Layout::default()
@@ -45,12 +42,13 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         .split(frame.area());
 
     if app.is_searching {
+        let t = app.theme.clone();
         let search_line = Line::from(vec![
-            Span::styled(" 🔍 Search: ", Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD)),
-            Span::styled(&app.search_query, Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)),
-            Span::styled("█", Style::default().fg(theme::YELLOW)),
+            Span::styled(" 🔍 Search: ", Style::default().fg(t.warning).add_modifier(Modifier::BOLD)),
+            Span::styled(&app.search_query, Style::default().fg(t.text).add_modifier(Modifier::BOLD)),
+            Span::styled("█", Style::default().fg(t.warning)),
             Span::raw("   "),
-            Span::styled("[Enter: Play | Esc: Cancel]", Style::default().fg(theme::OVERLAY0)),
+            Span::styled("[Enter: Play | Esc: Cancel]", Style::default().fg(t.faint)),
         ]);
         frame.render_widget(Paragraph::new(search_line), layout_chunks[0]);
     } else {
@@ -70,34 +68,35 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             .split(layout_chunks[0]);
 
         let mut left_spans = vec![
-            Span::styled(" 󰎆 LYRA ", Style::default().fg(theme::BLUE).add_modifier(Modifier::BOLD)),
-            Span::styled("│ ", Style::default().fg(theme::SURFACE1)),
+            Span::styled(" 󰎆 LYRA ", Style::default().fg(app.theme.info).add_modifier(Modifier::BOLD)),
+            Span::styled("│ ", Style::default().fg(app.theme.border)),
         ];
 
+        let t = app.theme.clone();
         let playlist_tab_style = if app.view_mode == ViewMode::Playlist {
-            Style::default().fg(theme::MAUVE).bg(theme::SURFACE0).add_modifier(Modifier::BOLD)
+            Style::default().fg(t.selected_fg).bg(t.selected_bg).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::OVERLAY0)
+            Style::default().fg(t.faint)
         };
         let queue_tab_style = if app.view_mode == ViewMode::Queue {
-            Style::default().fg(theme::MAUVE).bg(theme::SURFACE0).add_modifier(Modifier::BOLD)
+            Style::default().fg(t.selected_fg).bg(t.selected_bg).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::OVERLAY0)
+            Style::default().fg(t.faint)
         };
         let browser_tab_style = if app.view_mode == ViewMode::Browser {
-            Style::default().fg(theme::MAUVE).bg(theme::SURFACE0).add_modifier(Modifier::BOLD)
+            Style::default().fg(t.selected_fg).bg(t.selected_bg).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::OVERLAY0)
+            Style::default().fg(t.faint)
         };
         let extensions_tab_style = if app.view_mode == ViewMode::Extensions {
-            Style::default().fg(theme::MAUVE).bg(theme::SURFACE0).add_modifier(Modifier::BOLD)
+            Style::default().fg(t.selected_fg).bg(t.selected_bg).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::OVERLAY0)
+            Style::default().fg(t.faint)
         };
         let plugins_tab_style = if app.view_mode == ViewMode::Plugins {
-            Style::default().fg(theme::MAUVE).bg(theme::SURFACE0).add_modifier(Modifier::BOLD)
+            Style::default().fg(t.selected_fg).bg(t.selected_bg).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(theme::OVERLAY0)
+            Style::default().fg(t.faint)
         };
 
         let is_compact = layout_chunks[0].width < 96;
@@ -136,17 +135,17 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         if let Some(toast) = app.toast_text() {
             right_spans.push(Span::styled(
                 format!("󰇚 {toast}  "),
-                Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
+                Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD),
             ));
         } else if !app.search_query.is_empty() {
             right_spans.push(Span::styled(
                 format!("🔍 \"{}\"  ", app.search_query),
-                Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
+                Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD),
             ));
         }
         right_spans.push(Span::styled(
             "[q: Quit | /: Search | ?: Help] ",
-            Style::default().fg(theme::OVERLAY0),
+            Style::default().fg(app.theme.faint),
         ));
 
         frame.render_widget(
@@ -226,9 +225,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     // Popup overlays
     if app.scanner.is_scanning {
-        loading::render(frame, &app.scanner);
+        loading::render(frame, &app.scanner, &app.theme);
     } else if let Some(ref found) = app.scanner.pending_result {
-        scan_dialog::render(frame, found.len());
+        scan_dialog::render(frame, found.len(), &app.theme);
     }
 
     #[cfg(feature = "genre")]

@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-use crate::{app::App, theme};
+use crate::app::{App, ViewMode};
 
 /// Formats `s` to fit exactly `target_width` display columns.
 /// If `s` exceeds `target_width`, truncates safely at character boundaries and appends `…`.
@@ -175,11 +175,16 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     };
 
     let title = format!(" 󰲸 Track List ({count_label}){genre_badge}{queue_badge} ");
+    let border_color = if app.view_mode == ViewMode::Playlist {
+        app.theme.border_focused
+    } else {
+        app.theme.border
+    };
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme::BLUE));
+        .border_style(Style::default().fg(border_color));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -215,15 +220,15 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         let album_w = remaining.saturating_sub(title_w + artist_w).max(8);
 
         let header_spans = vec![
-            Span::styled("  #   ", Style::default().fg(theme::OVERLAY0).add_modifier(Modifier::BOLD)),
+            Span::styled("  #   ", Style::default().fg(app.theme.faint).add_modifier(Modifier::BOLD)),
             Span::raw(" "),
-            Span::styled(fit_width("Title", title_w), Style::default().fg(theme::OVERLAY0).add_modifier(Modifier::BOLD)),
+            Span::styled(fit_width("Title", title_w), Style::default().fg(app.theme.faint).add_modifier(Modifier::BOLD)),
             Span::raw(" "),
-            Span::styled(fit_width("Artist", artist_w), Style::default().fg(theme::OVERLAY0).add_modifier(Modifier::BOLD)),
+            Span::styled(fit_width("Artist", artist_w), Style::default().fg(app.theme.faint).add_modifier(Modifier::BOLD)),
             Span::raw(" "),
-            Span::styled(fit_width("Album", album_w), Style::default().fg(theme::OVERLAY0).add_modifier(Modifier::BOLD)),
+            Span::styled(fit_width("Album", album_w), Style::default().fg(app.theme.faint).add_modifier(Modifier::BOLD)),
             Span::raw(" "),
-            Span::styled(fit_width("Time", 5), Style::default().fg(theme::OVERLAY0).add_modifier(Modifier::BOLD)),
+            Span::styled(fit_width("Time", 5), Style::default().fg(app.theme.faint).add_modifier(Modifier::BOLD)),
         ];
         let header_line = Line::from(header_spans);
 
@@ -242,23 +247,23 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
                 (
                     sym,
                     Style::default()
-                        .fg(theme::YELLOW)
-                        .bg(theme::SURFACE0)
+                        .fg(app.theme.warning)
+                        .bg(app.theme.selected_bg)
                         .add_modifier(Modifier::BOLD),
                 )
             } else if is_selected {
                 (
                     " ",
-                    Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
+                    Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD),
                 )
             } else if is_playing {
                 let sym = if app.audio.is_paused { "󰏤 " } else { "▶ " };
                 (
                     sym,
-                    Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD),
+                    Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD),
                 )
             } else {
-                ("  ", Style::default().fg(theme::TEXT))
+                ("  ", Style::default().fg(app.theme.text))
             };
 
             let num = if filtered.len() >= 100 {
@@ -270,43 +275,43 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             let (style, artist_style, album_style, dur_style, num_style, space_style) = if is_selected && is_playing {
                 (
                     Style::default()
-                        .fg(theme::GREEN)
-                        .bg(theme::SURFACE0)
+                        .fg(app.theme.success)
+                        .bg(app.theme.selected_bg)
                         .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-                    Style::default().fg(theme::ROSE).bg(theme::SURFACE0),
-                    Style::default().fg(theme::SUBTEXT0).bg(theme::SURFACE0),
-                    Style::default().fg(theme::YELLOW).bg(theme::SURFACE0),
-                    Style::default().fg(theme::OVERLAY0).bg(theme::SURFACE0),
-                    Style::default().bg(theme::SURFACE0),
+                    Style::default().fg(app.theme.accent_dim).bg(app.theme.selected_bg),
+                    Style::default().fg(app.theme.muted).bg(app.theme.selected_bg),
+                    Style::default().fg(app.theme.warning).bg(app.theme.selected_bg),
+                    Style::default().fg(app.theme.faint).bg(app.theme.selected_bg),
+                    Style::default().bg(app.theme.selected_bg),
                 )
             } else if is_selected {
                 (
                     Style::default()
-                        .fg(theme::YELLOW)
-                        .bg(theme::SURFACE0)
+                        .fg(app.theme.warning)
+                        .bg(app.theme.selected_bg)
                         .add_modifier(Modifier::BOLD),
-                    Style::default().fg(theme::ROSE).bg(theme::SURFACE0),
-                    Style::default().fg(theme::SUBTEXT0).bg(theme::SURFACE0),
-                    Style::default().fg(theme::YELLOW).bg(theme::SURFACE0),
-                    Style::default().fg(theme::OVERLAY0).bg(theme::SURFACE0),
-                    Style::default().bg(theme::SURFACE0),
+                    Style::default().fg(app.theme.accent_dim).bg(app.theme.selected_bg),
+                    Style::default().fg(app.theme.muted).bg(app.theme.selected_bg),
+                    Style::default().fg(app.theme.warning).bg(app.theme.selected_bg),
+                    Style::default().fg(app.theme.faint).bg(app.theme.selected_bg),
+                    Style::default().bg(app.theme.selected_bg),
                 )
             } else if is_playing {
                 (
-                    Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD),
-                    Style::default().fg(theme::ROSE),
-                    Style::default().fg(theme::SUBTEXT0),
-                    Style::default().fg(theme::YELLOW),
-                    Style::default().fg(theme::OVERLAY0),
+                    Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD),
+                    Style::default().fg(app.theme.accent_dim),
+                    Style::default().fg(app.theme.muted),
+                    Style::default().fg(app.theme.warning),
+                    Style::default().fg(app.theme.faint),
                     Style::default(),
                 )
             } else {
                 (
-                    Style::default().fg(theme::TEXT),
-                    Style::default().fg(theme::ROSE),
-                    Style::default().fg(theme::SUBTEXT0),
-                    Style::default().fg(theme::YELLOW),
-                    Style::default().fg(theme::OVERLAY0),
+                    Style::default().fg(app.theme.text),
+                    Style::default().fg(app.theme.accent_dim),
+                    Style::default().fg(app.theme.muted),
+                    Style::default().fg(app.theme.warning),
+                    Style::default().fg(app.theme.faint),
                     Style::default(),
                 )
             };
@@ -345,7 +350,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
         if filtered.is_empty() {
             list_items.push(ListItem::new(Line::from(vec![
-                Span::styled("  (empty playlist or no match)", Style::default().fg(theme::OVERLAY0)),
+                Span::styled("  (empty playlist or no match)", Style::default().fg(app.theme.faint)),
             ])));
         }
 
@@ -370,8 +375,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
                 .begin_symbol(None)
                 .end_symbol(None)
-                .thumb_style(Style::default().fg(theme::BLUE))
-                .track_style(Style::default().fg(theme::SURFACE0));
+                .thumb_style(Style::default().fg(app.theme.info))
+                .track_style(Style::default().fg(app.theme.progress_track));
             frame.render_stateful_widget(
                 scrollbar,
                 list_area.inner(Margin { vertical: 0, horizontal: 0 }),
@@ -397,23 +402,23 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
                 (
                     sym,
                     Style::default()
-                        .fg(theme::YELLOW)
-                        .bg(theme::SURFACE0)
+                        .fg(app.theme.warning)
+                        .bg(app.theme.selected_bg)
                         .add_modifier(Modifier::BOLD),
                 )
             } else if is_selected {
                 (
                     " ",
-                    Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
+                    Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD),
                 )
             } else if is_playing {
                 let sym = if app.audio.is_paused { "󰏤 " } else { "▶ " };
                 (
                     sym,
-                    Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD),
+                    Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD),
                 )
             } else {
-                ("  ", Style::default().fg(theme::TEXT))
+                ("  ", Style::default().fg(app.theme.text))
             };
 
             let num = format!("{:02}. ", pos + 1);
@@ -421,28 +426,28 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             let (style, num_style) = if is_selected && is_playing {
                 (
                     Style::default()
-                        .fg(theme::GREEN)
-                        .bg(theme::SURFACE0)
+                        .fg(app.theme.success)
+                        .bg(app.theme.selected_bg)
                         .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-                    Style::default().fg(theme::OVERLAY0).bg(theme::SURFACE0),
+                    Style::default().fg(app.theme.faint).bg(app.theme.selected_bg),
                 )
             } else if is_selected {
                 (
                     Style::default()
-                        .fg(theme::YELLOW)
-                        .bg(theme::SURFACE0)
+                        .fg(app.theme.warning)
+                        .bg(app.theme.selected_bg)
                         .add_modifier(Modifier::BOLD),
-                    Style::default().fg(theme::OVERLAY0).bg(theme::SURFACE0),
+                    Style::default().fg(app.theme.faint).bg(app.theme.selected_bg),
                 )
             } else if is_playing {
                 (
-                    Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD),
-                    Style::default().fg(theme::OVERLAY0),
+                    Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD),
+                    Style::default().fg(app.theme.faint),
                 )
             } else {
                 (
-                    Style::default().fg(theme::TEXT),
-                    Style::default().fg(theme::OVERLAY0),
+                    Style::default().fg(app.theme.text),
+                    Style::default().fg(app.theme.faint),
                 )
             };
 
@@ -462,7 +467,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
 
         if filtered.is_empty() {
             list_items.push(ListItem::new(Line::from(vec![
-                Span::styled("  (empty playlist)", Style::default().fg(theme::OVERLAY0)),
+                Span::styled("  (empty playlist)", Style::default().fg(app.theme.faint)),
             ])));
         }
 
@@ -476,8 +481,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
                 .begin_symbol(None)
                 .end_symbol(None)
-                .thumb_style(Style::default().fg(theme::BLUE))
-                .track_style(Style::default().fg(theme::SURFACE0));
+                .thumb_style(Style::default().fg(app.theme.info))
+                .track_style(Style::default().fg(app.theme.progress_track));
             frame.render_stateful_widget(
                 scrollbar,
                 inner.inner(Margin { vertical: 0, horizontal: 0 }),

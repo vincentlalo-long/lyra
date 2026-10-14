@@ -17,6 +17,9 @@ pub struct FileConfig {
     pub music_folder: Option<String>,
     pub download_dir: Option<String>,
     pub search_limit: Option<usize>,
+    /// Theme preset name: "mocha" (default), "gruvbox", "tokyo-night",
+    /// "dracula", "nord", "latte".
+    pub theme: Option<String>,
 }
 
 fn config_path() -> Option<PathBuf> {
@@ -66,6 +69,8 @@ pub struct Config {
     pub download_dir: Option<String>,
     /// Saved YouTube search result limit, if present.
     pub search_limit: Option<usize>,
+    /// Theme preset name, if present.
+    pub theme: Option<String>,
 }
 
 impl Config {
@@ -80,6 +85,7 @@ impl Config {
             music_folder: file.music_folder,
             download_dir: file.download_dir,
             search_limit: file.search_limit,
+            theme: file.theme,
         }
     }
 
@@ -115,7 +121,7 @@ impl Config {
         let text = std::fs::read_to_string(path).unwrap_or_default();
         let mut table: toml::Table = toml::from_str(&text).unwrap_or_default();
         match key {
-            "music_folder" | "download_dir" => {
+            "music_folder" | "download_dir" | "theme" => {
                 table.insert(key.to_string(), toml::Value::String(value.to_string()));
             }
             // Numeric setting (YouTube search result limit).
@@ -143,6 +149,7 @@ impl Config {
             music_folder: file.music_folder,
             download_dir: file.download_dir,
             search_limit: file.search_limit,
+            theme: file.theme,
         }
     }
 
@@ -238,6 +245,7 @@ mod tests {
             music_folder: Some("/cfg/music".to_string()),
             download_dir: None,
             search_limit: None,
+            theme: None,
         };
         let (p, w) = cfg.resolve_music_folder(Some(PathBuf::from("/cli/music")));
         assert_eq!(p, PathBuf::from("/cli/music"));
@@ -250,6 +258,7 @@ mod tests {
             music_folder: Some("/nonexistent-lyra-dir-xyz".to_string()),
             download_dir: None,
             search_limit: None,
+            theme: None,
         };
         let (p, w) = cfg.resolve_music_folder(None);
         assert!(w.is_some());
@@ -262,6 +271,7 @@ mod tests {
             music_folder: None,
             download_dir: Some("~/Custom/Downloads".to_string()),
             search_limit: None,
+            theme: None,
         };
         let (p, raw) = cfg.resolve_download_dir(Path::new("/fallback"));
         assert_eq!(raw, "~/Custom/Downloads");

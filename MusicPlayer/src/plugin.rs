@@ -34,6 +34,64 @@ pub struct DownloadablePlugin {
     pub description: String,
     #[serde(default)]
     pub is_installed: bool,
+    /// Direct download URL for the plugin archive (`.tar.gz`) or a single
+    /// `.py` file. Also accepts `file://` URLs (useful for tests and local
+    /// mirrors). Empty = no remote source; install falls back to a local
+    /// copy from the `entry` directory (repo checkout).
+    #[serde(default)]
+    pub url: String,
+    /// Expected hex sha256 of the downloaded file. Empty = skip verification.
+    #[serde(default)]
+    pub sha256: String,
+    /// Minimum lyra version required, e.g. `"v0.2.6"`. Empty = any version.
+    #[serde(default, rename = "min_lyra_version")]
+    pub min_version: String,
+}
+
+/// Current binary version (`MusicPlayer/Cargo.toml`), e.g. `"0.2.6"`.
+pub const LYRA_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+fn parse_version_numbers(v: &str) -> Vec<u64> {
+    v.trim()
+        .trim_start_matches(['v', 'V'])
+        .split('.')
+        .map(|part| {
+            part.chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>()
+                .parse()
+                .unwrap_or(0)
+        })
+        .collect()
+}
+
+/// Compares two `vX.Y.Z` versions. Returns Greater/Equal/Less.
+pub fn cmp_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    let pa = parse_version_numbers(a);
+    let pb = parse_version_numbers(b);
+    let n = pa.len().max(pb.len()).max(1);
+    for i in 0..n {
+        let x = pa.get(i).copied().unwrap_or(0);
+        let y = pb.get(i).copied().unwrap_or(0);
+        match x.cmp(&y) {
+            std::cmp::Ordering::Equal => continue,
+            other => return other,
+        }
+    }
+    std::cmp::Ordering::Equal
+}
+
+/// Errors when the running binary is older than `min` (empty = always Ok).
+pub fn check_min_version(min: &str) -> Result<(), String> {
+    if min.trim().is_empty() {
+        return Ok(());
+    }
+    if cmp_versions(LYRA_VERSION, min) == std::cmp::Ordering::Less {
+        return Err(format!(
+            "requires lyra {min} (you have v{LYRA_VERSION}); please update lyra first"
+        ));
+    }
+    Ok(())
 }
 
 impl ManagedPlugin {
@@ -213,6 +271,77 @@ impl ConfigPathItem {
 }
 
 impl DownloadablePlugin {
+    /// Root dir for real (downloaded/copied) community plugins:
+    /// `$LYRA_DATA_HOME` (tests) > `$XDG_DATA_HOME/lyra/plugins` >
+    /// `~/.local/share/lyra/plugins`. Each plugin lives in `<root>/<id>/`
+    /// with a `plugin.py` entrypoint.
+    pub fn data_root() -> Option<PathBuf> {
+        if let Some(p) = std::env::var_os("LYRA_DATA_HOME") {
+            return Some(PathBuf::from(p));
+        }
+        if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
+            return Some(PathBuf::from(xdg).join("lyra").join("plugins"));
+        }
+        std::env::var_os("HOME")
+            .map(|h| PathBuf::from(h).join(".local").join("share").join("lyra").join("plugins"))
+    }
+
+    /// Installed location of this plugin (`<root>/<id>`), if a data dir exists.
+    pub fn install_dir(&self) -> Option<PathBuf> {
+        Self::data_root().map(|r| r.join(&self.id))
+    }
+
+    /// True when `<install_dir>/plugin.py` exists on disk.
+    pub fn is_present_on_disk(&self) -> bool {
+        self.install_dir()
+            .map(|d| d.join("plugin.py").is_file())
+            .unwrap_or(false)
+    }
+
+    /// Reconciles `is_installed` with reality: a plugin counts as installed
+    /// only if its entrypoint file actually exists (old-version binaries
+    /// that only flipped the mock flag get corrected on next launch).
+    pub fn refresh_installed_from_disk(plugins: &mut [Self]) {
+        for p in plugins.iter_mut() {
+            if p.is_installed && !p.is_present_on_disk() {
+                // Keep the flag if there is simply nowhere to install to
+                // (no HOME); otherwise an orphaned flag is a lie — clear it.
+                if Self::data_root().is_some() {
+                    p.is_installed = false;
+                }
+            } else if !p.is_installed && p.is_present_on_disk() {
+                p.is_installed = true;
+            }
+        }
+    }
+
+    /// Finds the plugin's `entry` directory on local disk (repo checkout or
+    /// dev paths). Used when the manifest has no `url` — the plugin ships
+    /// with the source tree instead of a remote archive.
+    pub fn find_local_entry(entry: &str) -> Option<PathBuf> {
+        if entry.trim().is_empty() {
+            return None;
+        }
+        let rel = PathBuf::from(entry);
+        let mut candidates = vec![
+            rel.clone(),
+            PathBuf::from("..").join(&rel),
+            PathBuf::from("../..").join(&rel),
+        ];
+        if let Ok(exe) = std::env::current_exe() {
+            let mut curr = exe.parent();
+            while let Some(parent) = curr {
+                candidates.push(parent.join(&rel));
+                curr = parent.parent();
+            }
+        }
+        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+            for base in ["projects/lyra", "lyra", ".local/share/lyra"] {
+                candidates.push(home.join(base).join(&rel));
+            }
+        }
+        candidates.into_iter().find(|p| p.join("plugin.py").is_file())
+    }
     pub fn available_community_plugins() -> Vec<Self> {
         // 1. Try reading registry.json from disk (development / user custom registry)
         let candidates = [
@@ -265,6 +394,9 @@ impl DownloadablePlugin {
                 author: "@vincentlalo-long".into(),
                 description: "Extract hardcoded subtitles from music videos via OCR into synced .lrc lyrics (Coming Soon)".into(),
                 is_installed: false,
+                url: String::new(),
+                sha256: String::new(),
+                min_version: String::new(),
             },
         ]
     }
@@ -273,6 +405,33 @@ impl DownloadablePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cmp::Ordering;
+
+    #[test]
+    fn test_version_compare_and_gate() {
+        assert_eq!(cmp_versions("v0.2.6", "v0.2.6"), Ordering::Equal);
+        assert_eq!(cmp_versions("0.2.6", "v0.2.6"), Ordering::Equal);
+        assert_eq!(cmp_versions("v0.2.10", "v0.2.6"), Ordering::Greater);
+        assert_eq!(cmp_versions("v0.2.6", "v99.0.0"), Ordering::Less);
+        assert_eq!(cmp_versions("v1.0", "v1.0.0"), Ordering::Equal);
+        assert!(check_min_version("").is_ok());
+        assert!(check_min_version("v0.0.1").is_ok());
+        assert!(check_min_version("v99.0.0").is_err());
+    }
+
+    #[test]
+    fn test_manifest_parses_new_fields_with_defaults() {
+        let json = r#"[{"id":"x","name":"X","version":"v1.0.0","author":"a","description":"d","entry":"plugins/x","status":"active"}]"#;
+        let v: Vec<DownloadablePlugin> = serde_json::from_str(json).unwrap();
+        assert_eq!(v[0].url, "");
+        assert_eq!(v[0].sha256, "");
+        assert_eq!(v[0].min_version, "");
+        let json2 = r#"[{"id":"y","name":"Y","version":"v1.0.0","author":"a","description":"d","entry":"plugins/y","status":"active","url":"https://example.com/y.tar.gz","sha256":"abc","min_lyra_version":"v9.9.9"}]"#;
+        let w: Vec<DownloadablePlugin> = serde_json::from_str(json2).unwrap();
+        assert_eq!(w[0].url, "https://example.com/y.tar.gz");
+        assert_eq!(w[0].min_version, "v9.9.9");
+        assert!(check_min_version(&w[0].min_version).is_err());
+    }
 
     #[test]
     fn test_merge_plugins_preserves_user_settings_and_updates_version() {

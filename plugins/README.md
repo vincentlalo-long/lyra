@@ -50,6 +50,25 @@ All community plugins available for discovery and download in the Lyra Plugin St
 | `description` | `string` | Brief description of functionality |
 | `entry` | `string` | Relative path to plugin directory or script |
 | `status` | `string` | `active`, `beta`, or `planned` |
+| `url` | `string` | (optional) Direct download URL (`.tar.gz`/`.tgz` archive or single `.py`; `https://` or `file://`). Empty = install copies from the local `entry` folder |
+| `sha256` | `string` | (optional) Hex sha256 of the downloaded file. Empty = skip verification |
+| `min_lyra_version` | `string` | (optional) Minimum lyra version, e.g. `v0.2.6`. Older binaries refuse to install |
+
+### Plugin Contract (`plugin.py`)
+
+Every installable plugin must expose:
+
+```python
+def run(payload: dict) -> dict:
+    return {"status": "success", "message": "...", "data": {...}}
+```
+
+and answer `{"action": "list"}` with its capabilities — the Store `x`
+(Run) key sends exactly that probe and shows the reply. Archives must
+contain `plugin.py` at their root (a single top-level wrapper dir is
+stripped automatically). After install, files live in
+`~/.local/share/lyra/plugins/<id>/` (+ `.lyra-plugin.json` receipt);
+uninstalling from the TUI wipes that folder.
 
 ---
 
