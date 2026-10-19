@@ -107,6 +107,17 @@ fn run_loop(terminal: &mut terminal::Tui, app: &mut App) -> Result<()> {
         // Auto-advance to next track when current song finishes
         app.check_auto_advance();
 
+        // Sleep timer: pause playback when the timer expires.
+        if let Some(start) = app.sleep_timer {
+            if app.sleep_timer_minutes > 0
+                && start.elapsed() >= std::time::Duration::from_secs(app.sleep_timer_minutes * 60)
+            {
+                app.sleep_timer = None;
+                app.audio.toggle_pause();
+                app.set_toast("Sleep timer: playback stopped".to_string());
+            }
+        }
+
         // Update background scan animation and receive results
         app.check_scan();
 

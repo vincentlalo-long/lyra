@@ -382,13 +382,85 @@ impl App {
                     let mp3_p = PathBuf::from(mp3_path);
                     // Sorted insert that preserves playing/selected cursors
                     // by path identity (no display/cursor jump mid-playback).
-                    self.playlist.insert_sorted(mp3_p);
+                    self.playlist.insert_sorted(mp3_p.clone());
+                    // Auto-embed cover art into ID3 after download (if enabled).
+                    if self.cover_embed {
+                        self.embed_cover_for_track(&mp3_p);
+                    }
                 }
                 DownloadEvent::Error(err) => {
                     self.download.is_searching = false;
                     self.download.is_downloading = false;
                     self.download.last_error = Some(err);
                 }
+            }
+        }
+    }
+
+    /// Embeds cover art (cover.jpg / cover.png next to the track) into the
+    /// track's ID3 APIC frame using a Python helper (mutagen). Silent on
+    /// failure — cover embedding is a nice-to-have, not a blocker.
+    pub fn embed_cover_for_track(&mut self, mp3_path: &PathBuf) {
+        let parent = match mp3_path.parent() {
+            Some(p) => p,
+            None => return,
+        };
+        // Find cover image next to the track.
+        let cover_exts = ["cover.jpg", "cover.jpeg", "cover.png", "cover.webp"];
+        let cover_path = cover_exts.iter().find_map(|name| {
+            let p = parent.join(name);
+            if p.is_file() { Some(p) } else { None }
+        });
+        let Some(cover_path) = cover_path else {
+            return;
+        };
+
+        let mp3_str = mp3_path.to_string_lossy().to_string();
+        let cover_str = cover_path.to_string_lossy().to_string();
+
+        // Escape backslashes and quotes for safe embedding in a Python string literal.
+        let mp3_py = mp3_str.replace('\\', "\\\\").replace('"', "\\\"");
+        let cover_py = cover_str.replace('\\', "\\\\").replace('"', "\\\"");
+
+        let python_code = format!(
+            "from mutagen.id3 import ID3, APIC\n\
+             from mutagen.mp3 import MP3\n\
+             try:\n\
+                 audio = MP3(\"{mp3}\", ID3=ID3)\n\
+                 try:\n\
+                     tags = audio.tags\n\
+                 except Exception:\n\
+                     tags = ID3()\n\
+                     audio.tags = tags\n\
+                 tags.delall(\"APIC\")\n\
+                 with open(\"{cover}\", \"rb\") as f:\n\
+                     data = f.read()\n\
+                 mime = \"image/png\" if \"{cover}\".lower().endswith(\".png\") else \"image/jpeg\"\n\
+                 tags.add(APIC(encoding=3, mime=mime, type=3, desc=\"Cover\", data=data))\n\
+                 audio.save(v2_version=3)\n\
+                 print(\"OK\")\n\
+             except Exception as e:\n\
+                 print(f\"ERR: {{e}}\")\n",
+            mp3 = mp3_py,
+            cover = cover_py,
+        );
+
+        let output = std::process::Command::new("python3")
+            .args(["-c", &python_code])
+            .output();
+
+        match output {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                if stdout.trim() == "OK" {
+                    self.set_toast(format!("Cover embedded: {}", mp3_path.display()));
+                    self.meta_cache.remove(mp3_path);
+                } else {
+                    self.set_toast(format!("Cover embed failed: {stdout}"));
+                }
+            }
+            Err(e) => {
+                self.set_toast(format!("Cover embed failed: python3 not available ({e})"));
             }
         }
     }

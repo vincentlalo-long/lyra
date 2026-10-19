@@ -119,7 +119,8 @@ def run(payload: Dict[str, Any]) -> Dict[str, Any]:
                         "message": f"Could not write {path}: {e}", "data": {}}
             return {"status": "success",
                     "message": f"Theme '{name}' saved to {path}. "
-                               "Restart lyra (or set LYRA_THEME) to apply.",
+                               "Press 'Z' in lyra to reload without restarting, "
+                               "or restart lyra / set LYRA_THEME to apply.",
                     "data": {"name": name, "config": path}}
         # default: list
         return {"status": "success",

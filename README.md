@@ -149,6 +149,10 @@ Available cargo features:
 | `i` | Import folder/album from Browser into Playlist |
 | `/` | Search in Playlist or Browser |
 | `?` | Toggle keybindings help modal |
+| `X` | Cycle theme (mocha → gruvbox → tokyo-night → dracula → nord → latte; saved to config.toml) |
+| `Z` | Reload theme from config.toml (use after changing theme via theme-packs plugin) |
+| `O` | Sleep timer: off → 15 → 30 → 60 → 90 → 120 → off (pauses playback on expiry) |
+| `K` | Playlist import/export modal (M3U; Tab toggles import/export) |
 | `q` | Quit |
 
 ---
@@ -160,9 +164,13 @@ Available cargo features:
   music_directory = "~/Music"
   volume = 80
   repeat_mode = "playlist"
+  theme = "gruvbox"
+  cover_embed = true
   ```
 - Genre Sidecar: `~/.config/lyra/genres.json`
 - Artwork Cache: `~/.cache/lyra/covers/`
+
+**Config validation**: On startup, lyra warns (stderr) if `theme` is not a known preset or if `music_folder`/`download_dir` don't exist. Fix `config.toml` or unset `LYRA_THEME` to clear the warning.
 
 ---
 

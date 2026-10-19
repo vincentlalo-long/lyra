@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+use crate::theme::Theme;
 
 /// Minimal example written to the config path only as documentation
 /// (never auto-created, to avoid surprising the user with new files).
@@ -20,6 +21,8 @@ pub struct FileConfig {
     /// Theme preset name: "mocha" (default), "gruvbox", "tokyo-night",
     /// "dracula", "nord", "latte".
     pub theme: Option<String>,
+    /// Auto-embed cover art into ID3 after download (requires mutagen).
+    pub cover_embed: Option<bool>,
 }
 
 fn config_path() -> Option<PathBuf> {
@@ -71,6 +74,8 @@ pub struct Config {
     pub search_limit: Option<usize>,
     /// Theme preset name, if present.
     pub theme: Option<String>,
+    /// Auto-embed cover art into ID3 after download.
+    pub cover_embed: bool,
 }
 
 impl Config {
@@ -86,7 +91,46 @@ impl Config {
             download_dir: file.download_dir,
             search_limit: file.search_limit,
             theme: file.theme,
+            cover_embed: file.cover_embed.unwrap_or(true),
         }
+    }
+
+    /// Validates the loaded config and returns human-readable warnings
+    /// for values that look wrong (invalid theme name, missing folders).
+    /// The app should still start even if warnings are present.
+    pub fn validate(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+        let home = std::env::var("HOME").unwrap_or_default();
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+        // Validate theme name against available presets.
+        if let Some(theme) = &self.theme {
+            if !Theme::available().iter().any(|a| a.eq_ignore_ascii_case(theme)) {
+                warnings.push(format!(
+                    "Invalid theme '{}' in config.toml. Available: {}",
+                    theme,
+                    Theme::available().join(", ")
+                ));
+            }
+        }
+
+        // Validate music_folder exists.
+        if let Some(folder) = &self.music_folder {
+            let p = expand_path(folder, &home, &cwd);
+            if !p.exists() {
+                warnings.push(format!("music_folder '{}' does not exist", folder));
+            }
+        }
+
+        // Validate download_dir exists if explicitly set.
+        if let Some(dir) = &self.download_dir {
+            let p = expand_path(dir, &home, &cwd);
+            if !p.exists() {
+                warnings.push(format!("download_dir '{}' does not exist", dir));
+            }
+        }
+
+        warnings
     }
 
     /// Save or update setting in config file (~/.config/lyra/config.toml).
@@ -121,8 +165,15 @@ impl Config {
         let text = std::fs::read_to_string(path).unwrap_or_default();
         let mut table: toml::Table = toml::from_str(&text).unwrap_or_default();
         match key {
-            "music_folder" | "download_dir" | "theme" => {
+            "music_folder" | "download_dir" => {
                 table.insert(key.to_string(), toml::Value::String(value.to_string()));
+            }
+            // Theme preset name — validate against available presets before writing.
+            "theme" => {
+                if Theme::available().iter().any(|a| a.eq_ignore_ascii_case(value)) {
+                    let canonical = Theme::from_name(value).name.to_string();
+                    table.insert(key.to_string(), toml::Value::String(canonical));
+                }
             }
             // Numeric setting (YouTube search result limit).
             "search_limit" => {
@@ -130,6 +181,12 @@ impl Config {
                     if (1..=50).contains(&n) {
                         table.insert(key.to_string(), toml::Value::Integer(n));
                     }
+                }
+            }
+            // Boolean flag (auto-embed cover after download).
+            "cover_embed" => {
+                if let Ok(b) = value.parse::<bool>() {
+                    table.insert(key.to_string(), toml::Value::Boolean(b));
                 }
             }
             _ => {}
@@ -150,6 +207,7 @@ impl Config {
             download_dir: file.download_dir,
             search_limit: file.search_limit,
             theme: file.theme,
+            cover_embed: file.cover_embed.unwrap_or(true),
         }
     }
 
@@ -246,6 +304,7 @@ mod tests {
             download_dir: None,
             search_limit: None,
             theme: None,
+            cover_embed: true,
         };
         let (p, w) = cfg.resolve_music_folder(Some(PathBuf::from("/cli/music")));
         assert_eq!(p, PathBuf::from("/cli/music"));
@@ -259,6 +318,7 @@ mod tests {
             download_dir: None,
             search_limit: None,
             theme: None,
+            cover_embed: true,
         };
         let (p, w) = cfg.resolve_music_folder(None);
         assert!(w.is_some());
@@ -272,6 +332,7 @@ mod tests {
             download_dir: Some("~/Custom/Downloads".to_string()),
             search_limit: None,
             theme: None,
+            cover_embed: true,
         };
         let (p, raw) = cfg.resolve_download_dir(Path::new("/fallback"));
         assert_eq!(raw, "~/Custom/Downloads");
@@ -289,16 +350,40 @@ mod tests {
         Config::save_setting_to(&path, "music_folder", "/tmp/mytest_music").unwrap();
         Config::save_setting_to(&path, "download_dir", "/tmp/mytest_music/dl").unwrap();
         Config::save_setting_to(&path, "search_limit", "25").unwrap();
+        Config::save_setting_to(&path, "theme", "gruvbox").unwrap();
         let cfg = Config::load_from(&path);
         assert_eq!(cfg.music_folder, Some("/tmp/mytest_music".to_string()));
         assert_eq!(cfg.download_dir, Some("/tmp/mytest_music/dl".to_string()));
         assert_eq!(cfg.search_limit, Some(25));
+        assert_eq!(cfg.theme, Some("gruvbox".to_string()));
 
         // Overwriting one key must not drop the other.
         Config::save_setting_to(&path, "music_folder", "/tmp/other").unwrap();
         let cfg = Config::load_from(&path);
         assert_eq!(cfg.music_folder, Some("/tmp/other".to_string()));
         assert_eq!(cfg.download_dir, Some("/tmp/mytest_music/dl".to_string()));
+        assert_eq!(cfg.theme, Some("gruvbox".to_string()));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_save_theme_rejects_invalid_name() {
+        let dir = std::env::temp_dir().join(format!("lyra_cfg_theme_{}", std::process::id()));
+        let path = dir.join("config.toml");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+
+        // Invalid theme name must NOT be written.
+        let result = Config::save_setting_to(&path, "theme", "not-a-real-theme");
+        assert!(result.is_ok());
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("theme"), "invalid theme must not be written: {text}");
+
+        // Valid theme name (case-insensitive) must be canonicalized.
+        Config::save_setting_to(&path, "theme", "GRUVBOX").unwrap();
+        let cfg = Config::load_from(&path);
+        assert_eq!(cfg.theme, Some("gruvbox".to_string()));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

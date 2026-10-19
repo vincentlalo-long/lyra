@@ -8,6 +8,7 @@ use anyhow::Result;
 use crate::{
     audio::AudioPlayer,
     browser::FileBrowser,
+    config::Config,
     cover::AlbumArt,
     lyrics::Lyrics,
     playlist::Playlist,
@@ -50,6 +51,19 @@ pub enum ViewMode {
     Extensions,
     /// Plugin manager, settings & extension store.
     Plugins,
+}
+
+/// Playlist import/export modal state.
+#[derive(Clone, Debug)]
+pub struct PlaylistIoModal {
+    pub mode: PlaylistIoMode,
+    pub input: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlaylistIoMode {
+    Import,
+    Export,
 }
 
 pub struct App {
@@ -122,6 +136,8 @@ pub struct App {
     pub queue_scroll_tracker: (usize, Instant),
     /// Interactive browser actions: new album, rename album, edit track ID3, move track.
     pub browser_modal: Option<crate::browser::BrowserActionModal>,
+    /// Playlist import/export modal (M3U/PLS).
+    pub playlist_io_modal: Option<PlaylistIoModal>,
     /// Caret (char index) inside the active browser-modal text input.
     /// Reset to end-of-text whenever a modal opens or its field changes.
     pub browser_caret: usize,
@@ -135,6 +151,13 @@ pub struct App {
     pub theme: crate::theme::Theme,
     /// Active theme preset name (`mocha` default).
     pub theme_name: String,
+    /// Sleep timer: `Some(instant)` when active, `None` when disabled.
+    /// Playback is paused when the timer expires.
+    pub sleep_timer: Option<Instant>,
+    /// Sleep timer duration in minutes.
+    pub sleep_timer_minutes: u64,
+    /// Auto-embed cover art into ID3 after download.
+    pub cover_embed: bool,
     /// Background community-plugin installer: sending side (cloned per job).
     pub plugin_dl_tx: plugin_mpsc::Sender<crate::plugin_dl::InstallEvent>,
     /// Receiving side, drained every main-loop tick (`check_plugin_downloads`).
@@ -236,22 +259,36 @@ impl App {
             selected_scroll_tracker: (0, Instant::now()),
             queue_scroll_tracker: (0, Instant::now()),
             browser_modal: None,
+            playlist_io_modal: None,
             browser_caret: 0,
             seekbar_rect: None,
             seeking_drag: false,
             theme: crate::theme::Theme::mocha(),
             theme_name: "mocha".to_string(),
+            sleep_timer: None,
+            sleep_timer_minutes: 0,
+            cover_embed: true,
             plugin_dl_tx,
             plugin_dl_rx,
             plugin_dl_active: None,
             plugin_data_root: None,
         };
         // Theme preset: LYRA_THEME env wins, then config file `theme`.
-        let theme_choice = std::env::var("LYRA_THEME")
-            .ok()
-            .or(config.theme.clone());
+        let env_theme = std::env::var("LYRA_THEME").ok();
+        let theme_choice = env_theme.clone().or(config.theme.clone());
         if let Some(name) = theme_choice {
             app.set_theme(&name);
+            if let (Some(env), Some(config_val)) = (&env_theme, &config.theme) {
+                if env != config_val {
+                    eprintln!(
+                        "Warning: LYRA_THEME='{env}' overrides saved theme='{config_val}' in config.toml."
+                    );
+                }
+            }
+        }
+        // Validate config values and warn about anything that looks wrong.
+        for warning in config.validate() {
+            eprintln!("Warning: {warning}");
         }
         // Derive runtime flags from saved plugin states (a plugin disabled
         // in a previous session stays off — no recompile needed).
@@ -265,6 +302,7 @@ impl App {
                 app.download.search_limit = n;
             }
         }
+        app.cover_embed = config.cover_embed;
         Ok(app)
     }
 
@@ -379,6 +417,47 @@ impl App {
         };
         self.set_theme(next);
         self.set_toast(format!("Theme: {next}"));
+        let _ = Config::save_setting("theme", next);
+    }
+
+    /// Cycle sleep timer: off -> 15 -> 30 -> 60 -> 90 -> 120 -> off.
+    /// When active, playback is paused after `sleep_timer_minutes` elapse.
+    pub fn cycle_sleep_timer(&mut self) {
+        let next_minutes = match self.sleep_timer_minutes {
+            0 => 15,
+            15 => 30,
+            30 => 60,
+            60 => 90,
+            90 => 120,
+            _ => 0,
+        };
+        self.sleep_timer_minutes = next_minutes;
+        if next_minutes > 0 {
+            self.sleep_timer = Some(Instant::now());
+            self.set_toast(format!("Sleep timer: {next_minutes} min"));
+        } else {
+            self.sleep_timer = None;
+            self.set_toast("Sleep timer: off".to_string());
+        }
+    }
+
+    /// Reload theme preset from config.toml at runtime (e.g. after the
+    /// theme-packs plugin writes a new theme without restarting lyra).
+    /// No-op if the saved theme matches the current one or is invalid.
+    pub fn reload_theme_from_config(&mut self) {
+        let config = crate::config::Config::load();
+        let Some(saved) = config.theme else { return };
+        if saved == self.theme_name {
+            return;
+        }
+        let t = crate::theme::Theme::from_name(&saved);
+        let theme_name = t.name.to_string();
+        if theme_name == self.theme_name {
+            return;
+        }
+        self.theme_name = theme_name.clone();
+        self.theme = t;
+        self.set_toast(format!("Theme reloaded: {theme_name}"));
     }
 
     /// Shows a transient one-line feedback message in the header.

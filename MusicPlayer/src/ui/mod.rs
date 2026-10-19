@@ -14,6 +14,7 @@ mod help;
 mod loading;
 mod lyrics;
 mod playlist;
+mod playlist_io;
 mod plugins;
 mod queue;
 mod scan_dialog;
@@ -242,6 +243,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     if app.show_help {
         help::render(frame, app);
+    }
+
+    if app.playlist_io_modal.is_some() {
+        playlist_io::render(frame, app);
     }
 }
 

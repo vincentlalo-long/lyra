@@ -1,5 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use crate::app::{App, ViewMode};
+use std::path::PathBuf;
+use crate::app::{App, PlaylistIoModal, PlaylistIoMode, ViewMode};
+use crate::playlist::{export_m3u, load_m3u};
 
 #[cfg(feature = "download")]
 mod download;
@@ -322,6 +324,56 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         return true;
     }
 
+    // Playlist import/export modal input handling.
+    if let Some(modal) = &mut app.playlist_io_modal {
+        match event.code {
+            KeyCode::Esc => {
+                app.playlist_io_modal = None;
+                return true;
+            }
+            KeyCode::Enter => {
+                let path = PathBuf::from(modal.input.trim());
+                match modal.mode {
+                    PlaylistIoMode::Import => {
+                        let songs = load_m3u(&path);
+                        if songs.is_empty() {
+                            app.set_toast("Playlist import: no valid tracks found".to_string());
+                        } else {
+                            let n = songs.len();
+                            app.playlist.songs = songs;
+                            app.playlist.selected = 0;
+                            app.set_toast(format!("Playlist imported: {n} tracks"));
+                        }
+                    }
+                    PlaylistIoMode::Export => {
+                        match export_m3u(&app.playlist.songs, &path) {
+                            Ok(n) => app.set_toast(format!("Playlist exported: {} tracks → {}", n, path.display())),
+                            Err(e) => app.set_toast(format!("Playlist export failed: {e}")),
+                        }
+                    }
+                }
+                app.playlist_io_modal = None;
+                return true;
+            }
+            KeyCode::Backspace => {
+                modal.input.pop();
+                return true;
+            }
+            KeyCode::Tab => {
+                modal.mode = match modal.mode {
+                    PlaylistIoMode::Import => PlaylistIoMode::Export,
+                    PlaylistIoMode::Export => PlaylistIoMode::Import,
+                };
+                return true;
+            }
+            KeyCode::Char(c) => {
+                modal.input.push(c);
+                return true;
+            }
+            _ => return true,
+        }
+    }
+
     // Normal Mode
     match event.code {
         // Quit, clear filter, or cancel replace (Esc never quits mid-replace).
@@ -529,6 +581,25 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         // the genre tagger, so theme cycling lives on capital `X`.
         KeyCode::Char('X') => {
             app.cycle_theme();
+        }
+
+        // Reload theme preset from config.toml (e.g. after the theme-packs
+        // plugin writes a new theme without restarting lyra).
+        KeyCode::Char('Z') => {
+            app.reload_theme_from_config();
+        }
+
+        // Sleep timer: off -> 15 -> 30 -> 60 -> 90 -> 120 -> off.
+        KeyCode::Char('O') => {
+            app.cycle_sleep_timer();
+        }
+
+        // Playlist import/export modal (M3U).
+        KeyCode::Char('K') => {
+            app.playlist_io_modal = Some(PlaylistIoModal {
+                mode: PlaylistIoMode::Export,
+                input: String::new(),
+            });
         }
 
         // Seek forward / backward (5 seconds), or adjust setting in Plugins, or navigate in Browser

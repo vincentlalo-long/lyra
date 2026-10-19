@@ -411,6 +411,29 @@ pub fn load_m3u(path: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Exports the current playlist to an .m3u file.
+/// Returns the number of tracks written.
+pub fn export_m3u(songs: &[PathBuf], path: &Path) -> std::io::Result<usize> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    let mut content = String::from("#EXTM3U\n");
+    for song in songs {
+        let duration = 0; // duration unknown without probing
+        let name = song
+            .file_name()
+            .map(|n| n.to_string_lossy())
+            .unwrap_or_default();
+        content.push_str(&format!("#EXTINF:{duration},{name}\n"));
+        let display = song.to_string_lossy();
+        content.push_str(&format!("{display}\n"));
+    }
+    std::fs::write(path, content)?;
+    Ok(songs.len())
+}
+
 
 #[cfg(test)]    mod tests {
     use super::*;
