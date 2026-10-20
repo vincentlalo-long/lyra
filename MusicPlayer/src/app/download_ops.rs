@@ -46,6 +46,7 @@ impl App {
             custom_cover,
             no_lyrics: self.download.form_lyrics_mode == 2,
             no_auto_lyrics: self.download.form_lyrics_mode == 1,
+            lyrics_lang: self.download.selected_lyric_lang(),
         };
         self.download.active_title = req.title.clone();
         self.download.active_artist = req.artist.clone();
@@ -212,6 +213,8 @@ impl App {
         self.download.selected_cover = None;
         self.download.is_cover_loading = true;
         self.download.lyrics_probe = None;
+        self.download.available_lyric_langs.clear();
+        self.download.selected_lyric_lang_idx = 0;
         // Fresh cover state per download: a previous crop focus / staging
         // must never leak into the next form.
         self.download.cover_focus = None;
@@ -333,10 +336,15 @@ impl App {
                     self.download.is_searching = false;
                     self.open_metadata_form(url, title, artist);
                 }
-                DownloadEvent::LyricsProbe { has_manual, has_auto } => {
+                DownloadEvent::LyricsProbe { has_manual, has_auto, available_langs } => {
                     // Only a badge hint: manual subs ~ .lrc likely,
                     // auto-only ~ auto captions, neither ~ skip lyrics.
                     self.download.lyrics_probe = Some((has_manual, has_auto));
+                    // Populate the language picker from probed subtitle langs.
+                    if !available_langs.is_empty() {
+                        self.download.available_lyric_langs = available_langs;
+                        self.download.selected_lyric_lang_idx = 0;
+                    }
                 }
                 DownloadEvent::ImageStaged { path } => {
                     self.download.crop_staging = false;
@@ -368,7 +376,7 @@ impl App {
                 DownloadEvent::Status(stage) => {
                     self.download.current_stage = stage;
                 }
-                DownloadEvent::Completed { title, artist, mp3_path, cover_source, .. } => {
+                DownloadEvent::Completed { title, artist, mp3_path, lrc_path: _, lyric_lang, cover_source } => {
                     self.download.is_downloading = false;
                     let src = cover_source.unwrap_or_default();
                     let suffix = if src.is_empty() || src == "none" {
@@ -376,7 +384,8 @@ impl App {
                     } else {
                         format!(" [{src}]")
                     };
-                    self.download.last_completed = Some(format!("{artist} - {title}{suffix}"));
+                    let lang_suffix = lyric_lang.as_deref().map_or_else(String::new, |l| format!(" [{l}]"));
+                    self.download.last_completed = Some(format!("{artist} - {title}{lang_suffix}{suffix}"));
                     self.download.last_error = None;
                     self.browser.refresh();
                     let mp3_p = PathBuf::from(mp3_path);

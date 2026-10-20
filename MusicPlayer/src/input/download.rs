@@ -338,12 +338,27 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
                 app.download.show_metadata_form = false;
             }
             KeyCode::Tab | KeyCode::Down => {
-                let next = (app.download.form_field_idx + 1) % 8;
-                app.download.move_form_field(next);
+                // On the Lyrics row with available languages, Up/Down cycle
+                // languages instead of moving fields.
+                if app.download.form_field_idx == 6 && !app.download.available_lyric_langs.is_empty() {
+                    let n = app.download.available_lyric_langs.len();
+                    app.download.selected_lyric_lang_idx = (app.download.selected_lyric_lang_idx + 1) % n;
+                } else {
+                    let next = (app.download.form_field_idx + 1) % 8;
+                    app.download.move_form_field(next);
+                }
             }
             KeyCode::BackTab | KeyCode::Up => {
-                let prev = if app.download.form_field_idx == 0 { 7 } else { app.download.form_field_idx - 1 };
-                app.download.move_form_field(prev);
+                if app.download.form_field_idx == 6 && !app.download.available_lyric_langs.is_empty() {
+                    let n = app.download.available_lyric_langs.len();
+                    app.download.selected_lyric_lang_idx = app.download.selected_lyric_lang_idx.saturating_sub(1);
+                    if app.download.selected_lyric_lang_idx >= n {
+                        app.download.selected_lyric_lang_idx = n - 1;
+                    }
+                } else {
+                    let prev = if app.download.form_field_idx == 0 { 7 } else { app.download.form_field_idx - 1 };
+                    app.download.move_form_field(prev);
+                }
             }
             KeyCode::Home => {
                 if app.download.form_field_idx < 4 {

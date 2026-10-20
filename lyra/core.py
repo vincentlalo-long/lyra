@@ -94,8 +94,9 @@ def get_video_info(url: str) -> Dict[str, Any]:
 def probe_lyrics(url: str) -> Dict[str, Any]:
     """Check subtitle/caption availability for one video (full extraction).
 
-    Returns {"has_manual": bool, "has_auto": bool} so the TUI can badge
-    whether downloading lyrics (.lrc) is likely to succeed.
+    Returns {"has_manual": bool, "has_auto": bool, "langs": [str]} so the
+    TUI can offer a language picker. `langs` lists every manual subtitle
+    language code (plus auto-caption langs when no manual exists).
     """
     ydl_opts = {
         "quiet": True,
@@ -111,9 +112,15 @@ def probe_lyrics(url: str) -> Dict[str, Any]:
         info = ydl.extract_info(url, download=False) or {}
         manual = info.get("subtitles") or {}
         auto = info.get("automatic_captions") or {}
+        # Collect manual subtitle language codes (skip live_chat)
+        langs = [k for k in manual.keys() if k.lower() != "live_chat"]
+        # If no manual subs, fall back to auto-caption languages
+        if not langs and auto:
+            langs = [k for k in auto.keys() if k.lower() != "live_chat"]
         return {
             "has_manual": bool(manual),
             "has_auto": bool(auto),
+            "langs": langs,
         }
 
 
@@ -128,6 +135,7 @@ class LyraPipeline:
         custom_cover: Optional[str] = None,
         no_cover_search: bool = False,
         crop_focus: Optional[tuple] = None,
+        lyrics_lang: Optional[str] = None,
     ):
         self.output_dir = os.path.abspath(os.path.expanduser(output_dir))
         self.cover_mode = cover_mode
@@ -137,6 +145,7 @@ class LyraPipeline:
         self.cover_url = self.custom_cover
         self.no_cover_search = no_cover_search
         self.crop_focus = crop_focus
+        self.lyrics_lang = lyrics_lang
         os.makedirs(self.output_dir, exist_ok=True)
 
     def _emit(self, data: dict):
@@ -153,11 +162,15 @@ class LyraPipeline:
         genre: Optional[str] = None,
         no_lyrics: bool = False,
         no_auto_lyrics: bool = False,
+        lyrics_lang: Optional[str] = None,
     ) -> Dict[str, Any]:
         if not self.json_mode:
             print(f"Fetching: {url}")
         else:
             self._emit({"type": "status", "stage": "Connecting to YouTube..."})
+
+        # Resolve effective lyrics language: CLI arg > pipeline default > None
+        effective_lang = lyrics_lang or self.lyrics_lang
 
         with tempfile.TemporaryDirectory(prefix="lyra_") as temp_dir:
             out_template = os.path.join(temp_dir, "media.%(ext)s")
@@ -230,17 +243,24 @@ class LyraPipeline:
                 raise FileNotFoundError("Audio extraction failed; no .mp3 generated.")
             raw_mp3_path = mp3_candidates[0]
 
-            # Fetch subtitles for 'vi' or 'en' (and all languages if creator uploaded multiple)
+            # Fetch subtitles for the selected language (or vi/en fallback if none chosen)
             lrc_map: Dict[str, str] = {}
             primary_lrc = ""
+            primary_lang = ""
             if not no_lyrics:
                 self._emit({"type": "status", "stage": "Extracting synced lyrics (.lrc)..."})
                 try:
+                    # When a specific language is chosen, download ONLY that one
+                    # (download_all=False). Otherwise fall back to vi then en.
+                    if effective_lang:
+                        target_langs = [effective_lang]
+                    else:
+                        target_langs = ["vi", "en"]
                     vtt_dict = fetch_all_vtt(
                         info,
-                        target_langs=["vi", "en"],
+                        target_langs=target_langs,
                         allow_auto=not no_auto_lyrics,
-                        download_all=True,
+                        download_all=not bool(effective_lang),
                     )
                     for lang, vtt_text in vtt_dict.items():
                         parsed = vtt_to_lrc(vtt_text)
@@ -248,17 +268,25 @@ class LyraPipeline:
                             lrc_map[lang] = parsed
 
                     if lrc_map:
-                        # Prioritize 'vi' first, then 'en', then first available language
-                        primary_lang = None
-                        for candidate in ["vi", "en"]:
+                        if effective_lang:
+                            # Use the explicitly chosen language if available
                             for k in lrc_map.keys():
-                                if k == candidate or k.startswith(f"{candidate}-"):
+                                if k == effective_lang or k.startswith(f"{effective_lang}-"):
                                     primary_lang = k
                                     break
-                            if primary_lang:
-                                break
-                        if not primary_lang:
-                            primary_lang = next(iter(lrc_map.keys()))
+                            if not primary_lang:
+                                primary_lang = next(iter(lrc_map.keys()))
+                        else:
+                            # Prioritize 'vi' first, then 'en', then first available language
+                            for candidate in ["vi", "en"]:
+                                for k in lrc_map.keys():
+                                    if k == candidate or k.startswith(f"{candidate}-"):
+                                        primary_lang = k
+                                        break
+                                if primary_lang:
+                                    break
+                            if not primary_lang:
+                                primary_lang = next(iter(lrc_map.keys()))
                         primary_lrc = lrc_map[primary_lang]
                 except Exception as e:
                     if not self.json_mode:
@@ -395,10 +423,11 @@ class LyraPipeline:
                     f.write(primary_lrc)
                 saved_lrc_paths.append(dest_lrc)
                 if not self.json_mode:
-                    print(f"Lyrics:   {dest_lrc}")
+                    print(f"Lyrics:   {dest_lrc} [{primary_lang}]")
 
-                # If multiple subtitles exist, also save <base_filename>.<lang>.lrc
-                if len(lrc_map) > 1:
+                # Only save extra <base>.<lang>.lrc files when NO specific
+                # language was chosen (user wants all available subs).
+                if not effective_lang and len(lrc_map) > 1:
                     for lang, content in lrc_map.items():
                         lang_lrc = os.path.join(target_dir, f"{base_filename}.{lang}.lrc")
                         with open(lang_lrc, "w", encoding="utf-8") as f:
@@ -417,6 +446,7 @@ class LyraPipeline:
                 "album": album if album else f"{song_title} - Single",
                 "audio_path": dest_mp3,
                 "lyric_path": dest_lrc if primary_lrc else None,
+                "lyric_lang": primary_lang if primary_lrc else None,
                 "all_lyric_paths": saved_lrc_paths,
                 "has_cover": has_cover,
                 "cover_source": cover_source_used,

@@ -33,6 +33,10 @@ pub struct DownloadState {
     /// Subtitle availability probe for the Lyrics row:
     /// None = probing, Some((manual, auto)).
     pub lyrics_probe: Option<(bool, bool)>,
+    /// Available subtitle language codes from the probe (for the language picker).
+    pub available_lyric_langs: Vec<String>,
+    /// Index into `available_lyric_langs` for the user's chosen lyric language.
+    pub selected_lyric_lang_idx: usize,
     /// Studio provider set for cover search + final download
     /// (auto/all/web/itunes/deezer/caa/youtube). Cycled with `s` on
     /// the Cover row; `web` includes generic web results.
@@ -134,6 +138,8 @@ impl DownloadState {
             // not blur-padded ("auto" falls through to blur in Python).
             form_cover_mode: "center_crop".to_string(),
             lyrics_probe: None,
+            available_lyric_langs: Vec::new(),
+            selected_lyric_lang_idx: 0,
             cover_source: "auto".to_string(),
             form_lyrics_mode: 0,
             cover_candidates: Vec::new(),
@@ -463,6 +469,15 @@ impl DownloadState {
     pub fn expand_search_limit(&mut self) -> usize {
         self.search_limit = (self.search_limit + 10).min(50);
         self.search_limit
+    }
+
+    /// Returns the currently selected lyric language code (if any), else None.
+    pub fn selected_lyric_lang(&self) -> Option<String> {
+        if self.available_lyric_langs.is_empty() {
+            None
+        } else {
+            Some(self.available_lyric_langs[self.selected_lyric_lang_idx].clone())
+        }
     }
 }
 

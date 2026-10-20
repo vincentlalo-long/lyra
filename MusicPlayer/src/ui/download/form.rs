@@ -144,12 +144,20 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
         1 => "< Creator Only (No Auto) >".to_string(),
         _ => "< Disabled >".to_string(),
     };
+    // Selected lyric language (from probe + Up/Down cycling on field 6).
+    let lyrics_lang_str = if !app.download.available_lyric_langs.is_empty() {
+        let lang = &app.download.available_lyric_langs[app.download.selected_lyric_lang_idx
+            .min(app.download.available_lyric_langs.len() - 1)];
+        format!(" lang={lang}")
+    } else {
+        String::new()
+    };
     // Subtitle probe badge: tells whether .lrc download is likely.
     let lyrics_str = match app.download.lyrics_probe {
-        None => format!("{lyrics_base} [probing LRC…]"),
-        Some((true, _)) => format!("{lyrics_base} [LRC ✓ manual]"),
-        Some((false, true)) => format!("{lyrics_base} [LRC ~ auto]"),
-        Some((false, false)) => format!("{lyrics_base} [no LRC]"),
+        None => format!("{lyrics_base}{lyrics_lang_str} [probing LRC…]"),
+        Some((true, _)) => format!("{lyrics_base}{lyrics_lang_str} [LRC ✓ manual]"),
+        Some((false, true)) => format!("{lyrics_base}{lyrics_lang_str} [LRC ~ auto]"),
+        Some((false, false)) => format!("{lyrics_base}{lyrics_lang_str} [no LRC]"),
     };
 
     let fields = [
@@ -330,6 +338,26 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
             Span::styled(" | Esc: ", Style::default().fg(app.theme.faint)),
             Span::styled("Cancel]", Style::default().fg(app.theme.danger)),
         ]),
+        6 => {
+            let has_langs = !app.download.available_lyric_langs.is_empty();
+            let mut spans = vec![
+                Span::styled("[←/→: ", Style::default().fg(app.theme.faint)),
+                Span::styled("Cycle Mode", Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
+            ];
+            if has_langs {
+                spans.push(Span::styled(" | ↑/↓: ", Style::default().fg(app.theme.faint)));
+                spans.push(Span::styled("Lang", Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD)));
+            }
+            spans.extend([
+                Span::styled(" | Tab/↓: ", Style::default().fg(app.theme.faint)),
+                Span::styled("Next", Style::default().fg(app.theme.text)),
+                Span::styled(" | Ctrl+Enter: ", Style::default().fg(app.theme.faint)),
+                Span::styled("Download", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
+                Span::styled(" | Esc: ", Style::default().fg(app.theme.faint)),
+                Span::styled("Cancel]", Style::default().fg(app.theme.danger)),
+            ]);
+            Line::from(spans)
+        }
         _ => Line::from(vec![
             Span::styled("[Tab/↑/↓: ", Style::default().fg(app.theme.faint)),
             Span::styled("Nav", Style::default().fg(app.theme.info)),

@@ -50,6 +50,8 @@ pub struct DownloadRequest {
     pub custom_cover: Option<String>,
     pub no_lyrics: bool,
     pub no_auto_lyrics: bool,
+    /// Specific lyric language code to download (e.g. "vi", "en"). None = priority fallback.
+    pub lyrics_lang: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -66,6 +68,8 @@ pub enum DownloadEvent {
     LyricsProbe {
         has_manual: bool,
         has_auto: bool,
+        /// Available subtitle language codes from yt-dlp info.
+        available_langs: Vec<String>,
     },
     /// A remote cover image was staged to the local disk cache
     /// for crop editing (prefetch had missed it).
@@ -86,6 +90,8 @@ pub enum DownloadEvent {
         artist: String,
         mp3_path: String,
         lrc_path: Option<String>,
+        /// Language code of the downloaded lyrics (e.g. "vi", "en").
+        lyric_lang: Option<String>,
         cover_source: Option<String>,
     },
     Error(String),

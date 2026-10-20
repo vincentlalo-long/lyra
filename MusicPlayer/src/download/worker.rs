@@ -44,6 +44,8 @@ struct RawLyricsProbe {
     has_manual: bool,
     #[serde(default)]
     has_auto: bool,
+    #[serde(default)]
+    available_langs: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -63,6 +65,8 @@ struct RawEvent {
     mp3_path: Option<String>,
     #[serde(alias = "lyric_path")]
     lrc_path: Option<String>,
+    #[serde(alias = "lyric_lang")]
+    lyric_lang: Option<String>,
     title: Option<String>,
     artist: Option<String>,
     message: Option<String>,
@@ -315,6 +319,7 @@ impl Downloader {
                         let _ = sender.send(DownloadEvent::LyricsProbe {
                             has_manual: probe.has_manual,
                             has_auto: probe.has_auto,
+                            available_langs: probe.available_langs,
                         });
                     }
                 }
@@ -461,6 +466,12 @@ impl Downloader {
                 cmd.arg("--no-auto-lyrics");
             }
 
+            if let Some(lang) = &req.lyrics_lang {
+                if !lang.is_empty() {
+                    cmd.arg("--lyrics-lang").arg(lang);
+                }
+            }
+
             let mut child = match cmd.spawn() {
                 Ok(c) => c,
                 Err(e) => {
@@ -516,6 +527,7 @@ impl Downloader {
                                         artist: ev.artist.unwrap_or_else(|| req.artist.clone()),
                                         mp3_path: ev.mp3_path.unwrap_or_default(),
                                         lrc_path: ev.lrc_path,
+                                        lyric_lang: ev.lyric_lang,
                                         cover_source: ev.cover_source,
                                     });
                                 }
@@ -605,6 +617,7 @@ mod tests {
             custom_cover: None,
             no_lyrics: false,
             no_auto_lyrics: false,
+            lyrics_lang: None,
         });
 
         let start = std::time::Instant::now();
@@ -638,6 +651,7 @@ mod tests {
             custom_cover: None,
             no_lyrics: false,
             no_auto_lyrics: false,
+            lyrics_lang: None,
         });
 
         // Give it 150ms to spawn child process

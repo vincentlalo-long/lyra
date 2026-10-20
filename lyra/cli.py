@@ -97,6 +97,12 @@ def main():
         help="Skip YouTube auto-generated captions/lyrics (only download manual creator subtitles)",
     )
     get_parser.add_argument(
+        "--lyrics-lang",
+        type=str,
+        default=None,
+        help="Download lyrics for this language code only (e.g. 'vi', 'en', 'ja'). Overrides priority order.",
+    )
+    get_parser.add_argument(
         "--json",
         action="store_true",
         help="Output line-by-line JSON progress events for GUI/TUI integration",
@@ -341,6 +347,7 @@ def main():
                 genre=args.genre,
                 no_lyrics=args.no_lyrics,
                 no_auto_lyrics=args.no_auto_lyrics,
+                lyrics_lang=args.lyrics_lang,
             )
         except KeyboardInterrupt:
             if args.json:
