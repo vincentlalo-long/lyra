@@ -170,6 +170,8 @@ pub struct App {
     pub volume_bar_rect: Option<ratatui::layout::Rect>,
     /// Last click info for double-click detection: (instant, row_index, view_mode).
     pub last_click: Option<(std::time::Instant, usize, ViewMode)>,
+    /// Tab button rects for mouse click-to-switch: (x_start, x_end, view_mode).
+    pub tab_rects: Vec<(u16, u16, ViewMode)>,
     /// Background community-plugin installer: sending side (cloned per job).
     pub plugin_dl_tx: plugin_mpsc::Sender<crate::plugin_dl::InstallEvent>,
     /// Receiving side, drained every main-loop tick (`check_plugin_downloads`).
@@ -286,6 +288,7 @@ impl App {
             queue_row_rects: Vec::new(),
             volume_bar_rect: None,
             last_click: None,
+            tab_rects: Vec::new(),
             plugin_dl_tx,
             plugin_dl_rx,
             plugin_dl_active: None,

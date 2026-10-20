@@ -1,14 +1,15 @@
-//! Mouse support: seekbar drag, playlist/browser/queue click, volume bar.
+//! Mouse support: seekbar drag, playlist/browser/queue click, volume bar, tab switching.
 //!
 //! Gated behind the `mouse` Cargo feature. When the feature is disabled or
 //! `app.mouse_enabled` is false, all mouse events are ignored.
 //!
 //! Double-click on a track row starts playback immediately; single-click
 //! selects the track. Clicking a directory in the browser descends into it;
-//! clicking an audio file queues and plays it.
+//! clicking an audio file queues and plays it. Clicking top-bar tabs switches views.
 //!
 //! Row rects are published by the UI renderers each frame into
 //! `App::{playlist_row_rects, browser_row_rects, queue_row_rects}`.
+//! Tab rects are published into `App::tab_rects`.
 
 #![cfg(feature = "mouse")]
 
@@ -44,6 +45,17 @@ fn find_row(rects: &[(u16, Rect, usize)], column: u16, row: u16) -> Option<usize
             && column < rect.x.saturating_add(rect.width)
         {
             Some(*idx)
+        } else {
+            None
+        }
+    })
+}
+
+/// Check if a column falls within any tab rect, returning the associated ViewMode.
+fn find_tab(rects: &[(u16, u16, ViewMode)], column: u16) -> Option<ViewMode> {
+    rects.iter().find_map(|(x_start, x_end, view_mode)| {
+        if column >= *x_start && column < *x_end {
+            Some(*view_mode)
         } else {
             None
         }
@@ -90,6 +102,17 @@ pub fn handle_mouse(app: &mut App, ev: MouseEvent) -> bool {
         MouseEventKind::Down(MouseButton::Left) => {
             if modal_open(app) {
                 return false;
+            }
+
+            // Tab click: switch view mode (top bar tabs).
+            if ev.row == 0 && !app.tab_rects.is_empty() {
+                if let Some(view_mode) = find_tab(&app.tab_rects, ev.column) {
+                    if app.view_mode != view_mode {
+                        app.view_mode = view_mode;
+                        app.set_toast(format!("View: {:?}", view_mode));
+                    }
+                    return true;
+                }
             }
 
             // Seekbar click/drag start.
@@ -224,7 +247,7 @@ pub fn handle_mouse(app: &mut App, ev: MouseEvent) -> bool {
                     return true;
                 }
             }
-            // Playlist scroll.
+            // Playlist scroll: scroll anywhere over the playlist body area.
             if app.view_mode == ViewMode::Playlist && !app.playlist_row_rects.is_empty() {
                 if find_row(&app.playlist_row_rects, ev.column, ev.row).is_some() {
                     let n = app.playlist.songs.len();
@@ -234,7 +257,7 @@ pub fn handle_mouse(app: &mut App, ev: MouseEvent) -> bool {
                     }
                 }
             }
-            // Browser scroll.
+            // Browser scroll: scroll anywhere over the browser body area.
             if app.view_mode == ViewMode::Browser && !app.browser_row_rects.is_empty() {
                 if find_row(&app.browser_row_rects, ev.column, ev.row).is_some() {
                     let n = app.browser.entries.len();
@@ -244,7 +267,7 @@ pub fn handle_mouse(app: &mut App, ev: MouseEvent) -> bool {
                     }
                 }
             }
-            // Queue scroll.
+            // Queue scroll: scroll anywhere over the queue body area.
             if app.view_mode == ViewMode::Queue && !app.queue_row_rects.is_empty() {
                 if find_row(&app.queue_row_rects, ev.column, ev.row).is_some() {
                     let n = app.queue.items.len();
@@ -270,21 +293,21 @@ pub fn handle_mouse(app: &mut App, ev: MouseEvent) -> bool {
                     return true;
                 }
             }
-            // Playlist scroll.
+            // Playlist scroll: scroll anywhere over the playlist body area.
             if app.view_mode == ViewMode::Playlist && !app.playlist_row_rects.is_empty() {
                 if find_row(&app.playlist_row_rects, ev.column, ev.row).is_some() {
                     app.playlist.selected = app.playlist.selected.saturating_sub(1);
                     return true;
                 }
             }
-            // Browser scroll.
+            // Browser scroll: scroll anywhere over the browser body area.
             if app.view_mode == ViewMode::Browser && !app.browser_row_rects.is_empty() {
                 if find_row(&app.browser_row_rects, ev.column, ev.row).is_some() {
                     app.browser.selected = app.browser.selected.saturating_sub(1);
                     return true;
                 }
             }
-            // Queue scroll.
+            // Queue scroll: scroll anywhere over the queue body area.
             if app.view_mode == ViewMode::Queue && !app.queue_row_rects.is_empty() {
                 if find_row(&app.queue_row_rects, ev.column, ev.row).is_some() {
                     app.queue.selected = app.queue.selected.saturating_sub(1);
@@ -331,6 +354,20 @@ mod tests {
         assert_eq!(find_row(&rects, 5, 6), Some(1));
         assert_eq!(find_row(&rects, 25, 5), None);
         assert_eq!(find_row(&rects, 5, 7), None);
+    }
+
+    #[test]
+    fn test_find_tab() {
+        let rects = vec![
+            (2, 15, ViewMode::Playlist),
+            (17, 30, ViewMode::Queue),
+            (32, 45, ViewMode::Browser),
+        ];
+        assert_eq!(find_tab(&rects, 5), Some(ViewMode::Playlist));
+        assert_eq!(find_tab(&rects, 20), Some(ViewMode::Queue));
+        assert_eq!(find_tab(&rects, 40), Some(ViewMode::Browser));
+        assert_eq!(find_tab(&rects, 0), None);
+        assert_eq!(find_tab(&rects, 100), None);
     }
 
     #[test]

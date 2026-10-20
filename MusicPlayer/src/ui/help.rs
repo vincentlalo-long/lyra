@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Margin},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    widgets::{Block, BorderType, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
 use crate::app::App;
@@ -232,8 +232,13 @@ pub fn render(frame: &mut Frame, app: &App) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(app.theme.border_focused).add_modifier(Modifier::BOLD));
 
-    frame.render_widget(Clear, popup_area);
-    frame.render_widget(Paragraph::new(lines).block(block).scroll((scroll, 0)), popup_area);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .style(Style::default().bg(app.theme.selected_bg))
+            .scroll((scroll, 0)),
+        popup_area,
+    );
 
     if total_lines > inner_height {
         let mut scrollbar_state = ScrollbarState::new(total_lines)

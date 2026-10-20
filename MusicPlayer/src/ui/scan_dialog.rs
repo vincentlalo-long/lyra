@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Clear, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
 
@@ -62,6 +62,10 @@ pub fn render(frame: &mut Frame, count: usize, theme: &crate::theme::Theme) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.border_focused).add_modifier(Modifier::BOLD));
 
-    frame.render_widget(Clear, popup_area);
-    frame.render_widget(Paragraph::new(lines).block(block), popup_area);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .style(Style::default().bg(theme.selected_bg)),
+        popup_area,
+    );
 }

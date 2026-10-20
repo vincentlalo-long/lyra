@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
 use crate::app::{App, PlaylistIoMode};
@@ -44,10 +44,18 @@ pub fn render(frame: &mut Frame, app: &App) {
             Span::styled(" [Enter: Confirm | Esc: Cancel] ", Style::default().fg(app.theme.faint)),
         ]))
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(app.theme.border_focused));
 
-    let inner = block.inner(popup_area);
-    frame.render_widget(block, popup_area);
+    // Colored background for the popup
+    let bg_lines: Vec<Line> = (0..popup_area.height as usize)
+        .map(|_| Line::from(" ".repeat(popup_area.width as usize)))
+        .collect();
+    frame.render_widget(
+        Paragraph::new(bg_lines)
+            .style(Style::default().bg(app.theme.selected_bg)),
+        popup_area,
+    );
 
     let mode_text = match modal.mode {
         PlaylistIoMode::Import => "Read tracks from:",
@@ -70,6 +78,10 @@ pub fn render(frame: &mut Frame, app: &App) {
         ]),
     ];
 
-    let paragraph = Paragraph::new(lines);
-    frame.render_widget(paragraph, inner);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .style(Style::default().bg(app.theme.selected_bg)),
+        popup_area,
+    );
 }

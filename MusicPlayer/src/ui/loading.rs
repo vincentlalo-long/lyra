@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Clear, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
 use crate::scanner::Scanner;
@@ -63,8 +63,8 @@ pub fn render(frame: &mut Frame, scanner: &Scanner, theme: &crate::theme::Theme)
             .border_type(BorderType::Rounded)
             .title(" 󱑂 Background Scanner ")
             .border_style(Style::default().fg(theme.border_focused).add_modifier(Modifier::BOLD)),
-    );
+    )
+    .style(Style::default().bg(theme.selected_bg));
 
-    frame.render_widget(Clear, popup_area);
     frame.render_widget(dialog_content, popup_area);
 }
