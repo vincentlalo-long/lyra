@@ -229,6 +229,55 @@ impl App {
         }
     }
 
+    pub fn play_selected(&mut self, idx: usize) {
+        let filtered = self.playlist_filter_indices();
+        if let Some(&song_idx) = filtered.get(idx) {
+            if let Some(path) = self.playlist.songs.get(song_idx).cloned() {
+                self.play_track(&path);
+            }
+        }
+    }
+
+    fn playlist_filter_indices(&mut self) -> Vec<usize> {
+        #[cfg(feature = "genre")]
+        {
+            self.playlist
+                .filtered_indices(&self.search_query, &self.genre_filters, &mut self.genre_db)
+        }
+        #[cfg(not(feature = "genre"))]
+        {
+            self.playlist.filtered_indices(&self.search_query)
+        }
+    }
+
+    pub fn play_queue_index(&mut self, idx: usize) {
+        if let Some(path) = self.queue.items.get(idx).cloned() {
+            self.queue.now_from_queue = true;
+            self.play_track(&path);
+            self.queue.now_from_queue = true;
+        }
+    }
+
+    pub fn queue_selected(&mut self, idx: usize) {
+        self.queue.selected = idx;
+    }
+
+    pub fn browser_open_or_play(&mut self, idx: usize) {
+        let filtered = self.browser.filtered_indices(&self.search_query);
+        if let Some(&entry_idx) = filtered.get(idx) {
+            let entry = match self.browser.entries.get(entry_idx) {
+                Some(e) => e.clone(),
+                None => return,
+            };
+            if entry.is_dir() {
+                self.browser.selected = entry_idx;
+                let _ = self.browser.enter();
+            } else {
+                self.play_track(&entry);
+            }
+        }
+    }
+
     pub fn play_track(&mut self, song_path: &Path) {
         // A direct play (Enter on library/browser) is NOT a queue play.
         // Queue paths below re-assert the flag right after this call.

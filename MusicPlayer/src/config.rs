@@ -23,6 +23,8 @@ pub struct FileConfig {
     pub theme: Option<String>,
     /// Auto-embed cover art into ID3 after download (requires mutagen).
     pub cover_embed: Option<bool>,
+    /// Enable mouse support (seekbar, playlist click, etc.). Default true.
+    pub mouse: Option<bool>,
 }
 
 fn config_path() -> Option<PathBuf> {
@@ -76,6 +78,8 @@ pub struct Config {
     pub theme: Option<String>,
     /// Auto-embed cover art into ID3 after download.
     pub cover_embed: bool,
+    /// Mouse support enabled. Default true.
+    pub mouse: bool,
 }
 
 impl Config {
@@ -92,6 +96,7 @@ impl Config {
             search_limit: file.search_limit,
             theme: file.theme,
             cover_embed: file.cover_embed.unwrap_or(true),
+            mouse: file.mouse.unwrap_or(true),
         }
     }
 
@@ -189,6 +194,12 @@ impl Config {
                     table.insert(key.to_string(), toml::Value::Boolean(b));
                 }
             }
+            // Boolean flag (mouse support).
+            "mouse" => {
+                if let Ok(b) = value.parse::<bool>() {
+                    table.insert(key.to_string(), toml::Value::Boolean(b));
+                }
+            }
             _ => {}
         }
         let serialized = toml::to_string_pretty(&table)
@@ -208,6 +219,7 @@ impl Config {
             search_limit: file.search_limit,
             theme: file.theme,
             cover_embed: file.cover_embed.unwrap_or(true),
+            mouse: file.mouse.unwrap_or(true),
         }
     }
 
@@ -305,6 +317,7 @@ mod tests {
             search_limit: None,
             theme: None,
             cover_embed: true,
+            mouse: true,
         };
         let (p, w) = cfg.resolve_music_folder(Some(PathBuf::from("/cli/music")));
         assert_eq!(p, PathBuf::from("/cli/music"));
@@ -319,6 +332,7 @@ mod tests {
             search_limit: None,
             theme: None,
             cover_embed: true,
+            mouse: true,
         };
         let (p, w) = cfg.resolve_music_folder(None);
         assert!(w.is_some());
@@ -333,6 +347,7 @@ mod tests {
             search_limit: None,
             theme: None,
             cover_embed: true,
+            mouse: true,
         };
         let (p, raw) = cfg.resolve_download_dir(Path::new("/fallback"));
         assert_eq!(raw, "~/Custom/Downloads");

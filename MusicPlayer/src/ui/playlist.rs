@@ -232,7 +232,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         ];
         let header_line = Line::from(header_spans);
 
-        for (pos, song_path, is_playing, is_selected) in items_to_render {
+        for (pos, song_path, is_playing, is_selected) in items_to_render.iter().cloned() {
             let song_name = match song_path.file_stem() {
                 Some(name) => name.to_string_lossy(),
                 None => "Unknown".into(),
@@ -365,6 +365,22 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             inner
         };
 
+        // Publish row rects for mouse click detection.
+        app.playlist_row_rects.clear();
+        for (pos, _) in items_to_render.iter().enumerate() {
+            let row = list_area.y.saturating_add(pos as u16);
+            app.playlist_row_rects.push((
+                row,
+                Rect {
+                    x: list_area.x,
+                    y: row,
+                    width: list_area.width,
+                    height: 1,
+                },
+                filtered[pos],
+            ));
+        }
+
         let list_widget = List::new(list_items);
         app.playlist.state.select(selected_pos);
         frame.render_stateful_widget(list_widget, list_area, &mut app.playlist.state);
@@ -387,7 +403,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         // Compact single-column view (< 55 cols)
         let avail = (inner.width as usize).saturating_sub(7);
 
-        for (pos, song_path, is_playing, is_selected) in items_to_render {
+        for (pos, song_path, is_playing, is_selected) in items_to_render.iter().cloned() {
             let song_name = match song_path.file_stem() {
                 Some(name) => name.to_string_lossy(),
                 None => "Unknown".into(),
@@ -469,6 +485,22 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             list_items.push(ListItem::new(Line::from(vec![
                 Span::styled("  (empty playlist)", Style::default().fg(app.theme.faint)),
             ])));
+        }
+
+        // Publish row rects for mouse click detection (compact view).
+        app.playlist_row_rects.clear();
+        for (pos, _) in items_to_render.iter().enumerate() {
+            let row = inner.y.saturating_add(pos as u16);
+            app.playlist_row_rects.push((
+                row,
+                Rect {
+                    x: inner.x,
+                    y: row,
+                    width: inner.width,
+                    height: 1,
+                },
+                filtered[pos],
+            ));
         }
 
         let list_widget = List::new(list_items);

@@ -7,11 +7,12 @@ edition = "2024"
 # Plugin model (compile-time): drop a feature to remove it, e.g.
 #   cargo install --path . --no-default-features
 # Core (audio/playlist/queue/browser/scanner/config/meta) is always on.
-default = ["download", "mpris", "notify", "genre"]
+default = ["download", "mpris", "notify", "genre", "mouse"]
 download = []
 mpris = ["dep:mpris-server", "dep:tokio"]
 notify = []
 genre = []
+mouse = []
 
 [dependencies]
 ratatui = "0.29"

@@ -102,16 +102,33 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         app.theme.border
     };
-    let block = Block::default()
-        .title(title)
-        .title_bottom(Line::from(vec![
-            Span::styled(" [Enter: Open/Play | N/+: New Album | d: Delete | m: Move | e: Edit | B: Cover | i: Import | L: Set Library] ", Style::default().fg(app.theme.hint).add_modifier(Modifier::BOLD)),
-        ]))
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(border_color));
+        let block = Block::default()
+            .title(title)
+            .title_bottom(Line::from(vec![
+                Span::styled(" [Enter: Open/Play | N/+: New Album | d: Delete | m: Move | e: Edit | B: Cover | i: Import | L: Set Library] ", Style::default().fg(app.theme.hint).add_modifier(Modifier::BOLD)),
+            ]))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(border_color));
 
-    let list_widget = List::new(list_items).block(block);
+        // Publish row rects for mouse click detection.
+        let inner_area = block.inner(area);
+        app.browser_row_rects.clear();
+        for (pos, _) in filtered.iter().enumerate() {
+            let row = inner_area.y.saturating_add(pos as u16);
+            app.browser_row_rects.push((
+                row,
+                Rect {
+                    x: inner_area.x,
+                    y: row,
+                    width: inner_area.width,
+                    height: 1,
+                },
+                pos,
+            ));
+        }
+
+        let list_widget = List::new(list_items).block(block);
 
     app.browser.state.select(selected_pos);
     frame.render_stateful_widget(list_widget, area, &mut app.browser.state);

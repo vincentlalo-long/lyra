@@ -158,6 +158,18 @@ pub struct App {
     pub sleep_timer_minutes: u64,
     /// Auto-embed cover art into ID3 after download.
     pub cover_embed: bool,
+    /// Mouse support enabled (from config). Can be toggled at runtime.
+    pub mouse_enabled: bool,
+    /// Per-row rects for the visible playlist (used by mouse click detection).
+    pub playlist_row_rects: Vec<(u16, ratatui::layout::Rect, usize)>,
+    /// Per-row rects for the visible browser.
+    pub browser_row_rects: Vec<(u16, ratatui::layout::Rect, usize)>,
+    /// Per-row rects for the visible queue.
+    pub queue_row_rects: Vec<(u16, ratatui::layout::Rect, usize)>,
+    /// Rect of the volume bar (used by mouse click/drag).
+    pub volume_bar_rect: Option<ratatui::layout::Rect>,
+    /// Last click info for double-click detection: (instant, row_index, view_mode).
+    pub last_click: Option<(std::time::Instant, usize, ViewMode)>,
     /// Background community-plugin installer: sending side (cloned per job).
     pub plugin_dl_tx: plugin_mpsc::Sender<crate::plugin_dl::InstallEvent>,
     /// Receiving side, drained every main-loop tick (`check_plugin_downloads`).
@@ -268,6 +280,12 @@ impl App {
             sleep_timer: None,
             sleep_timer_minutes: 0,
             cover_embed: true,
+            mouse_enabled: true,
+            playlist_row_rects: Vec::new(),
+            browser_row_rects: Vec::new(),
+            queue_row_rects: Vec::new(),
+            volume_bar_rect: None,
+            last_click: None,
             plugin_dl_tx,
             plugin_dl_rx,
             plugin_dl_active: None,
@@ -303,6 +321,7 @@ impl App {
             }
         }
         app.cover_embed = config.cover_embed;
+        app.mouse_enabled = config.mouse;
         Ok(app)
     }
 
