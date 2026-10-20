@@ -44,7 +44,7 @@ struct RawLyricsProbe {
     has_manual: bool,
     #[serde(default)]
     has_auto: bool,
-    #[serde(default)]
+    #[serde(default, rename = "langs")]
     available_langs: Vec<String>,
 }
 
