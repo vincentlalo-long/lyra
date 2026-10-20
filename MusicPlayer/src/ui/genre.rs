@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph},
+    widgets::{Block, BorderType, Borders, List, ListItem, Paragraph},
     Frame,
 };
 use crate::app::App;
@@ -93,9 +93,17 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(app.theme.border_focused).add_modifier(Modifier::BOLD));
 
+    // Colored background for the popup
+    let bg_lines: Vec<Line> = (0..popup_area.height as usize)
+        .map(|_| Line::from(" ".repeat(popup_area.width as usize)))
+        .collect();
+    frame.render_widget(
+        Paragraph::new(bg_lines)
+            .style(Style::default().bg(app.theme.selected_bg)),
+        popup_area,
+    );
     let inner = block.inner(popup_area);
-    frame.render_widget(Clear, popup_area);
-    frame.render_widget(block, popup_area);
+    frame.render_widget(&block, popup_area);
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)

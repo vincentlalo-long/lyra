@@ -31,7 +31,6 @@ use ratatui::{
 #[cfg(feature = "download")]
 use std::path::PathBuf;
 use crate::app::{App, ViewMode};
-use unicode_width::UnicodeWidthStr;
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     let layout_chunks = Layout::default()
@@ -101,22 +100,6 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             Style::default().fg(t.faint)
         };
 
-        // Track tab rects for mouse click-to-switch views.
-        let mut tab_rects: Vec<(u16, u16, ViewMode)> = Vec::new();
-        let mut cursor_x = top_chunks[0].x + 2; // After " 󰎆 LYRA │ "
-
-        let add_tab = |left_spans: &mut Vec<Span>,
-                       cursor_x: &mut u16,
-                       tab_rects: &mut Vec<(u16, u16, ViewMode)>,
-                       text: String,
-                       style: Style,
-                       view_mode: ViewMode| {
-            let width = UnicodeWidthStr::width(text.as_str()) as u16;
-            tab_rects.push((*cursor_x, *cursor_x + width, view_mode));
-            left_spans.push(Span::styled(text, style));
-            *cursor_x += width + 1; // +1 for space separator
-        };
-
         let is_compact = layout_chunks[0].width < 96;
         let queue_label = if app.queue.is_empty() {
             "Queue".to_string()
@@ -124,28 +107,30 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             format!("Queue ({})", app.queue.len())
         };
         if is_compact {
-            add_tab(&mut left_spans, &mut cursor_x, &mut tab_rects, " [1] Playlist ".to_string(), playlist_tab_style, ViewMode::Playlist);
+            left_spans.push(Span::styled(" [1] Playlist ", playlist_tab_style));
             left_spans.push(Span::raw(" "));
-            add_tab(&mut left_spans, &mut cursor_x, &mut tab_rects, format!(" [2] {queue_label} ").to_string(), queue_tab_style, ViewMode::Queue);
+            left_spans.push(Span::styled(format!(" [2] {queue_label} "), queue_tab_style));
             left_spans.push(Span::raw(" "));
-            add_tab(&mut left_spans, &mut cursor_x, &mut tab_rects, " [3] Browser ".to_string(), browser_tab_style, ViewMode::Browser);
+            left_spans.push(Span::styled(" [3] Browser ", browser_tab_style));
             left_spans.push(Span::raw(" "));
-            add_tab(&mut left_spans, &mut cursor_x, &mut tab_rects, " [4] Extensions ".to_string(), extensions_tab_style, ViewMode::Extensions);
+            left_spans.push(Span::styled(" [4] Extensions ", extensions_tab_style));
             left_spans.push(Span::raw(" "));
-            add_tab(&mut left_spans, &mut cursor_x, &mut tab_rects, " [5] Plugins ".to_string(), plugins_tab_style, ViewMode::Plugins);
+            left_spans.push(Span::styled(" [5] Plugins ", plugins_tab_style));
         } else {
-            add_tab(&mut left_spans, &mut cursor_x, &mut tab_rects, " [1] 󰲸 Playlist ".to_string(), playlist_tab_style, ViewMode::Playlist);
+            left_spans.push(Span::styled(" [1] 󰲸 Playlist ", playlist_tab_style));
             left_spans.push(Span::raw(" "));
-            add_tab(&mut left_spans, &mut cursor_x, &mut tab_rects, format!(" [2] 󰐗 {queue_label} ").to_string(), queue_tab_style, ViewMode::Queue);
+            left_spans.push(Span::styled(format!(" [2] 󰐗 {queue_label} "), queue_tab_style));
             left_spans.push(Span::raw(" "));
-            add_tab(&mut left_spans, &mut cursor_x, &mut tab_rects, " [3] 󰉋 Browser ".to_string(), browser_tab_style, ViewMode::Browser);
+            left_spans.push(Span::styled(" [3] 󰉋 Browser ", browser_tab_style));
             left_spans.push(Span::raw(" "));
-            add_tab(&mut left_spans, &mut cursor_x, &mut tab_rects, " [4] 󱊄 Extensions ".to_string(), extensions_tab_style, ViewMode::Extensions);
+            left_spans.push(Span::styled(" [4] 󱊄 Extensions ", extensions_tab_style));
             left_spans.push(Span::raw(" "));
-            add_tab(&mut left_spans, &mut cursor_x, &mut tab_rects, " [5] 󰏖 Plugins ".to_string(), plugins_tab_style, ViewMode::Plugins);
+            left_spans.push(Span::styled(" [5] 󰏖 Plugins ", plugins_tab_style));
         }
 
-        app.tab_rects = tab_rects;
+        // Store tab bar area for mouse click-to-switch views.
+        // The bar is divided into 5 equal sections (one per tab) on click.
+        app.tab_bar_rect = Some(top_chunks[0]);
 
         frame.render_widget(Paragraph::new(Line::from(left_spans)), top_chunks[0]);
 

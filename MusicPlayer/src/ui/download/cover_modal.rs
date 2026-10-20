@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Margin},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    widgets::{Block, BorderType, Borders, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
 use crate::app::App;
@@ -30,7 +30,15 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
         ])
         .split(vert[1])[1];
 
-    frame.render_widget(Clear, popup_area);
+    // Colored background for the popup
+    let bg_lines: Vec<Line> = (0..popup_area.height as usize)
+        .map(|_| Line::from(" ".repeat(popup_area.width as usize)))
+        .collect();
+    frame.render_widget(
+        Paragraph::new(bg_lines)
+            .style(Style::default().bg(app.theme.selected_bg)),
+        popup_area,
+    );
 
     let main_block = Block::default()
         .title(" 󰍉 Cover Art Picker & Live Preview ")
@@ -323,7 +331,15 @@ pub fn render_cover_file_picker_modal(frame: &mut Frame, app: &mut App) {
         ])
         .split(vert[1])[1];
 
-    frame.render_widget(Clear, popup_area);
+    // Colored background for the popup
+    let bg_lines: Vec<Line> = (0..popup_area.height as usize)
+        .map(|_| Line::from(" ".repeat(popup_area.width as usize)))
+        .collect();
+    frame.render_widget(
+        Paragraph::new(bg_lines)
+            .style(Style::default().bg(app.theme.selected_bg)),
+        popup_area,
+    );
 
     let cols = Layout::default()
         .direction(Direction::Horizontal)

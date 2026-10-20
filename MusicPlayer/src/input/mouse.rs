@@ -51,15 +51,22 @@ fn find_row(rects: &[(u16, Rect, usize)], column: u16, row: u16) -> Option<usize
     })
 }
 
-/// Check if a column falls within any tab rect, returning the associated ViewMode.
-fn find_tab(rects: &[(u16, u16, ViewMode)], column: u16) -> Option<ViewMode> {
-    rects.iter().find_map(|(x_start, x_end, view_mode)| {
-        if column >= *x_start && column < *x_end {
-            Some(*view_mode)
-        } else {
-            None
-        }
-    })
+/// Given a tab bar rect and a column, determine which tab (0-4) was clicked.
+/// The bar is divided into 5 equal sections.
+fn tab_from_column(tab_bar: &Rect, column: u16) -> Option<ViewMode> {
+    if column < tab_bar.x || column >= tab_bar.x + tab_bar.width {
+        return None;
+    }
+    let section_width = tab_bar.width / 5;
+    let section = (column - tab_bar.x) / section_width;
+    match section {
+        0 => Some(ViewMode::Playlist),
+        1 => Some(ViewMode::Queue),
+        2 => Some(ViewMode::Browser),
+        3 => Some(ViewMode::Extensions),
+        4 => Some(ViewMode::Plugins),
+        _ => None,
+    }
 }
 
 fn modal_open(app: &App) -> bool {
@@ -105,13 +112,19 @@ pub fn handle_mouse(app: &mut App, ev: MouseEvent) -> bool {
             }
 
             // Tab click: switch view mode (top bar tabs).
-            if ev.row == 0 && !app.tab_rects.is_empty() {
-                if let Some(view_mode) = find_tab(&app.tab_rects, ev.column) {
-                    if app.view_mode != view_mode {
-                        app.view_mode = view_mode;
-                        app.set_toast(format!("View: {:?}", view_mode));
+            // The tab bar is divided into 5 equal sections.
+            if let Some(tab_bar) = app.tab_bar_rect {
+                if ev.row == tab_bar.y
+                    && ev.column >= tab_bar.x
+                    && ev.column < tab_bar.x + tab_bar.width
+                {
+                    if let Some(view_mode) = tab_from_column(&tab_bar, ev.column) {
+                        if app.view_mode != view_mode {
+                            app.view_mode = view_mode;
+                            app.set_toast(format!("View: {:?}", view_mode));
+                        }
+                        return true;
                     }
-                    return true;
                 }
             }
 
@@ -357,17 +370,15 @@ mod tests {
     }
 
     #[test]
-    fn test_find_tab() {
-        let rects = vec![
-            (2, 15, ViewMode::Playlist),
-            (17, 30, ViewMode::Queue),
-            (32, 45, ViewMode::Browser),
-        ];
-        assert_eq!(find_tab(&rects, 5), Some(ViewMode::Playlist));
-        assert_eq!(find_tab(&rects, 20), Some(ViewMode::Queue));
-        assert_eq!(find_tab(&rects, 40), Some(ViewMode::Browser));
-        assert_eq!(find_tab(&rects, 0), None);
-        assert_eq!(find_tab(&rects, 100), None);
+    fn test_tab_from_column() {
+        let tab_bar = Rect { x: 2, y: 0, width: 50, height: 1 };
+        assert_eq!(tab_from_column(&tab_bar, 5), Some(ViewMode::Playlist));
+        assert_eq!(tab_from_column(&tab_bar, 15), Some(ViewMode::Queue));
+        assert_eq!(tab_from_column(&tab_bar, 25), Some(ViewMode::Browser));
+        assert_eq!(tab_from_column(&tab_bar, 35), Some(ViewMode::Extensions));
+        assert_eq!(tab_from_column(&tab_bar, 45), Some(ViewMode::Plugins));
+        assert_eq!(tab_from_column(&tab_bar, 0), None);
+        assert_eq!(tab_from_column(&tab_bar, 100), None);
     }
 
     #[test]

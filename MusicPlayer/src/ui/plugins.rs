@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Margin, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    widgets::{Block, BorderType, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
 use crate::app::{App, ViewMode};
@@ -267,7 +267,15 @@ fn render_path_edit_modal(frame: &mut Frame, app: &App, edit_idx: usize) {
         .split(v_chunks[1]);
 
     let popup_area = h_chunks[1];
-    frame.render_widget(Clear, popup_area);
+    // Colored background for the popup
+    let bg_lines: Vec<Line> = (0..popup_area.height as usize)
+        .map(|_| Line::from(" ".repeat(popup_area.width as usize)))
+        .collect();
+    frame.render_widget(
+        Paragraph::new(bg_lines)
+            .style(Style::default().bg(app.theme.selected_bg)),
+        popup_area,
+    );
 
     let block = Block::default()
         .title(format!(" 󰏫 Edit {label} "))
@@ -330,7 +338,15 @@ fn render_plugin_store_modal(frame: &mut Frame, app: &App) {    let screen = fra
         .split(v_chunks[1]);
 
     let popup_area = h_chunks[1];
-    frame.render_widget(Clear, popup_area);
+    // Colored background for the popup
+    let bg_lines: Vec<Line> = (0..popup_area.height as usize)
+        .map(|_| Line::from(" ".repeat(popup_area.width as usize)))
+        .collect();
+    frame.render_widget(
+        Paragraph::new(bg_lines)
+            .style(Style::default().bg(app.theme.selected_bg)),
+        popup_area,
+    );
 
     let block = Block::default()
         .title("  Community Plugin Store ")

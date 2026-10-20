@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    widgets::{Block, BorderType, Borders, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
 use crate::{
@@ -168,7 +168,15 @@ fn render_browser_modal(
             let popup_h = 7.min(screen.height.saturating_sub(2));
             let popup_area = center_popup(screen, popup_w, popup_h);
 
-            frame.render_widget(Clear, popup_area);
+            // Colored background for the popup
+            let bg_lines: Vec<Line> = (0..popup_area.height as usize)
+                .map(|_| Line::from(" ".repeat(popup_area.width as usize)))
+                .collect();
+            frame.render_widget(
+                Paragraph::new(bg_lines)
+                    .style(Style::default().bg(theme.selected_bg)),
+                popup_area,
+            );
 
             let block = Block::default()
                 .title(" 󰉋 Create New Album / Folder ")
@@ -205,7 +213,15 @@ fn render_browser_modal(
             let popup_h = 8.min(screen.height.saturating_sub(2));
             let popup_area = center_popup(screen, popup_w, popup_h);
 
-            frame.render_widget(Clear, popup_area);
+            // Colored background for the popup
+            let bg_lines: Vec<Line> = (0..popup_area.height as usize)
+                .map(|_| Line::from(" ".repeat(popup_area.width as usize)))
+                .collect();
+            frame.render_widget(
+                Paragraph::new(bg_lines)
+                    .style(Style::default().bg(theme.selected_bg)),
+                popup_area,
+            );
 
             let old_name = target_dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             let block = Block::default()
@@ -251,7 +267,15 @@ fn render_browser_modal(
             let popup_h = 15.min(screen.height.saturating_sub(2));
             let popup_area = center_popup(screen, popup_w, popup_h);
 
-            frame.render_widget(Clear, popup_area);
+            // Colored background for the popup
+            let bg_lines: Vec<Line> = (0..popup_area.height as usize)
+                .map(|_| Line::from(" ".repeat(popup_area.width as usize)))
+                .collect();
+            frame.render_widget(
+                Paragraph::new(bg_lines)
+                    .style(Style::default().bg(theme.selected_bg)),
+                popup_area,
+            );
 
             let fname = target_file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             let block = Block::default()
@@ -320,7 +344,15 @@ fn render_browser_modal(
             let popup_h = 16.min(screen.height.saturating_sub(2));
             let popup_area = center_popup(screen, popup_w, popup_h);
 
-            frame.render_widget(Clear, popup_area);
+            // Colored background for the popup
+            let bg_lines: Vec<Line> = (0..popup_area.height as usize)
+                .map(|_| Line::from(" ".repeat(popup_area.width as usize)))
+                .collect();
+            frame.render_widget(
+                Paragraph::new(bg_lines)
+                    .style(Style::default().bg(theme.selected_bg)),
+                popup_area,
+            );
 
             let fname = target_file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             let block = Block::default()
@@ -400,7 +432,15 @@ fn render_browser_modal(
             let popup_h = 18.min(screen.height.saturating_sub(2));
             let popup_area = center_popup(screen, popup_w, popup_h);
 
-            frame.render_widget(Clear, popup_area);
+            // Colored background for the popup
+            let bg_lines: Vec<Line> = (0..popup_area.height as usize)
+                .map(|_| Line::from(" ".repeat(popup_area.width as usize)))
+                .collect();
+            frame.render_widget(
+                Paragraph::new(bg_lines)
+                    .style(Style::default().bg(theme.selected_bg)),
+                popup_area,
+            );
 
             let fname = target_file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             let block = Block::default()
