@@ -5,7 +5,6 @@ use crate::playlist::{export_m3u, load_m3u};
 
 #[cfg(feature = "download")]
 mod download;
-pub mod mouse;
 
 pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
     // If Help popup is open, handle scroll & dismissal

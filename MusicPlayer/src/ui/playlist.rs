@@ -365,22 +365,6 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             inner
         };
 
-        // Publish row rects for mouse click detection.
-        app.playlist_row_rects.clear();
-        for (pos, _) in items_to_render.iter().enumerate() {
-            let row = list_area.y.saturating_add(pos as u16);
-            app.playlist_row_rects.push((
-                row,
-                Rect {
-                    x: list_area.x,
-                    y: row,
-                    width: list_area.width,
-                    height: 1,
-                },
-                filtered[pos],
-            ));
-        }
-
         let list_widget = List::new(list_items);
         app.playlist.state.select(selected_pos);
         frame.render_stateful_widget(list_widget, list_area, &mut app.playlist.state);
@@ -485,22 +469,6 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             list_items.push(ListItem::new(Line::from(vec![
                 Span::styled("  (empty playlist)", Style::default().fg(app.theme.faint)),
             ])));
-        }
-
-        // Publish row rects for mouse click detection (compact view).
-        app.playlist_row_rects.clear();
-        for (pos, _) in items_to_render.iter().enumerate() {
-            let row = inner.y.saturating_add(pos as u16);
-            app.playlist_row_rects.push((
-                row,
-                Rect {
-                    x: inner.x,
-                    y: row,
-                    width: inner.width,
-                    height: 1,
-                },
-                filtered[pos],
-            ));
         }
 
         let list_widget = List::new(list_items);

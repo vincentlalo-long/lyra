@@ -128,10 +128,6 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             left_spans.push(Span::styled(" [5] 󰏖 Plugins ", plugins_tab_style));
         }
 
-        // Store tab bar area for mouse click-to-switch views.
-        // The bar is divided into 5 equal sections (one per tab) on click.
-        app.tab_bar_rect = Some(top_chunks[0]);
-
         frame.render_widget(Paragraph::new(Line::from(left_spans)), top_chunks[0]);
 
         let mut right_spans = Vec::new();

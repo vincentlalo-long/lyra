@@ -55,7 +55,6 @@ impl App {
     /// lyrics plugin back ON restores the karaoke layout.
     pub fn sync_plugin_runtime_flags(&mut self, preserve_lyrics_choice: bool) {
         self.notifications_enabled = self.plugin_enabled("notify");
-        self.mouse_enabled = self.plugin_enabled("mouse");
         if !self.plugin_enabled("lyrics") {
             self.show_lyrics = false;
         } else if preserve_lyrics_choice {

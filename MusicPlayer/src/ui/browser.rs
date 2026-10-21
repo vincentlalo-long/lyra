@@ -111,23 +111,6 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border_color));
 
-        // Publish row rects for mouse click detection.
-        let inner_area = block.inner(area);
-        app.browser_row_rects.clear();
-        for (pos, _) in filtered.iter().enumerate() {
-            let row = inner_area.y.saturating_add(pos as u16);
-            app.browser_row_rects.push((
-                row,
-                Rect {
-                    x: inner_area.x,
-                    y: row,
-                    width: inner_area.width,
-                    height: 1,
-                },
-                pos,
-            ));
-        }
-
         let list_widget = List::new(list_items).block(block);
 
     app.browser.state.select(selected_pos);

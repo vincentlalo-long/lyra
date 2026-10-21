@@ -102,14 +102,6 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(Paragraph::new(repeat_line).alignment(Alignment::Center), row1_chunks[1]);
     frame.render_widget(Paragraph::new(vol_line).alignment(Alignment::Right), row1_chunks[2]);
 
-    // Publish volume bar rect for mouse click/drag.
-    app.volume_bar_rect = Some(Rect {
-        x: row1_chunks[2].x,
-        y: row1_chunks[2].y,
-        width: row1_chunks[2].width,
-        height: 1,
-    });
-
     // --- Line 2: Seamless Sub-block Seekbar (Zero Gap) ---
     let current_pos = app.audio.position();
     let duration_opt = app.audio.duration;

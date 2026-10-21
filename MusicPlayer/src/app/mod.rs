@@ -158,20 +158,6 @@ pub struct App {
     pub sleep_timer_minutes: u64,
     /// Auto-embed cover art into ID3 after download.
     pub cover_embed: bool,
-    /// Mouse support enabled (from config). Can be toggled at runtime.
-    pub mouse_enabled: bool,
-    /// Per-row rects for the visible playlist (used by mouse click detection).
-    pub playlist_row_rects: Vec<(u16, ratatui::layout::Rect, usize)>,
-    /// Per-row rects for the visible browser.
-    pub browser_row_rects: Vec<(u16, ratatui::layout::Rect, usize)>,
-    /// Per-row rects for the visible queue.
-    pub queue_row_rects: Vec<(u16, ratatui::layout::Rect, usize)>,
-    /// Rect of the volume bar (used by mouse click/drag).
-    pub volume_bar_rect: Option<ratatui::layout::Rect>,
-    /// Last click info for double-click detection: (instant, row_index, view_mode).
-    pub last_click: Option<(std::time::Instant, usize, ViewMode)>,
-    /// Tab bar area rect for mouse click-to-switch views (divided into 5 equal sections).
-    pub tab_bar_rect: Option<ratatui::layout::Rect>,
     /// Background community-plugin installer: sending side (cloned per job).
     pub plugin_dl_tx: plugin_mpsc::Sender<crate::plugin_dl::InstallEvent>,
     /// Receiving side, drained every main-loop tick (`check_plugin_downloads`).
@@ -282,13 +268,6 @@ impl App {
             sleep_timer: None,
             sleep_timer_minutes: 0,
             cover_embed: true,
-            mouse_enabled: true,
-            playlist_row_rects: Vec::new(),
-            browser_row_rects: Vec::new(),
-            queue_row_rects: Vec::new(),
-            volume_bar_rect: None,
-            last_click: None,
-            tab_bar_rect: None,
             plugin_dl_tx,
             plugin_dl_rx,
             plugin_dl_active: None,
@@ -311,9 +290,6 @@ impl App {
         for warning in config.validate() {
             eprintln!("Warning: {warning}");
         }
-        // Set mouse_enabled from config first, then sync_plugin_runtime_flags()
-        // will override it from the saved plugin state (plugins.json).
-        app.mouse_enabled = config.mouse;
         // Derive runtime flags from saved plugin states (a plugin disabled
         // in a previous session stays off — no recompile needed).
         // Lyrics layout defaults ON when its plugin ships enabled.

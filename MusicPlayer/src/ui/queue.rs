@@ -221,22 +221,6 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         let list_widget = List::new(list_items);
         app.queue.state.select(selected_pos);
 
-        // Publish row rects for mouse click detection.
-        app.queue_row_rects.clear();
-        for (pos, _) in items_to_render.iter().enumerate() {
-            let row = list_area.y.saturating_add(pos as u16);
-            app.queue_row_rects.push((
-                row,
-                Rect {
-                    x: list_area.x,
-                    y: row,
-                    width: list_area.width,
-                    height: 1,
-                },
-                pos,
-            ));
-        }
-
         frame.render_stateful_widget(list_widget, list_area, &mut app.queue.state);
 
         if app.queue.len() > 1 {
@@ -345,22 +329,6 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             list_items.push(ListItem::new(Line::from(vec![
                 Span::styled("  (empty queue)", Style::default().fg(app.theme.faint)),
             ])));
-        }
-
-        // Publish row rects for mouse click detection (compact view).
-        app.queue_row_rects.clear();
-        for (pos, _) in items_to_render.iter().enumerate() {
-            let row = inner.y.saturating_add(pos as u16);
-            app.queue_row_rects.push((
-                row,
-                Rect {
-                    x: inner.x,
-                    y: row,
-                    width: inner.width,
-                    height: 1,
-                },
-                pos,
-            ));
         }
 
         let list_widget = List::new(list_items);

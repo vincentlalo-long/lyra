@@ -112,6 +112,117 @@ pub const LATTE_FAINT: Color = Color::Rgb(156, 160, 176);
 pub const LATTE_DARK: Color = Color::Rgb(204, 208, 218);
 pub const LATTE_BG: Color = Color::Rgb(239, 241, 245);
 
+// Catppuccin Frappê Palette (muted medium subset)
+pub const FRAPPE_ROSE: Color = Color::Rgb(235, 160, 172);
+pub const FRAPPE_MAUVE: Color = Color::Rgb(152, 199, 243);
+pub const FRAPPE_PINK: Color = Color::Rgb(232, 166, 229);
+pub const FRAPPE_RED: Color = Color::Rgb(232, 102, 136);
+pub const FRAPPE_MAROON: Color = Color::Rgb(229, 128, 128);
+pub const FRAPPE_PEACH: Color = Color::Rgb(235, 188, 138);
+pub const FRAPPE_YELLOW: Color = Color::Rgb(241, 227, 137);
+pub const FRAPPE_GREEN: Color = Color::Rgb(133, 211, 153);
+pub const FRAPPE_TEAL: Color = Color::Rgb(113, 203, 200);
+pub const FRAPPE_SKY: Color = Color::Rgb(142, 213, 240);
+pub const FRAPPE_SAPPHIRE: Color = Color::Rgb(103, 166, 229);
+pub const FRAPPE_BLUE: Color = Color::Rgb(137, 180, 250);
+pub const FRAPVE_LAVENDER: Color = Color::Rgb(194, 190, 248);
+pub const FRAPPE_TEXT: Color = Color::Rgb(216, 222, 233);
+pub const FRAPPE_SUBTEXT0: Color = Color::Rgb(186, 194, 222);
+pub const FRAPPE_SUBTEXT1: Color = Color::Rgb(156, 164, 205);
+pub const FRAPPE_OVERLAY0: Color = Color::Rgb(116, 124, 148);
+pub const FRAPPE_OVERLAY1: Color = Color::Rgb(86, 94, 118);
+pub const FRAPPE_OVERLAY2: Color = Color::Rgb(74, 77, 89);
+pub const FRAPPE_SURFACE0: Color = Color::Rgb(62, 68, 83);
+pub const FRAPPE_SURFACE1: Color = Color::Rgb(49, 53, 65);
+pub const FRAPPE_SURFACE2: Color = Color::Rgb(36, 39, 46);
+pub const FRAPPE_BASE: Color = Color::Rgb(30, 30, 46);
+pub const FRAPPE_MANTLE: Color = Color::Rgb(24, 24, 37);
+pub const FRAPPE_CRUST: Color = Color::Rgb(17, 17, 27);
+
+// Catppuccin Macchiato Palette (light-medium subset)
+pub const MACCHIATO_ROSE: Color = Color::Rgb(232, 156, 172);
+pub const MACCHIATO_MAUVE: Color = Color::Rgb(177, 199, 252);
+pub const MACCHIATO_PINK: Color = Color::Rgb(235, 154, 221);
+pub const MACCHIATO_RED: Color = Color::Rgb(229, 116, 148);
+pub const MACCHIATO_MAROON: Color = Color::Rgb(231, 120, 120);
+pub const MACCHIATO_PEACH: Color = Color::Rgb(238, 176, 131);
+pub const MACCHIATO_YELLOW: Color = Color::Rgb(245, 228, 140);
+pub const MACCHIATO_GREEN: Color = Color::Rgb(143, 215, 161);
+pub const MACCHIATO_TEAL: Color = Color::Rgb(127, 211, 207);
+pub const MACCHIATO_SKY: Color = Color::Rgb(154, 219, 246);
+pub const MACCHIATO_SAPPHIRE: Color = Color::Rgb(122, 172, 233);
+pub const MACCHIATO_BLUE: Color = Color::Rgb(137, 220, 252);
+pub const MACCHIATO_LAVENDER: Color = Color::Rgb(203, 193, 247);
+pub const MACCHIATO_TEXT: Color = Color::Rgb(223, 229, 238);
+pub const MACCHIATO_SUBTEXT0: Color = Color::Rgb(194, 202, 213);
+pub const MACCHIATO_SUBTEXT1: Color = Color::Rgb(166, 174, 190);
+pub const MACCHIATO_OVERLAY0: Color = Color::Rgb(138, 146, 164);
+pub const MACCHIATO_OVERLAY1: Color = Color::Rgb(110, 118, 137);
+pub const MACCHIATO_OVERLAY2: Color = Color::Rgb(126, 129, 152);
+pub const MACCHIATO_SURFACE0: Color = Color::Rgb(104, 113, 129);
+pub const MACCHIATO_SURFACE1: Color = Color::Rgb(82, 89, 104);
+pub const MACCHIATO_SURFACE2: Color = Color::Rgb(59, 64, 77);
+pub const MACCHIATO_BASE: Color = Color::Rgb(47, 50, 62);
+pub const MACCHIATO_MANTLE: Color = Color::Rgb(39, 41, 51);
+pub const MACCHIATO_CRUST: Color = Color::Rgb(32, 34, 43);
+
+// Solarized Dark Palette
+pub const SOLARIZED_BASE03: Color = Color::Rgb(0, 43, 54);
+pub const SOLARIZED_BASE02: Color = Color::Rgb(7, 54, 66);
+pub const SOLARIZED_BASE01: Color = Color::Rgb(88, 110, 117);
+pub const SOLARIZED_BASE00: Color = Color::Rgb(101, 123, 131);
+pub const SOLARIZED_BASE0: Color = Color::Rgb(131, 148, 150);
+pub const SOLARIZED_BASE1: Color = Color::Rgb(147, 161, 161);
+pub const SOLARIZED_BASE2: Color = Color::Rgb(214, 222, 224);
+pub const SOLARIZED_BASE3: Color = Color::Rgb(230, 235, 235);
+pub const SOLARIZED_YELLOW: Color = Color::Rgb(181, 137, 0);
+pub const SOLARIZED_ORANGE: Color = Color::Rgb(203, 75, 22);
+pub const SOLARIZED_RED: Color = Color::Rgb(220, 50, 47);
+pub const SOLARIZED_MAGENTA: Color = Color::Rgb(211, 54, 130);
+pub const SOLARIZED_VIOLET: Color = Color::Rgb(108, 113, 196);
+pub const SOLARIZED_BLUE: Color = Color::Rgb(38, 139, 210);
+pub const SOLARIZED_CYAN: Color = Color::Rgb(42, 161, 152);
+pub const SOLARIZED_GREEN: Color = Color::Rgb(133, 153, 0);
+
+// Solarized Light Palette
+pub const SOLARIZED_LIGHT_YELLOW: Color = Color::Rgb(181, 137, 0);
+pub const SOLARIZED_LIGHT_ORANGE: Color = Color::Rgb(203, 75, 22);
+pub const SOLARIZED_LIGHT_RED: Color = Color::Rgb(220, 50, 47);
+pub const SOLARIZED_LIGHT_MAGENTA: Color = Color::Rgb(211, 54, 130);
+pub const SOLARIZED_LIGHT_VIOLET: Color = Color::Rgb(108, 113, 196);
+pub const SOLARIZED_LIGHT_BLUE: Color = Color::Rgb(38, 139, 210);
+pub const SOLARIZED_LIGHT_CYAN: Color = Color::Rgb(42, 161, 152);
+pub const SOLARIZED_LIGHT_GREEN: Color = Color::Rgb(133, 153, 0);
+
+// Rose Pine Palette
+pub const ROSEPINE_BASE: Color = Color::Rgb(19, 17, 24);
+pub const ROSEPINE_SURFACE: Color = Color::Rgb(33, 30, 45);
+pub const ROSEPINE_OVERLAY: Color = Color::Rgb(49, 46, 64);
+pub const ROSEPINE_MUTED: Color = Color::Rgb(65, 60, 81);
+pub const ROSEPINE_TEXT: Color = Color::Rgb(220, 215, 223);
+pub const ROSEPINE_SUBTEXT: Color = Color::Rgb(176, 170, 183);
+pub const ROSEPINE_PINE: Color = Color::Rgb(105, 143, 119);
+pub const ROSEPINE_FOAM: Color = Color::Rgb(132, 197, 182);
+pub const ROSEPINE_IRIS: Color = Color::Rgb(176, 156, 222);
+pub const ROSEPINE_GOLD: Color = Color::Rgb(210, 182, 111);
+pub const ROSEPINE_ROSE: Color = Color::Rgb(225, 135, 159);
+pub const ROSEPINE_LOVE: Color = Color::Rgb(232, 124, 143);
+pub const ROSEPINE_GOLD_RGB: Color = Color::Rgb(204, 172, 103);
+
+// One Dark Palette
+pub const ONEDARK_BG: Color = Color::Rgb(40, 44, 52);
+pub const ONEDARK_FG: Color = Color::Rgb(171, 178, 191);
+pub const ONEDARK_RED: Color = Color::Rgb(224, 108, 117);
+pub const ONEDARK_GREEN: Color = Color::Rgb(152, 195, 121);
+pub const ONEDARK_YELLOW: Color = Color::Rgb(229, 192, 117);
+pub const ONEDARK_BLUE: Color = Color::Rgb(97, 175, 239);
+pub const ONEDARK_PURPLE: Color = Color::Rgb(198, 120, 221);
+pub const ONEDARK_CYAN: Color = Color::Rgb(86, 182, 194);
+pub const ONEDARK_GREY: Color = Color::Rgb(86, 95, 108);
+pub const ONEDARK_LIGHT_GREY: Color = Color::Rgb(127, 137, 152);
+pub const ONEDARK_DARKER_GREY: Color = Color::Rgb(62, 69, 82);
+pub const ONEDARK_LINE_GREY: Color = Color::Rgb(59, 65, 77);
+
 // ---------------------------------------------------------------------------
 // Semantic theme
 // ---------------------------------------------------------------------------
@@ -286,6 +397,150 @@ impl Theme {
         }
     }
 
+    pub fn frappe() -> Self {
+        // Catppuccin Frappe: muted medium-dark, soft pastel accents.
+        Self {
+            name: "frappe",
+            accent: FRAPPE_MAUVE,
+            accent_dim: FRAPPE_ROSE,
+            border: FRAPPE_SURFACE1,
+            border_focused: FRAPPE_MAUVE,
+            text: FRAPPE_TEXT,
+            muted: FRAPPE_SUBTEXT0,
+            faint: FRAPPE_OVERLAY0,
+            success: FRAPPE_GREEN,
+            warning: FRAPPE_YELLOW,
+            danger: FRAPPE_RED,
+            info: FRAPPE_BLUE,
+            hint: FRAPPE_PEACH,
+            ink: FRAPPE_BASE,
+            selected_bg: FRAPPE_SURFACE0,
+            selected_fg: FRAPPE_MAUVE,
+            progress_fill: FRAPPE_MAUVE,
+            progress_track: FRAPPE_SURFACE0,
+        }
+    }
+
+    pub fn macchiato() -> Self {
+        // Catppuccin Macchiato: light-medium with soft rose accents.
+        Self {
+            name: "macchiato",
+            accent: MACCHIATO_MAUVE,
+            accent_dim: MACCHIATO_ROSE,
+            border: MACCHIATO_SURFACE1,
+            border_focused: MACCHIATO_MAUVE,
+            text: MACCHIATO_TEXT,
+            muted: MACCHIATO_SUBTEXT0,
+            faint: MACCHIATO_OVERLAY0,
+            success: MACCHIATO_GREEN,
+            warning: MACCHIATO_YELLOW,
+            danger: MACCHIATO_RED,
+            info: MACCHIATO_BLUE,
+            hint: MACCHIATO_PEACH,
+            ink: MACCHIATO_BASE,
+            selected_bg: MACCHIATO_SURFACE0,
+            selected_fg: MACCHIATO_MAUVE,
+            progress_fill: MACCHIATO_MAUVE,
+            progress_track: MACCHIATO_SURFACE0,
+        }
+    }
+
+    pub fn solarized_dark() -> Self {
+        // Solarized Dark: low-contrast, blue-gray base with cyan accent.
+        Self {
+            name: "solarized-dark",
+            accent: SOLARIZED_CYAN,
+            accent_dim: SOLARIZED_BASE0,
+            border: SOLARIZED_BASE02,
+            border_focused: SOLARIZED_CYAN,
+            text: SOLARIZED_BASE2,
+            muted: SOLARIZED_BASE01,
+            faint: SOLARIZED_BASE02,
+            success: SOLARIZED_GREEN,
+            warning: SOLARIZED_YELLOW,
+            danger: SOLARIZED_RED,
+            info: SOLARIZED_BLUE,
+            hint: SOLARIZED_MAGENTA,
+            ink: SOLARIZED_BASE03,
+            selected_bg: SOLARIZED_BASE01,
+            selected_fg: SOLARIZED_CYAN,
+            progress_fill: SOLARIZED_CYAN,
+            progress_track: SOLARIZED_BASE01,
+        }
+    }
+
+    pub fn solarized_light() -> Self {
+        // Solarized Light: inverted dark, paper background with cyan accent.
+        Self {
+            name: "solarized-light",
+            accent: SOLARIZED_LIGHT_VIOLET,
+            accent_dim: SOLARIZED_BASE1,
+            border: SOLARIZED_BASE1,
+            border_focused: SOLARIZED_LIGHT_VIOLET,
+            text: SOLARIZED_BASE03,
+            muted: SOLARIZED_BASE00,
+            faint: SOLARIZED_BASE1,
+            success: SOLARIZED_LIGHT_GREEN,
+            warning: SOLARIZED_LIGHT_YELLOW,
+            danger: SOLARIZED_LIGHT_RED,
+            info: SOLARIZED_LIGHT_BLUE,
+            hint: SOLARIZED_LIGHT_MAGENTA,
+            ink: SOLARIZED_BASE3,
+            selected_bg: SOLARIZED_BASE00,
+            selected_fg: SOLARIZED_LIGHT_VIOLET,
+            progress_fill: SOLARIZED_LIGHT_VIOLET,
+            progress_track: SOLARIZED_BASE00,
+        }
+    }
+
+    pub fn rosepine() -> Self {
+        // Rose Pine: warm dark pink/purple palette, very cozy.
+        Self {
+            name: "rosepine",
+            accent: ROSEPINE_IRIS,
+            accent_dim: ROSEPINE_ROSE,
+            border: ROSEPINE_SURFACE,
+            border_focused: ROSEPINE_IRIS,
+            text: ROSEPINE_TEXT,
+            muted: ROSEPINE_SUBTEXT,
+            faint: ROSEPINE_MUTED,
+            success: ROSEPINE_PINE,
+            warning: ROSEPINE_GOLD,
+            danger: ROSEPINE_LOVE,
+            info: ROSEPINE_FOAM,
+            hint: ROSEPINE_ROSE,
+            ink: ROSEPINE_BASE,
+            selected_bg: ROSEPINE_SURFACE,
+            selected_fg: ROSEPINE_IRIS,
+            progress_fill: ROSEPINE_IRIS,
+            progress_track: ROSEPINE_SURFACE,
+        }
+    }
+
+    pub fn onedark() -> Self {
+        // One Dark: Atom's classic dark theme, blue-gray accents.
+        Self {
+            name: "onedark",
+            accent: ONEDARK_BLUE,
+            accent_dim: ONEDARK_PURPLE,
+            border: ONEDARK_DARKER_GREY,
+            border_focused: ONEDARK_BLUE,
+            text: ONEDARK_FG,
+            muted: ONEDARK_GREY,
+            faint: ONEDARK_DARKER_GREY,
+            success: ONEDARK_GREEN,
+            warning: ONEDARK_YELLOW,
+            danger: ONEDARK_RED,
+            info: ONEDARK_CYAN,
+            hint: ONEDARK_PURPLE,
+            ink: ONEDARK_BG,
+            selected_bg: ONEDARK_DARKER_GREY,
+            selected_fg: ONEDARK_BLUE,
+            progress_fill: ONEDARK_BLUE,
+            progress_track: ONEDARK_DARKER_GREY,
+        }
+    }
+
     /// Resolve by name (`mocha` default). Case/dash-insensitive:
     /// `TokyoNight`, `tokyo-night`, `gruvbox` all work.
     pub fn from_name(name: &str) -> Self {
@@ -296,12 +551,31 @@ impl Theme {
             "dracula" => Self::dracula(),
             "nord" => Self::nord(),
             "latte" | "catppuccin-latte" => Self::latte(),
+            "frappe" | "catppuccin-frappe" => Self::frappe(),
+            "macchiato" | "catppuccin-macchiato" => Self::macchiato(),
+            "solarized-dark" | "solarizeddark" => Self::solarized_dark(),
+            "solarized-light" | "solarizedlight" => Self::solarized_light(),
+            "rosepine" | "rose-pine" => Self::rosepine(),
+            "onedark" | "one-dark" => Self::onedark(),
             _ => Self::mocha(),
         }
     }
 
     pub fn available() -> Vec<&'static str> {
-        vec!["mocha", "gruvbox", "tokyo-night", "dracula", "nord", "latte"]
+        vec![
+            "mocha",
+            "gruvbox",
+            "tokyo-night",
+            "dracula",
+            "nord",
+            "latte",
+            "frappe",
+            "macchiato",
+            "solarized-dark",
+            "solarized-light",
+            "rosepine",
+            "onedark",
+        ]
     }
 }
 
@@ -323,6 +597,12 @@ mod tests {
         assert_eq!(Theme::from_name("DRACULA").name, "dracula");
         assert_eq!(Theme::from_name("nord").name, "nord");
         assert_eq!(Theme::from_name("catppuccin-latte").name, "latte");
+        assert_eq!(Theme::from_name("catppuccin-frappe").name, "frappe");
+        assert_eq!(Theme::from_name("catppuccin-macchiato").name, "macchiato");
+        assert_eq!(Theme::from_name("solarized-dark").name, "solarized-dark");
+        assert_eq!(Theme::from_name("solarized-light").name, "solarized-light");
+        assert_eq!(Theme::from_name("rosepine").name, "rosepine");
+        assert_eq!(Theme::from_name("onedark").name, "onedark");
         assert_eq!(Theme::from_name("nope").name, "mocha");
     }
 
@@ -335,6 +615,12 @@ mod tests {
             Theme::dracula(),
             Theme::nord(),
             Theme::latte(),
+            Theme::frappe(),
+            Theme::macchiato(),
+            Theme::solarized_dark(),
+            Theme::solarized_light(),
+            Theme::rosepine(),
+            Theme::onedark(),
         ]
         .iter()
         .map(|t| t.accent)
@@ -344,6 +630,6 @@ mod tests {
         unique.dedup();
         // Every preset must have a visually distinct signature accent.
         assert_eq!(unique.len(), accents.len());
-        assert_eq!(Theme::available().len(), 6);
+        assert_eq!(Theme::available().len(), 12);
     }
 }

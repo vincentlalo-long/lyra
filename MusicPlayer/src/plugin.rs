@@ -160,15 +160,6 @@ impl ManagedPlugin {
                 is_removed: false,
                 is_builtin: true,
             },
-            Self {
-                id: "mouse".into(),
-                name: "Mouse Support".into(),
-                version: "v0.3.1".into(),
-                description: "Mouse click/drag for tabs, track selection, seekbar and volume bar".into(),
-                enabled: true,
-                is_removed: false,
-                is_builtin: true,
-            },
         ]
     }
 
