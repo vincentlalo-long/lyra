@@ -317,6 +317,18 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         return true;
     }
 
+    // Ctrl+V cycles visualizer color.
+    if has_ctrl && event.code == KeyCode::Char('v') {
+        let colors = ["accent", "cyan", "green", "magenta", "yellow"];
+        let cur = app.visualizer_color.as_deref().unwrap_or("accent");
+        let idx = colors.iter().position(|&s| s == cur).unwrap_or(0);
+        let next = colors[(idx + 1) % colors.len()];
+        app.visualizer_color = Some(next.to_string());
+        app.visualizer = true;
+        app.set_toast(format!("Visualizer color: {}", next));
+        return true;
+    }
+
     // If Alt or Ctrl is held in Normal Mode, do not trigger single-key shortcuts
     // (e.g. Alt+Z is Unikey toggle, Ctrl+Z, Ctrl+S, etc.)
     if has_ctrl || has_alt {
@@ -646,6 +658,16 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         // Sleep timer: off -> 15 -> 30 -> 60 -> 90 -> 120 -> off.
         KeyCode::Char('O') => {
             app.cycle_sleep_timer();
+        }
+
+        // Audio visualizer toggle (b), cycle color (Ctrl+V).
+        KeyCode::Char('b') => {
+            app.visualizer = !app.visualizer;
+            app.set_toast(if app.visualizer {
+                "Visualizer: ON".to_string()
+            } else {
+                "Visualizer: OFF".to_string()
+            });
         }
 
         // Playlist import/export modal (M3U).

@@ -20,6 +20,7 @@ mod queue;
 mod scan_dialog;
 mod spotlight;
 mod theme_picker;
+mod visualizer;
 
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},
@@ -183,7 +184,21 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         }
 
         cover::render(frame, app, left_chunks[1]);
-        lyrics::render(frame, app, body_chunks[1]);
+
+        // Right side: lyrics + optional visualizer below
+        if app.visualizer {
+            let right_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Min(8),
+                    Constraint::Length(10),
+                ])
+                .split(body_chunks[1]);
+            lyrics::render(frame, app, right_chunks[0]);
+            visualizer::render(frame, app, right_chunks[1]);
+        } else {
+            lyrics::render(frame, app, body_chunks[1]);
+        }
     } else {
         // Studio Mode (Lyric OFF): Cover Art + Spotlight specs on the left
         let available_h = layout_chunks[1].height;
@@ -210,7 +225,21 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             .split(body_chunks[0]);
 
         cover::render(frame, app, left_chunks[0]);
-        spotlight::render(frame, app, left_chunks[1]);
+
+        // Lower left: spotlight + optional visualizer below
+        if app.visualizer {
+            let left_lower = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Min(8),
+                    Constraint::Length(10),
+                ])
+                .split(left_chunks[1]);
+            spotlight::render(frame, app, left_lower[0]);
+            visualizer::render(frame, app, left_lower[1]);
+        } else {
+            spotlight::render(frame, app, left_chunks[1]);
+        }
 
         match app.view_mode {
             ViewMode::Playlist => playlist::render(frame, app, body_chunks[1]),

@@ -23,6 +23,12 @@ pub struct FileConfig {
     pub theme: Option<String>,
     /// Auto-embed cover art into ID3 after download (requires mutagen).
     pub cover_embed: Option<bool>,
+    /// Audio visualizer enabled.
+    pub visualizer: Option<bool>,
+    /// Visualizer color preset name: "accent", "cyan", "green", "magenta", "yellow".
+    pub visualizer_color: Option<String>,
+    /// Visualizer style: "bars", "wave", "dual".
+    pub visualizer_style: Option<String>,
 }
 
 fn config_path() -> Option<PathBuf> {
@@ -76,6 +82,12 @@ pub struct Config {
     pub theme: Option<String>,
     /// Auto-embed cover art into ID3 after download.
     pub cover_embed: bool,
+    /// Audio visualizer enabled.
+    pub visualizer: bool,
+    /// Visualizer color preset name.
+    pub visualizer_color: Option<String>,
+    /// Visualizer style: "bars", "wave", "dual".
+    pub visualizer_style: Option<String>,
 }
 
 impl Config {
@@ -92,6 +104,9 @@ impl Config {
             search_limit: file.search_limit,
             theme: file.theme,
             cover_embed: file.cover_embed.unwrap_or(true),
+            visualizer: file.visualizer.unwrap_or(false),
+            visualizer_color: file.visualizer_color,
+            visualizer_style: file.visualizer_style,
         }
     }
 
@@ -189,6 +204,24 @@ impl Config {
                     table.insert(key.to_string(), toml::Value::Boolean(b));
                 }
             }
+            // Boolean flag (audio visualizer).
+            "visualizer" => {
+                if let Ok(b) = value.parse::<bool>() {
+                    table.insert(key.to_string(), toml::Value::Boolean(b));
+                }
+            }
+            // Visualizer color preset name.
+            "visualizer_color" => {
+                if !value.is_empty() {
+                    table.insert(key.to_string(), toml::Value::String(value.to_string()));
+                }
+            }
+            // Visualizer style name: "bars", "wave", "dual".
+            "visualizer_style" => {
+                if !value.is_empty() {
+                    table.insert(key.to_string(), toml::Value::String(value.to_string()));
+                }
+            }
             _ => {}
         }
         let serialized = toml::to_string_pretty(&table)
@@ -208,6 +241,9 @@ impl Config {
             search_limit: file.search_limit,
             theme: file.theme,
             cover_embed: file.cover_embed.unwrap_or(true),
+            visualizer: file.visualizer.unwrap_or(false),
+            visualizer_color: file.visualizer_color,
+            visualizer_style: file.visualizer_style,
         }
     }
 
@@ -305,6 +341,9 @@ mod tests {
             search_limit: None,
             theme: None,
             cover_embed: true,
+            visualizer: false,
+            visualizer_color: None,
+            visualizer_style: None,
         };
         let (p, w) = cfg.resolve_music_folder(Some(PathBuf::from("/cli/music")));
         assert_eq!(p, PathBuf::from("/cli/music"));
@@ -319,6 +358,9 @@ mod tests {
             search_limit: None,
             theme: None,
             cover_embed: true,
+            visualizer: false,
+            visualizer_color: None,
+            visualizer_style: None,
         };
         let (p, w) = cfg.resolve_music_folder(None);
         assert!(w.is_some());
@@ -333,6 +375,9 @@ mod tests {
             search_limit: None,
             theme: None,
             cover_embed: true,
+            visualizer: false,
+            visualizer_color: None,
+            visualizer_style: None,
         };
         let (p, raw) = cfg.resolve_download_dir(Path::new("/fallback"));
         assert_eq!(raw, "~/Custom/Downloads");

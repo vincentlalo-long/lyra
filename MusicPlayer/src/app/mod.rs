@@ -167,6 +167,14 @@ pub struct App {
     pub sleep_timer_minutes: u64,
     /// Auto-embed cover art into ID3 after download.
     pub cover_embed: bool,
+    /// Audio visualizer enabled.
+    pub visualizer: bool,
+    /// Visualizer color preset name.
+    pub visualizer_color: Option<String>,
+    /// Visualizer style: "bars", "wave", "dual".
+    pub visualizer_style: Option<String>,
+    /// Visualizer animation phase (advances every frame while playing).
+    pub visualizer_phase: f32,
     /// Background community-plugin installer: sending side (cloned per job).
     pub plugin_dl_tx: plugin_mpsc::Sender<crate::plugin_dl::InstallEvent>,
     /// Receiving side, drained every main-loop tick (`check_plugin_downloads`).
@@ -278,6 +286,10 @@ impl App {
             sleep_timer: None,
             sleep_timer_minutes: 0,
             cover_embed: true,
+            visualizer: false,
+            visualizer_color: None,
+            visualizer_style: None,
+            visualizer_phase: 0.0,
             plugin_dl_tx,
             plugin_dl_rx,
             plugin_dl_active: None,
@@ -313,6 +325,9 @@ impl App {
             }
         }
         app.cover_embed = config.cover_embed;
+        app.visualizer = config.visualizer;
+        app.visualizer_color = config.visualizer_color.clone();
+        app.visualizer_style = config.visualizer_style.clone();
         Ok(app)
     }
 
