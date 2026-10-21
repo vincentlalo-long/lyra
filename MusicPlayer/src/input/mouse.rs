@@ -98,10 +98,9 @@ fn seek_to_ratio(app: &mut App, ratio: f32) {
 }
 
 /// Handle one mouse event. Returns whether the event was consumed.
-/// When `mouse` feature is disabled or `app.mouse_enabled` is false,
-/// always returns `false` (event falls through).
+/// When `mouse` plugin is disabled, always returns `false`.
 pub fn handle_mouse(app: &mut App, ev: MouseEvent) -> bool {
-    if !app.mouse_enabled {
+    if !app.plugin_enabled("mouse") {
         return false;
     }
 
@@ -382,10 +381,14 @@ mod tests {
     }
 
     #[test]
-    fn test_mouse_disabled_ignored() {
+    fn test_mouse_plugin_disabled_ignored() {
         let dir = std::env::temp_dir();
         if let Ok(mut app) = App::new(&dir) {
-            app.mouse_enabled = false;
+            // Disable the mouse plugin to simulate user toggling it off in Plugins view.
+            if let Some(p) = app.plugins.iter_mut().find(|p| p.id == "mouse") {
+                p.enabled = false;
+            }
+            app.sync_plugin_runtime_flags(false);
             app.audio.duration = Some(Duration::from_secs(200));
             app.seekbar_rect = Some(Rect { x: 10, y: 5, width: 20, height: 1 });
             let ev = MouseEvent {

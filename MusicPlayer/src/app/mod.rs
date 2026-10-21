@@ -311,6 +311,9 @@ impl App {
         for warning in config.validate() {
             eprintln!("Warning: {warning}");
         }
+        // Set mouse_enabled from config first, then sync_plugin_runtime_flags()
+        // will override it from the saved plugin state (plugins.json).
+        app.mouse_enabled = config.mouse;
         // Derive runtime flags from saved plugin states (a plugin disabled
         // in a previous session stays off — no recompile needed).
         // Lyrics layout defaults ON when its plugin ships enabled.
@@ -324,7 +327,6 @@ impl App {
             }
         }
         app.cover_embed = config.cover_embed;
-        app.mouse_enabled = config.mouse;
         Ok(app)
     }
 
