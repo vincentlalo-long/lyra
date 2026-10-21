@@ -158,45 +158,77 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     if app.view_mode == ViewMode::Extensions {
         extensions::render(frame, app, layout_chunks[1]);
     } else if app.show_lyrics && app.plugin_enabled("lyrics") && app.view_mode != ViewMode::Plugins {
-        // Karaoke Mode (Lyric ON): Cover art on the left, wide lyrics area on the right
-        let body_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(24), // Left: Compact width for cover art
-                Constraint::Percentage(76), // Right: Wide area for synchronized lyrics
-            ])
-            .split(layout_chunks[1]);
-
-        let left_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Percentage(38), // Upper: Playlist, Queue, or Browser
-                Constraint::Percentage(62), // Lower: Cover Art
-            ])
-            .split(body_chunks[0]);
-
-        match app.view_mode {
-            ViewMode::Playlist => playlist::render(frame, app, left_chunks[0]),
-            ViewMode::Queue => queue::render(frame, app, left_chunks[0]),
-            ViewMode::Browser => browser::render(frame, app, left_chunks[0]),
-            ViewMode::Extensions => {}
-            ViewMode::Plugins => {}
-        }
-
-        cover::render(frame, app, left_chunks[1]);
-
-        // Right side: lyrics + optional visualizer below
+        // Karaoke Mode (Lyric ON): Cover art on the left, wide lyrics area on the right.
+        // If visualizer is ON, it sits below lyrics, spanning full width.
         if app.visualizer {
-            let right_chunks = Layout::default()
+            let main_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Min(8),
+                    Constraint::Min(10),
                     Constraint::Length(10),
                 ])
-                .split(body_chunks[1]);
-            lyrics::render(frame, app, right_chunks[0]);
-            visualizer::render(frame, app, right_chunks[1]);
+                .split(layout_chunks[1]);
+
+            // Top area: split horizontally into left (cover+playlist) and right (lyrics)
+            let h_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(24),
+                    Constraint::Percentage(76),
+                ])
+                .split(main_chunks[0]);
+
+            // Left: cover + playlist
+            let left_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Percentage(38),
+                    Constraint::Percentage(62),
+                ])
+                .split(h_chunks[0]);
+
+            match app.view_mode {
+                ViewMode::Playlist => playlist::render(frame, app, left_chunks[0]),
+                ViewMode::Queue => queue::render(frame, app, left_chunks[0]),
+                ViewMode::Browser => browser::render(frame, app, left_chunks[0]),
+                ViewMode::Extensions => {}
+                ViewMode::Plugins => {}
+            }
+
+            cover::render(frame, app, left_chunks[1]);
+
+            // Right: lyrics
+            lyrics::render(frame, app, h_chunks[1]);
+
+            // Bottom: visualizer full width
+            visualizer::render(frame, app, main_chunks[1]);
         } else {
+            // Original layout without visualizer
+            let body_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(24), // Left: Compact width for cover art
+                    Constraint::Percentage(76), // Right: Wide area for synchronized lyrics
+                ])
+                .split(layout_chunks[1]);
+
+            let left_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Percentage(38), // Upper: Playlist, Queue, or Browser
+                    Constraint::Percentage(62), // Lower: Cover Art
+                ])
+                .split(body_chunks[0]);
+
+            match app.view_mode {
+                ViewMode::Playlist => playlist::render(frame, app, left_chunks[0]),
+                ViewMode::Queue => queue::render(frame, app, left_chunks[0]),
+                ViewMode::Browser => browser::render(frame, app, left_chunks[0]),
+                ViewMode::Extensions => {}
+                ViewMode::Plugins => {}
+            }
+
+            cover::render(frame, app, left_chunks[1]);
             lyrics::render(frame, app, body_chunks[1]);
         }
     } else {

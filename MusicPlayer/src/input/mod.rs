@@ -329,6 +329,18 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         return true;
     }
 
+    // Ctrl+B cycles visualizer style.
+    if has_ctrl && event.code == KeyCode::Char('b') {
+        let styles = ["bars", "wave", "dual", "spectrum", "dots"];
+        let cur = app.visualizer_style.as_deref().unwrap_or("bars");
+        let idx = styles.iter().position(|&s| s == cur).unwrap_or(0);
+        let next = styles[(idx + 1) % styles.len()];
+        app.visualizer_style = Some(next.to_string());
+        app.visualizer = true;
+        app.set_toast(format!("Visualizer style: {}", next));
+        return true;
+    }
+
     // If Alt or Ctrl is held in Normal Mode, do not trigger single-key shortcuts
     // (e.g. Alt+Z is Unikey toggle, Ctrl+Z, Ctrl+S, etc.)
     if has_ctrl || has_alt {

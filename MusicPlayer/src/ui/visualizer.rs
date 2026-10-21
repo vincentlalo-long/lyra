@@ -10,9 +10,11 @@ use crate::app::App;
 /// Visualizer render styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VizStyle {
-    Bars,
-    Wave,
-    Dual,
+    Bars,      // Cột nhấp nhô (equalizer bars)
+    Wave,      // Sóng sine connects đều
+    Dual,      // Sóng đối xứng 2 bên từ tâm
+    Spectrum,  // Equalizer spectrum (cao-thấp ngẫu nhiên)
+    Dots,      // Điểm nhấp nhô rải đều
 }
 
 impl Default for VizStyle {
@@ -26,6 +28,8 @@ impl VizStyle {
         match name {
             "wave" => Self::Wave,
             "dual" => Self::Dual,
+            "spectrum" => Self::Spectrum,
+            "dots" => Self::Dots,
             _ => Self::Bars,
         }
     }
@@ -34,6 +38,8 @@ impl VizStyle {
             Self::Bars => "bars",
             Self::Wave => "wave",
             Self::Dual => "dual",
+            Self::Spectrum => "spectrum",
+            Self::Dots => "dots",
         }
     }
 }
@@ -67,7 +73,7 @@ impl VizColor {
 }
 
 /// Number of bars/columns in the visualizer.
-const VIZ_BARS: usize = 24;
+const VIZ_BARS: usize = 26;
 
 /// Generate bar heights for the given style and phase.
 fn viz_heights(style: VizStyle, phase: f32, playing: bool) -> Vec<u16> {
@@ -77,39 +83,56 @@ fn viz_heights(style: VizStyle, phase: f32, playing: bool) -> Vec<u16> {
         // When paused: show small static heartbeat.
         for i in 0..VIZ_BARS {
             let t = i as f32 / VIZ_BARS as f32;
-            heights[i] = ((t * 4.0 + phase).sin() * 2.0 + 3.0).clamp(0.0, 5.0) as u16;
+            heights[i] = ((t * 5.0 + phase).sin() * 1.5 + 2.5).clamp(0.0, 4.0) as u16;
         }
         return heights;
     }
 
     match style {
         VizStyle::Bars => {
-            // Random-ish bouncing bars using phase.
+            // Bouncing bars with varied frequency per bar.
             for i in 0..VIZ_BARS {
-                let t = i as f32 * 0.7 + phase * 2.0;
-                let h = ((t.sin() * 0.5 + (t * 2.3).cos() * 0.5 + 1.0) / 2.0).clamp(0.0, 1.0);
-                heights[i] = (h * 12.0) as u16 + 1;
+                let t = i as f32 * 0.9 + phase * 2.5;
+                let h = ((t.sin() * 0.4 + (t * 1.7).cos() * 0.6 + (t * 3.1).sin() * 0.3 + 1.5) / 3.0).clamp(0.0, 1.0);
+                heights[i] = (h * 14.0) as u16 + 1;
             }
         }
         VizStyle::Wave => {
             // Smooth sine wave across bars.
             for i in 0..VIZ_BARS {
-                let t = i as f32 * 0.5 - phase;
-                let h = (t.sin() * 0.5 + 0.5).clamp(0.0, 1.0);
-                heights[i] = (h * 10.0) as u16 + 2;
+                let t = i as f32 * 0.45 - phase * 1.5;
+                let h = (t.sin() * 0.6 + 0.4).clamp(0.0, 1.0);
+                heights[i] = (h * 11.0) as u16 + 2;
             }
         }
         VizStyle::Dual => {
-            // Mirrored from center.
+            // Mirrored from center (左右 đối xứng).
             let mid = VIZ_BARS / 2;
             for i in 0..=mid {
-                let t = i as f32 * 0.8 + phase;
-                let h = ((t.sin() * 0.6 + (t * 1.7).cos() * 0.4 + 1.0) / 2.0).clamp(0.0, 1.0);
-                let hv = (h * 10.0) as u16 + 2;
+                let t = i as f32 * 0.85 + phase * 1.8;
+                let h = ((t.sin() * 0.5 + (t * 2.1).cos() * 0.5 + 1.0) / 2.0).clamp(0.0, 1.0);
+                let hv = (h * 11.0) as u16 + 2;
                 heights[i] = hv;
-                if i + mid < VIZ_BARS {
-                    heights[VIZ_BARS - 1 - i] = hv;
+                let mirror = VIZ_BARS - 1 - i;
+                if mirror < VIZ_BARS && mirror != i {
+                    heights[mirror] = hv;
                 }
+            }
+        }
+        VizStyle::Spectrum => {
+            // Equalizer-like: random-ish heights per bar, smoother changes.
+            for i in 0..VIZ_BARS {
+                let t = i as f32 * 1.1 + phase;
+                let h = ((t.sin() * 0.5 + (t * 1.3).cos() * 0.3 + (t * 4.2).sin() * 0.2 + 1.5) / 2.5).clamp(0.0, 1.0);
+                heights[i] = (h * 13.0) as u16 + 1;
+            }
+        }
+        VizStyle::Dots => {
+            // Sparse dots that bounce independently.
+            for i in 0..VIZ_BARS {
+                let t = i as f32 * 1.3 + phase * 2.2;
+                let h = ((t.sin() * 0.7 + 0.7) * (t * 2.9).cos().abs() + 0.3).clamp(0.0, 1.0);
+                heights[i] = (h * 10.0) as u16 + 1;
             }
         }
     }
@@ -142,7 +165,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
 
     let mut lines: Vec<Line> = Vec::with_capacity(draw_h + 2);
 
-    // Top border line is handled by block; we draw inside inner.
+    // Draw bars from bottom (row 0 = bottom) to top.
     for row in (0..draw_h).rev() {
         let mut spans = Vec::with_capacity(VIZ_BARS * 2);
         for &h in &heights {
@@ -151,14 +174,15 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 spans.push(Span::styled(" ", Style::default()));
             }
-            spans.push(Span::styled(" ", Style::default())); // gap
+            spans.push(Span::styled(" ", Style::default())); // gap between bars
         }
         lines.push(Line::from(spans));
     }
 
-    // Bottom label line.
+    // Bottom label line showing style and state.
     let style_name = style.to_name();
-    let label = format!(" Visualizer: {} ({}) ", style_name, if app.audio.is_paused { "paused" } else { "live" });
+    let state = if app.audio.is_paused { "paused" } else { "live" };
+    let label = format!(" Visualizer: {} [{}] ", style_name, state);
     lines.push(Line::from(vec![
         Span::styled(label, Style::default().fg(app.theme.faint).add_modifier(Modifier::BOLD)),
     ]));

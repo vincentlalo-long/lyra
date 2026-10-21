@@ -129,7 +129,7 @@ fn run_loop(terminal: &mut terminal::Tui, app: &mut App) -> Result<()> {
         app.check_plugin_downloads();
 
         // Advance visualizer animation phase every frame.
-        app.visualizer_phase = (app.visualizer_phase + 0.15) % (std::f32::consts::PI * 2.0);
+        app.visualizer_phase = (app.visualizer_phase + 0.04) % (std::f32::consts::PI * 2.0);
 
         terminal.draw(|frame| ui::render(frame, app))?;
         ui::post_render(app)?;

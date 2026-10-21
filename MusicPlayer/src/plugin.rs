@@ -160,6 +160,15 @@ impl ManagedPlugin {
                 is_removed: false,
                 is_builtin: true,
             },
+            Self {
+                id: "visualizer".into(),
+                name: "Audio Visualizer".into(),
+                version: "v0.3.1".into(),
+                description: "Real-time audio waveform visualizer (ricing style) with multiple wave types and colors".into(),
+                enabled: true,
+                is_removed: false,
+                is_builtin: true,
+            },
         ]
     }
 
