@@ -153,6 +153,9 @@ Available cargo features:
 | `Z` | Reload theme from config.toml (use after changing theme via theme-packs plugin) |
 | `O` | Sleep timer: off → 15 → 30 → 60 → 90 → 120 → off (pauses playback on expiry) |
 | `K` | Playlist import/export modal (M3U; Tab toggles import/export) |
+| `b` | Audio visualizer: ON/OFF |
+| `Ctrl+V` | Visualizer color: accent → cyan → green → magenta → yellow |
+| `Ctrl+B` | Visualizer style: bars → wave → dual → spectrum → dots |
 | `q` | Quit |
 
 ---
@@ -166,11 +169,16 @@ Available cargo features:
   repeat_mode = "playlist"
   theme = "gruvbox"
   cover_embed = true
+  visualizer = true
+  visualizer_color = "cyan"
+  visualizer_style = "wave"
   ```
 - Genre Sidecar: `~/.config/lyra/genres.json`
 - Artwork Cache: `~/.cache/lyra/covers/`
 
 **Config validation**: On startup, lyra warns (stderr) if `theme` is not a known preset or if `music_folder`/`download_dir` don't exist. Fix `config.toml` or unset `LYRA_THEME` to clear the warning.
+
+**Visualizer**: Press `b` to toggle. Cycle style with `Ctrl+B` (bars/wave/dual/spectrum/dots) and color with `Ctrl+V` (accent/cyan/green/magenta/yellow). The visualizer appears below lyrics in Karaoke mode, or below spotlight in Studio mode. It is also a toggleable plugin in the Plugins menu (key `5`).
 
 ---
 
