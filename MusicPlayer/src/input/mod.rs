@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
-use crate::app::{App, PlaylistIoModal, PlaylistIoMode, ViewMode};
+use crate::app::{App, PlaylistIoModal, PlaylistIoMode, ThemePickerModal, ViewMode};
 use crate::playlist::{export_m3u, load_m3u};
 
 #[cfg(feature = "download")]
@@ -373,6 +373,57 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         }
     }
 
+    // Theme picker modal input handling.
+    if let Some(modal) = &mut app.theme_picker_modal {
+        match event.code {
+            KeyCode::Esc => {
+                // Cancel: restore original theme
+                let original = modal.original_theme.clone();
+                app.set_theme(&original);
+                app.theme_name = original;
+                app.theme_picker_modal = None;
+                return true;
+            }
+            KeyCode::Enter => {
+                // Confirm: save selected theme
+                let themes = crate::theme::Theme::available();
+                if let Some(name) = themes.get(modal.selected_idx) {
+                    app.set_theme(name);
+                    app.theme_name = name.to_string();
+                    let _ = crate::config::Config::save_setting("theme", name);
+                    app.set_toast(format!("Theme: {name}"));
+                }
+                app.theme_picker_modal = None;
+                return true;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if modal.selected_idx > 0 {
+                    modal.selected_idx -= 1;
+                }
+                // Preview theme as we navigate
+                let themes = crate::theme::Theme::available();
+                if let Some(name) = themes.get(modal.selected_idx) {
+                    app.set_theme(name);
+                    app.theme_name = name.to_string();
+                }
+                return true;
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                let themes = crate::theme::Theme::available();
+                if modal.selected_idx < themes.len() - 1 {
+                    modal.selected_idx += 1;
+                }
+                // Preview theme as we navigate
+                if let Some(name) = themes.get(modal.selected_idx) {
+                    app.set_theme(name);
+                    app.theme_name = name.to_string();
+                }
+                return true;
+            }
+            _ => return true,
+        }
+    }
+
     // Normal Mode
     match event.code {
         // Quit, clear filter, or cancel replace (Esc never quits mid-replace).
@@ -576,10 +627,14 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
             }
         }
 
-        // Theme switcher (mocha -> gruvbox -> tokyo-night). `t` stays with
-        // the genre tagger, so theme cycling lives on capital `X`.
+        // Theme picker (opens on `X`; also cycles via `cycle_theme()` if called elsewhere).
         KeyCode::Char('X') => {
-            app.cycle_theme();
+            let themes = crate::theme::Theme::available();
+            let cur_idx = themes.iter().position(|n| n == &app.theme_name).unwrap_or(0);
+            app.theme_picker_modal = Some(ThemePickerModal {
+                selected_idx: cur_idx,
+                original_theme: app.theme_name.clone(),
+            });
         }
 
         // Reload theme preset from config.toml (e.g. after the theme-packs

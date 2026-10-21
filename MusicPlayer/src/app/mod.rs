@@ -66,6 +66,13 @@ pub enum PlaylistIoMode {
     Export,
 }
 
+/// Theme picker modal state.
+#[derive(Clone, Debug)]
+pub struct ThemePickerModal {
+    pub selected_idx: usize,
+    pub original_theme: String,
+}
+
 pub struct App {
     pub view_mode: ViewMode,
     pub browser: FileBrowser,
@@ -138,6 +145,8 @@ pub struct App {
     pub browser_modal: Option<crate::browser::BrowserActionModal>,
     /// Playlist import/export modal (M3U/PLS).
     pub playlist_io_modal: Option<PlaylistIoModal>,
+    /// Theme picker modal state.
+    pub theme_picker_modal: Option<ThemePickerModal>,
     /// Caret (char index) inside the active browser-modal text input.
     /// Reset to end-of-text whenever a modal opens or its field changes.
     pub browser_caret: usize,
@@ -260,6 +269,7 @@ impl App {
             queue_scroll_tracker: (0, Instant::now()),
             browser_modal: None,
             playlist_io_modal: None,
+            theme_picker_modal: None,
             browser_caret: 0,
             seekbar_rect: None,
             seeking_drag: false,
@@ -404,16 +414,14 @@ impl App {
         self.theme = t;
     }
 
-    /// Cycle mocha -> gruvbox -> tokyo-night -> dracula -> nord -> latte.
-    /// Used by the `X` keybinding and the theme plugin preview.
+    /// Cycle through all available themes.
+    /// Used by the `X` keybinding.
     pub fn cycle_theme(&mut self) {
-        let next = match self.theme_name.as_str() {
-            "mocha" => "gruvbox",
-            "gruvbox" => "tokyo-night",
-            "tokyo-night" => "dracula",
-            "dracula" => "nord",
-            "nord" => "latte",
-            _ => "mocha",
+        let available = crate::theme::Theme::available();
+        let cur = available.iter().position(|n| n == &self.theme_name);
+        let next = match cur {
+            Some(i) => available[(i + 1) % available.len()],
+            None => "mocha",
         };
         self.set_theme(next);
         self.set_toast(format!("Theme: {next}"));

@@ -19,6 +19,7 @@ mod plugins;
 mod queue;
 mod scan_dialog;
 mod spotlight;
+mod theme_picker;
 
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},
@@ -245,6 +246,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     if app.playlist_io_modal.is_some() {
         playlist_io::render(frame, app);
+    }
+
+    if app.theme_picker_modal.is_some() {
+        theme_picker::render(frame, app);
     }
 }
 
