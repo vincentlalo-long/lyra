@@ -20,6 +20,7 @@ mod queue;
 mod scan_dialog;
 mod spotlight;
 mod theme_picker;
+mod lyric_search;
 mod visualizer;
 
 use ratatui::{
@@ -311,6 +312,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     if app.theme_picker_modal.is_some() {
         theme_picker::render(frame, app);
+    }
+
+    if app.lyric_search_modal.is_some() {
+        lyric_search::render(frame, app);
     }
 }
 

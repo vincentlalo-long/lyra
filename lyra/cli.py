@@ -2,6 +2,8 @@ import os
 import sys
 import json
 import argparse
+import urllib.request
+import urllib.parse
 from .core import LyraPipeline, search_youtube, get_video_info, probe_lyrics
 
 
@@ -282,6 +284,55 @@ def main():
                     yr = f" ({r['year']})" if r.get('year') else ""
                     print(f"{i}. [{r['source']}:{r.get('score')}] {r['artist']} - {r['title']} [Album: {r['album']}]{yr}")
                     print(f"   Cover: {r['cover_url']}")
+        except Exception as e:
+            if args.json:
+                print(json.dumps({"type": "error", "message": str(e)}), flush=True)
+            else:
+                print(f"error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    # Command: lyric-search (search synced lyrics via LRCLIB API)
+    lyric_search_parser = subparsers.add_parser("lyric-search", help="Search synced lyrics via LRCLIB")
+    lyric_search_parser.add_argument("--artist", type=str, required=True, help="Artist name")
+    lyric_search_parser.add_argument("--title", type=str, required=True, help="Track title")
+    lyric_search_parser.add_argument("--album", type=str, default="", help="Album name (optional)")
+    lyric_search_parser.add_argument("--duration", type=int, default=0, help="Track duration in seconds (optional)")
+    lyric_search_parser.add_argument("--json", action="store_true", help="Output results as JSON")
+
+    elif args.command == "lyric-search":
+        try:
+            params = urllib.parse.urlencode({
+                "artist_name": args.artist,
+                "track_name": args.title,
+            })
+            if args.album:
+                params += f"&album_name={urllib.parse.quote(args.album)}"
+            if args.duration:
+                params += f"&duration={args.duration}"
+            url = f"https://lrclib.net/api/get?{params}"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            result = {
+                "type": "lyric_search",
+                "artist": data.get("artistName", args.artist),
+                "title": data.get("trackName", args.title),
+                "album": data.get("albumName", ""),
+                "duration": data.get("duration", 0),
+                "lyrics": data.get("syncedLyrics") or data.get("plainLyrics", ""),
+                "synced": bool(data.get("syncedLyrics")),
+            }
+            if args.json:
+                print(json.dumps(result), flush=True)
+            else:
+                if result["lyrics"]:
+                    print(f"Found lyrics for {result['artist']} - {result['title']}")
+                    print(f"Synced: {'yes' if result['synced'] else 'no'}")
+                    print(f"Duration: {result['duration']}s")
+                    print("---")
+                    print(result["lyrics"])
+                else:
+                    print("No lyrics found.")
         except Exception as e:
             if args.json:
                 print(json.dumps({"type": "error", "message": str(e)}), flush=True)

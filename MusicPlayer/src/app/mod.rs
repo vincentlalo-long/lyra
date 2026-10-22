@@ -73,6 +73,26 @@ pub struct ThemePickerModal {
     pub original_theme: String,
 }
 
+/// Lyric search modal state.
+#[derive(Clone, Debug)]
+pub struct LyricSearchModal {
+    pub query: String,
+    pub results: Vec<LyricSearchResult>,
+    pub selected: usize,
+    pub song_path: Option<PathBuf>,
+}
+
+/// Result from LRCLIB lyric search.
+#[derive(Clone, Debug)]
+pub struct LyricSearchResult {
+    pub artist: String,
+    pub title: String,
+    pub album: String,
+    pub duration: u64,
+    pub lyrics: String,
+    pub synced: bool,
+}
+
 pub struct App {
     pub view_mode: ViewMode,
     pub browser: FileBrowser,
@@ -147,6 +167,8 @@ pub struct App {
     pub playlist_io_modal: Option<PlaylistIoModal>,
     /// Theme picker modal state.
     pub theme_picker_modal: Option<ThemePickerModal>,
+    /// Lyric search modal state.
+    pub lyric_search_modal: Option<LyricSearchModal>,
     /// Caret (char index) inside the active browser-modal text input.
     /// Reset to end-of-text whenever a modal opens or its field changes.
     pub browser_caret: usize,
@@ -278,6 +300,7 @@ impl App {
             browser_modal: None,
             playlist_io_modal: None,
             theme_picker_modal: None,
+            lyric_search_modal: None,
             browser_caret: 0,
             seekbar_rect: None,
             seeking_drag: false,
@@ -443,6 +466,18 @@ impl App {
         let _ = Config::save_setting("theme", next);
     }
 
+    /// Search and download lyrics via LRCLIB API for the given result,
+    /// saving a `.lrc` file next to the song and loading it into `app.lyrics`.
+    pub fn download_lyrics(&mut self, result: &crate::app::LyricSearchResult, song_path: &Path) -> Result<()> {
+        let lrc_path = song_path.with_extension("lrc");
+        std::fs::write(&lrc_path, &result.lyrics)?;
+        
+        // Load the lyrics into the app
+        self.lyrics = crate::lyrics::Lyrics::load_for_song(song_path);
+        
+        Ok(())
+    }
+
     /// Cycle sleep timer: off -> 15 -> 30 -> 60 -> 90 -> 120 -> off.
     /// When active, playback is paused after `sleep_timer_minutes` elapse.
     pub fn cycle_sleep_timer(&mut self) {
@@ -481,6 +516,72 @@ impl App {
         self.theme_name = theme_name.clone();
         self.theme = t;
         self.set_toast(format!("Theme reloaded: {theme_name}"));
+    }
+
+    /// Locate the `main.py` Python helper script (same logic as Downloader).
+    pub fn find_lyric_script() -> PathBuf {
+        // 1. Explicit override via environment variable
+        if let Ok(env_path) = std::env::var("LYRA_PYTHON_SCRIPT") {
+            let p = PathBuf::from(env_path);
+            if p.exists() {
+                return p;
+            }
+        }
+        // 2. Relative to current working directory
+        let cwd_candidates = [
+            PathBuf::from("main.py"),
+            PathBuf::from("../main.py"),
+            PathBuf::from("../../main.py"),
+        ];
+        for c in &cwd_candidates {
+            if c.exists() && c.parent().unwrap_or(Path::new("")).join("lyra").exists() {
+                if let Ok(abs) = c.canonicalize() {
+                    return abs;
+                }
+                return c.clone();
+            }
+        }
+        // 3. Relative to the running executable directory
+        if let Ok(exe) = std::env::current_exe() {
+            let mut curr = exe.parent();
+            while let Some(parent) = curr {
+                let candidate = parent.join("main.py");
+                if candidate.exists() && parent.join("lyra").exists() {
+                    return candidate;
+                }
+                curr = parent.parent();
+            }
+        }
+        // 4. Check known development repo locations in user's home directory
+        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+            let dev_paths = [
+                home.join("projects/lyra/main.py"),
+                home.join("project/lyra/main.py"),
+                home.join("lyra/main.py"),
+                home.join("code/lyra/main.py"),
+                home.join("src/lyra/main.py"),
+            ];
+            for p in &dev_paths {
+                if p.exists() && p.parent().map(|d| d.join("lyra").exists()).unwrap_or(false) {
+                    return p.clone();
+                }
+            }
+        }
+        // 5. Check standard user data / config directories
+        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+            let user_paths = [
+                home.join(".local/share/lyra/scripts/main.py"),
+                home.join(".local/share/lyra/main.py"),
+                home.join(".config/lyra/scripts/main.py"),
+                home.join(".config/lyra/main.py"),
+            ];
+            for p in &user_paths {
+                if p.exists() {
+                    return p.clone();
+                }
+            }
+        }
+        PathBuf::from("main.py")
     }
 
     /// Shows a transient one-line feedback message in the header.

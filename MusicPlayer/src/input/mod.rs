@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
-use crate::app::{App, PlaylistIoModal, PlaylistIoMode, ThemePickerModal, ViewMode};
+use std::process::Command;
+use crate::app::{App, PlaylistIoModal, PlaylistIoMode, ThemePickerModal, LyricSearchModal, ViewMode};
 use crate::playlist::{export_m3u, load_m3u};
 
 #[cfg(feature = "download")]
@@ -448,6 +449,45 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         }
     }
 
+    // Lyric search modal input handling.
+    if let Some(modal) = &mut app.lyric_search_modal {
+        match event.code {
+            KeyCode::Esc => {
+                app.lyric_search_modal = None;
+                return true;
+            }
+            KeyCode::Enter => {
+                // Confirm: download selected lyrics
+                let selected = modal.results.get(modal.selected).cloned();
+                let song_path = modal.song_path.clone();
+                app.lyric_search_modal = None;
+                if let Some(result) = selected {
+                    if let Some(song_path) = song_path {
+                        if let Err(e) = app.download_lyrics(&result, &song_path) {
+                            app.set_toast(format!("Lyrics download failed: {e}"));
+                        } else {
+                            app.set_toast(format!("Lyrics saved for {}", result.title));
+                        }
+                    }
+                }
+                return true;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if modal.selected > 0 {
+                    modal.selected -= 1;
+                }
+                return true;
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if modal.selected < modal.results.len().saturating_sub(1) {
+                    modal.selected += 1;
+                }
+                return true;
+            }
+            _ => return true,
+        }
+    }
+
     // Normal Mode
     match event.code {
         // Quit, clear filter, or cancel replace (Esc never quits mid-replace).
@@ -538,7 +578,7 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         KeyCode::Down | KeyCode::Char('j') => app.next(),
         KeyCode::PageUp => app.page_up(),
         KeyCode::PageDown => app.page_down(),
-        KeyCode::Home | KeyCode::Char('g') => app.go_to_top(),
+        KeyCode::Home => app.go_to_top(),
         KeyCode::End | KeyCode::Char('G') => app.go_to_bottom(),
         KeyCode::Enter => app.on_enter(),
         KeyCode::Backspace => {
@@ -658,6 +698,31 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
             app.theme_picker_modal = Some(ThemePickerModal {
                 selected_idx: cur_idx,
                 original_theme: app.theme_name.clone(),
+            });
+        }
+
+        // Lyric search (opens on `g`; searches LRCLIB for synced lyrics).
+        KeyCode::Char('g') => {
+            let current_path = app.current_playing_path.clone();
+            let artist = app.current_playing_path.as_ref()
+                .and_then(|p| p.file_stem())
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            let title = app.current_playing_path.as_ref()
+                .and_then(|p| p.file_stem())
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            
+            // Call Python lyric-search API
+            let results = call_lyric_search(&artist, &title);
+            
+            app.lyric_search_modal = Some(LyricSearchModal {
+                query: format!("{} - {}", artist, title),
+                results,
+                selected: 0,
+                song_path: current_path,
             });
         }
 
@@ -929,4 +994,40 @@ mod tests {
             }
         }
     }
+}
+
+/// Call Python `main.py lyric-search` via subprocess, parse JSON result.
+fn call_lyric_search(artist: &str, title: &str) -> Vec<crate::app::LyricSearchResult> {
+    let script = crate::app::App::find_lyric_script();
+    let Ok(output) = Command::new("python3")
+        .arg(&script)
+        .arg("lyric-search")
+        .arg("--artist")
+        .arg(artist)
+        .arg("--title")
+        .arg(title)
+        .arg("--json")
+        .output()
+    else {
+        return Vec::new();
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let data: serde_json::Value = match serde_json::from_str(&stdout) {
+        Ok(d) => d,
+        Err(_) => return Vec::new(),
+    };
+    let mut results = Vec::new();
+    if let Some(lyrics) = data.get("lyrics").and_then(|v| v.as_str()) {
+        if !lyrics.is_empty() {
+            results.push(crate::app::LyricSearchResult {
+                artist: data.get("artist").and_then(|v| v.as_str()).unwrap_or(artist).to_string(),
+                title: data.get("title").and_then(|v| v.as_str()).unwrap_or(title).to_string(),
+                album: data.get("album").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                duration: data.get("duration").and_then(|v| v.as_u64()).unwrap_or(0),
+                lyrics: lyrics.to_string(),
+                synced: data.get("synced").and_then(|v| v.as_bool()).unwrap_or(false),
+            });
+        }
+    }
+    results
 }
