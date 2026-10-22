@@ -29,6 +29,8 @@ pub struct FileConfig {
     pub visualizer_color: Option<String>,
     /// Visualizer style: "bars", "wave", "dual".
     pub visualizer_style: Option<String>,
+    /// Auto-download lyrics via LRCLIB after download completes.
+    pub lyric_download: Option<bool>,
 }
 
 fn config_path() -> Option<PathBuf> {
@@ -88,6 +90,8 @@ pub struct Config {
     pub visualizer_color: Option<String>,
     /// Visualizer style: "bars", "wave", "dual".
     pub visualizer_style: Option<String>,
+    /// Auto-download lyrics via LRCLIB after download completes.
+    pub lyric_download: bool,
 }
 
 impl Config {
@@ -107,6 +111,7 @@ impl Config {
             visualizer: file.visualizer.unwrap_or(false),
             visualizer_color: file.visualizer_color,
             visualizer_style: file.visualizer_style,
+            lyric_download: file.lyric_download.unwrap_or(false),
         }
     }
 
@@ -222,6 +227,12 @@ impl Config {
                     table.insert(key.to_string(), toml::Value::String(value.to_string()));
                 }
             }
+            // Boolean flag (auto-download lyrics after download).
+            "lyric_download" => {
+                if let Ok(b) = value.parse::<bool>() {
+                    table.insert(key.to_string(), toml::Value::Boolean(b));
+                }
+            }
             _ => {}
         }
         let serialized = toml::to_string_pretty(&table)
@@ -244,6 +255,7 @@ impl Config {
             visualizer: file.visualizer.unwrap_or(false),
             visualizer_color: file.visualizer_color,
             visualizer_style: file.visualizer_style,
+            lyric_download: file.lyric_download.unwrap_or(false),
         }
     }
 
@@ -344,6 +356,7 @@ mod tests {
             visualizer: false,
             visualizer_color: None,
             visualizer_style: None,
+            lyric_download: false,
         };
         let (p, w) = cfg.resolve_music_folder(Some(PathBuf::from("/cli/music")));
         assert_eq!(p, PathBuf::from("/cli/music"));
@@ -361,6 +374,7 @@ mod tests {
             visualizer: false,
             visualizer_color: None,
             visualizer_style: None,
+            lyric_download: false,
         };
         let (p, w) = cfg.resolve_music_folder(None);
         assert!(w.is_some());
@@ -378,6 +392,7 @@ mod tests {
             visualizer: false,
             visualizer_color: None,
             visualizer_style: None,
+            lyric_download: false,
         };
         let (p, raw) = cfg.resolve_download_dir(Path::new("/fallback"));
         assert_eq!(raw, "~/Custom/Downloads");

@@ -4,6 +4,7 @@ use std::sync::mpsc;
 use std::sync::mpsc as plugin_mpsc;
 use std::time::Instant;
 use std::collections::HashMap;
+use std::process::Command;
 use anyhow::Result;
 use crate::{
     audio::AudioPlayer,
@@ -193,8 +194,10 @@ pub struct App {
     pub visualizer: bool,
     /// Visualizer color preset name.
     pub visualizer_color: Option<String>,
-    /// Visualizer style: "bars", "wave", "dual".
+    /// Visualizer style: "bars", "wave", "dual", "spectrum", "dots".
     pub visualizer_style: Option<String>,
+    /// Auto-download lyrics via LRCLIB after download completes.
+    pub lyric_download: bool,
     /// Visualizer animation phase (advances every frame while playing).
     pub visualizer_phase: f32,
     /// Background community-plugin installer: sending side (cloned per job).
@@ -312,6 +315,7 @@ impl App {
             visualizer: false,
             visualizer_color: None,
             visualizer_style: None,
+            lyric_download: false,
             visualizer_phase: 0.0,
             plugin_dl_tx,
             plugin_dl_rx,
@@ -351,6 +355,7 @@ impl App {
         app.visualizer = config.visualizer;
         app.visualizer_color = config.visualizer_color.clone();
         app.visualizer_style = config.visualizer_style.clone();
+        app.lyric_download = config.lyric_download;
         Ok(app)
     }
 
@@ -478,6 +483,62 @@ impl App {
         Ok(())
     }
 
+    /// Fetch lyrics from LRCLIB API for artist/title. Returns matching results.
+    pub fn fetch_lyrics_from_api(&self, artist: &str, title: &str) -> Vec<crate::app::LyricSearchResult> {
+        let script = Self::find_lyric_script();
+        let Ok(output) = Command::new("python3")
+            .arg(&script)
+            .arg("lyric-search")
+            .arg("--artist")
+            .arg(artist)
+            .arg("--title")
+            .arg(title)
+            .arg("--json")
+            .output()
+        else {
+            return Vec::new();
+        };
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let data: serde_json::Value = match serde_json::from_str(&stdout) {
+            Ok(d) => d,
+            Err(_) => return Vec::new(),
+        };
+        let mut results = Vec::new();
+        if let Some(lyrics) = data.get("lyrics").and_then(|v| v.as_str()) {
+            if !lyrics.is_empty() {
+                results.push(crate::app::LyricSearchResult {
+                    artist: data.get("artist").and_then(|v| v.as_str()).unwrap_or(artist).to_string(),
+                    title: data.get("title").and_then(|v| v.as_str()).unwrap_or(title).to_string(),
+                    album: data.get("album").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    duration: data.get("duration").and_then(|v| v.as_u64()).unwrap_or(0),
+                    lyrics: lyrics.to_string(),
+                    synced: data.get("synced").and_then(|v| v.as_bool()).unwrap_or(false),
+                });
+            }
+        }
+        results
+    }
+
+    /// Download lyrics for a track via LRCLIB API and save .lrc file next to it.
+    /// Called automatically after download completes if `lyric_download` config is enabled.
+    pub fn download_lyrics_for_track(&mut self, mp3_path: &PathBuf) -> Result<()> {
+        let artist = mp3_path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+        let title = artist.clone();
+        
+        let results = self.fetch_lyrics_from_api(&artist, &title);
+        if let Some(result) = results.into_iter().next() {
+            if result.synced && !result.lyrics.is_empty() {
+                let lrc_path = mp3_path.with_extension("lrc");
+                std::fs::write(&lrc_path, &result.lyrics)?;
+                self.set_toast(format!("Lyrics saved for {}", result.title));
+            }
+        }
+        Ok(())
+    }
+
     /// Cycle sleep timer: off -> 15 -> 30 -> 60 -> 90 -> 120 -> off.
     /// When active, playback is paused after `sleep_timer_minutes` elapse.
     pub fn cycle_sleep_timer(&mut self) {
@@ -582,6 +643,37 @@ impl App {
             }
         }
         PathBuf::from("main.py")
+    }
+
+    /// Get the currently selected song path from the active view (Playlist/Queue/Browser).
+    /// Falls back to None if no selection.
+    pub fn get_selected_path(&mut self) -> Option<PathBuf> {
+        match self.view_mode {
+            ViewMode::Playlist => {
+                #[cfg(feature = "genre")]
+                {
+                    let filtered = self.playlist.filtered_indices(&self.search_query, &self.genre_filters, &mut self.genre_db);
+                    filtered.get(self.playlist.selected).and_then(|&i| {
+                        self.playlist.songs.get(i).cloned()
+                    })
+                }
+                #[cfg(not(feature = "genre"))]
+                {
+                    let filtered = self.playlist.filtered_indices(&self.search_query);
+                    filtered.get(self.playlist.selected).and_then(|&i| {
+                        self.playlist.songs.get(i).cloned()
+                    })
+                }
+            }
+            ViewMode::Queue => self.queue.items.get(self.queue.selected).cloned(),
+            ViewMode::Browser => {
+                let filtered = self.browser.filtered_indices(&self.search_query);
+                filtered.get(self.browser.selected).and_then(|&i| {
+                    self.browser.entries.get(i).cloned()
+                })
+            }
+            _ => None,
+        }
     }
 
     /// Shows a transient one-line feedback message in the header.

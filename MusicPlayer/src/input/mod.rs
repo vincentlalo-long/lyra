@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
-use std::process::Command;
-use crate::app::{App, PlaylistIoModal, PlaylistIoMode, ThemePickerModal, LyricSearchModal, ViewMode};
+use std::io::{BufRead, BufReader};
+use crate::app::{App, PlaylistIoModal, PlaylistIoMode, ThemePickerModal, LyricSearchModal, LyricSearchResult, ViewMode};
 use crate::playlist::{export_m3u, load_m3u};
 
 #[cfg(feature = "download")]
@@ -703,26 +703,26 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
 
         // Lyric search (opens on `g`; searches LRCLIB for synced lyrics).
         KeyCode::Char('g') => {
-            let current_path = app.current_playing_path.clone();
-            let artist = app.current_playing_path.as_ref()
+            let song_path = app.get_selected_path();
+            let artist = song_path.as_ref()
                 .and_then(|p| p.file_stem())
                 .and_then(|s| s.to_str())
                 .unwrap_or("")
                 .to_string();
-            let title = app.current_playing_path.as_ref()
+            let title = song_path.as_ref()
                 .and_then(|p| p.file_stem())
                 .and_then(|s| s.to_str())
                 .unwrap_or("")
                 .to_string();
             
-            // Call Python lyric-search API
-            let results = call_lyric_search(&artist, &title);
+            // Call Python lyric-search API via App method
+            let results = app.fetch_lyrics_from_api(&artist, &title);
             
             app.lyric_search_modal = Some(LyricSearchModal {
                 query: format!("{} - {}", artist, title),
                 results,
                 selected: 0,
-                song_path: current_path,
+                song_path,
             });
         }
 
@@ -994,40 +994,4 @@ mod tests {
             }
         }
     }
-}
-
-/// Call Python `main.py lyric-search` via subprocess, parse JSON result.
-fn call_lyric_search(artist: &str, title: &str) -> Vec<crate::app::LyricSearchResult> {
-    let script = crate::app::App::find_lyric_script();
-    let Ok(output) = Command::new("python3")
-        .arg(&script)
-        .arg("lyric-search")
-        .arg("--artist")
-        .arg(artist)
-        .arg("--title")
-        .arg(title)
-        .arg("--json")
-        .output()
-    else {
-        return Vec::new();
-    };
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let data: serde_json::Value = match serde_json::from_str(&stdout) {
-        Ok(d) => d,
-        Err(_) => return Vec::new(),
-    };
-    let mut results = Vec::new();
-    if let Some(lyrics) = data.get("lyrics").and_then(|v| v.as_str()) {
-        if !lyrics.is_empty() {
-            results.push(crate::app::LyricSearchResult {
-                artist: data.get("artist").and_then(|v| v.as_str()).unwrap_or(artist).to_string(),
-                title: data.get("title").and_then(|v| v.as_str()).unwrap_or(title).to_string(),
-                album: data.get("album").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                duration: data.get("duration").and_then(|v| v.as_u64()).unwrap_or(0),
-                lyrics: lyrics.to_string(),
-                synced: data.get("synced").and_then(|v| v.as_bool()).unwrap_or(false),
-            });
-        }
-    }
-    results
 }

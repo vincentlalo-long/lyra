@@ -396,6 +396,12 @@ impl App {
                     if self.cover_embed {
                         self.embed_cover_for_track(&mp3_p);
                     }
+                    // Auto-download lyrics via LRCLIB after download (if enabled).
+                    if self.lyric_download {
+                        if let Err(e) = self.download_lyrics_for_track(&mp3_p) {
+                            self.set_toast(format!("Lyrics download failed: {e}"));
+                        }
+                    }
                 }
                 DownloadEvent::Error(err) => {
                     self.download.is_searching = false;
