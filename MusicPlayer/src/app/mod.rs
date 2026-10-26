@@ -200,6 +200,8 @@ pub struct App {
     pub lyric_download: bool,
     /// Visualizer animation phase (advances every frame while playing).
     pub visualizer_phase: f32,
+    /// Monotonic timestamp used to keep visualizer speed independent of FPS.
+    pub visualizer_last_tick: Instant,
     /// Background community-plugin installer: sending side (cloned per job).
     pub plugin_dl_tx: plugin_mpsc::Sender<crate::plugin_dl::InstallEvent>,
     /// Receiving side, drained every main-loop tick (`check_plugin_downloads`).
@@ -317,6 +319,7 @@ impl App {
             visualizer_style: None,
             lyric_download: false,
             visualizer_phase: 0.0,
+            visualizer_last_tick: Instant::now(),
             plugin_dl_tx,
             plugin_dl_rx,
             plugin_dl_active: None,
@@ -1067,5 +1070,3 @@ mod tests {
         }
     }
 }
-
-

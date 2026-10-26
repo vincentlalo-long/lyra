@@ -4,6 +4,7 @@ use std::{
     process::{Command, Stdio},
     sync::{
         mpsc::{channel, Receiver, Sender},
+        atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
     },
     thread,
@@ -80,6 +81,19 @@ pub struct Downloader {
     /// remembered, so overlapping downloads orphaned `yt-dlp + ffmpeg`.
     /// Now `cancel()` kills every tracked pid (TERM then KILL).
     child_pids: Arc<Mutex<Vec<u32>>>,
+    active_aux_tasks: Arc<AtomicUsize>,
+}
+
+const MAX_AUX_TASKS: usize = 4;
+
+struct AuxTaskPermit {
+    active: Arc<AtomicUsize>,
+}
+
+impl Drop for AuxTaskPermit {
+    fn drop(&mut self) {
+        self.active.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 fn format_python_error(stderr: &str, default_msg: &str) -> String {
@@ -120,7 +134,19 @@ impl Downloader {
             sender,
             receiver,
             child_pids: Arc::new(Mutex::new(Vec::new())),
+            active_aux_tasks: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    fn try_aux_task(&self) -> Option<AuxTaskPermit> {
+        self.active_aux_tasks
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+                (active < MAX_AUX_TASKS).then_some(active + 1)
+            })
+            .ok()
+            .map(|_| AuxTaskPermit {
+                active: Arc::clone(&self.active_aux_tasks),
+            })
     }
 
     pub fn cancel(&self) {
@@ -223,9 +249,16 @@ impl Downloader {
     pub fn search_with_limit(&self, query: String, limit: usize) {
         let sender = self.sender.clone();
         let script = Self::find_script();
+        let Some(_permit) = self.try_aux_task() else {
+            let _ = sender.send(DownloadEvent::Error(
+                "Too many background requests; please wait a moment.".to_string(),
+            ));
+            return;
+        };
         let _ = sender.send(DownloadEvent::Searching);
 
         thread::spawn(move || {
+            let _permit = _permit;
             let script_dir = script.parent().unwrap_or(std::path::Path::new("."));
             let output = Command::new("python3")
                 .env("PYTHONPATH", script_dir)
@@ -260,8 +293,15 @@ impl Downloader {
     pub fn fetch_info(&self, url: String) {
         let sender = self.sender.clone();
         let script = Self::find_script();
+        let Some(_permit) = self.try_aux_task() else {
+            let _ = sender.send(DownloadEvent::Error(
+                "Too many background requests; please wait a moment.".to_string(),
+            ));
+            return;
+        };
 
         thread::spawn(move || {
+            let _permit = _permit;
             let script_dir = script.parent().unwrap_or(std::path::Path::new("."));
             let output = Command::new("python3")
                 .env("PYTHONPATH", script_dir)
@@ -301,8 +341,12 @@ impl Downloader {
     pub fn probe_lyrics(&self, url: String) {
         let sender = self.sender.clone();
         let script = Self::find_script();
+        let Some(_permit) = self.try_aux_task() else {
+            return;
+        };
 
         thread::spawn(move || {
+            let _permit = _permit;
             let script_dir = script.parent().unwrap_or(std::path::Path::new("."));
             let output = Command::new("python3")
                 .env("PYTHONPATH", script_dir)
@@ -334,8 +378,12 @@ impl Downloader {
     pub fn stage_image_for_crop(&self, url: String) {
         let sender = self.sender.clone();
         let script = Self::find_script();
+        let Some(_permit) = self.try_aux_task() else {
+            return;
+        };
 
         thread::spawn(move || {
+            let _permit = _permit;
             let script_dir = script.parent().unwrap_or(std::path::Path::new("."));
             let output = Command::new("python3")
                 .env("PYTHONPATH", script_dir)
@@ -367,9 +415,14 @@ impl Downloader {
     ) {
         let sender = self.sender.clone();
         let script = Self::find_script();
+        let Some(_permit) = self.try_aux_task() else {
+            let _ = sender.send(DownloadEvent::CoverResults(Vec::new()));
+            return;
+        };
         let _ = sender.send(DownloadEvent::CoverLoading);
 
         thread::spawn(move || {
+            let _permit = _permit;
             let script_dir = script.parent().unwrap_or(std::path::Path::new("."));
             let mut cmd = Command::new("python3");
             cmd.env("PYTHONPATH", script_dir)

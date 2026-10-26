@@ -128,8 +128,16 @@ fn run_loop(terminal: &mut terminal::Tui, app: &mut App) -> Result<()> {
         // Check background community-plugin installer events
         app.check_plugin_downloads();
 
-        // Advance visualizer animation phase every frame.
-        app.visualizer_phase = (app.visualizer_phase + 0.04) % (std::f32::consts::PI * 2.0);
+        // Advance visualizer from elapsed time so animation speed stays stable
+        // when terminal redraw latency changes.
+        let now = std::time::Instant::now();
+        let dt = now
+            .saturating_duration_since(app.visualizer_last_tick)
+            .as_secs_f32()
+            .min(0.1);
+        app.visualizer_last_tick = now;
+        let speed = if !app.audio.is_paused { 3.2 } else { 0.8 };
+        app.visualizer_phase = (app.visualizer_phase + dt * speed) % 10000.0;
 
         terminal.draw(|frame| ui::render(frame, app))?;
         ui::post_render(app)?;

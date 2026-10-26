@@ -179,6 +179,14 @@ def main():
     fill_parser.add_argument("--limit", type=int, default=None, help="Max files to query (default: all)")
     fill_parser.add_argument("--json", action="store_true", help="Output stats as JSON")
 
+    # Command: lyric-search
+    lyric_search_parser = subparsers.add_parser("lyric-search", help="Search synced lyrics via LRCLIB")
+    lyric_search_parser.add_argument("--artist", type=str, required=True, help="Artist name")
+    lyric_search_parser.add_argument("--title", type=str, required=True, help="Track title")
+    lyric_search_parser.add_argument("--album", type=str, default="", help="Album name (optional)")
+    lyric_search_parser.add_argument("--duration", type=int, default=0, help="Track duration in seconds (optional)")
+    lyric_search_parser.add_argument("--json", action="store_true", help="Output results as JSON")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -290,14 +298,6 @@ def main():
             else:
                 print(f"error: {e}", file=sys.stderr)
             sys.exit(1)
-
-    # Command: lyric-search (search synced lyrics via LRCLIB API)
-    lyric_search_parser = subparsers.add_parser("lyric-search", help="Search synced lyrics via LRCLIB")
-    lyric_search_parser.add_argument("--artist", type=str, required=True, help="Artist name")
-    lyric_search_parser.add_argument("--title", type=str, required=True, help="Track title")
-    lyric_search_parser.add_argument("--album", type=str, default="", help="Album name (optional)")
-    lyric_search_parser.add_argument("--duration", type=int, default=0, help="Track duration in seconds (optional)")
-    lyric_search_parser.add_argument("--json", action="store_true", help="Output results as JSON")
 
     elif args.command == "lyric-search":
         try:

@@ -27,6 +27,10 @@
 
 use ratatui::style::Color;
 
+/// Bump when semantic role assignments change so bundled theme packs can
+/// invalidate stale assumptions about foreground/background roles.
+pub const THEME_VERSION: u32 = 2;
+
 // ---------------------------------------------------------------------------
 // Raw palettes (kept as constants for backward compatibility)
 // ---------------------------------------------------------------------------
@@ -389,11 +393,11 @@ impl Theme {
             danger: LATTE_RED,
             info: LATTE_BLUE,
             hint: LATTE_PEACH,
-            ink: LATTE_BG,
-            selected_bg: LATTE_DARK,
-            selected_fg: LATTE_MAUVE,
+            ink: LATTE_FG,
+            selected_bg: Color::Rgb(220, 223, 232),
+            selected_fg: Color::Rgb(105, 45, 190),
             progress_fill: LATTE_MAUVE,
-            progress_track: LATTE_DARK,
+            progress_track: Color::Rgb(220, 223, 232),
         }
     }
 
@@ -486,10 +490,10 @@ impl Theme {
             info: SOLARIZED_LIGHT_BLUE,
             hint: SOLARIZED_LIGHT_MAGENTA,
             ink: SOLARIZED_BASE3,
-            selected_bg: SOLARIZED_BASE00,
-            selected_fg: SOLARIZED_LIGHT_VIOLET,
+            selected_bg: Color::Rgb(199, 211, 213),
+            selected_fg: Color::Rgb(88, 91, 166),
             progress_fill: SOLARIZED_LIGHT_VIOLET,
-            progress_track: SOLARIZED_BASE00,
+            progress_track: Color::Rgb(199, 211, 213),
         }
     }
 
@@ -631,5 +635,12 @@ mod tests {
         // Every preset must have a visually distinct signature accent.
         assert_eq!(unique.len(), accents.len());
         assert_eq!(Theme::available().len(), 12);
+    }
+
+    #[test]
+    fn test_theme_role_version_and_light_ink() {
+        assert_eq!(THEME_VERSION, 2);
+        assert_eq!(Theme::latte().ink, LATTE_FG);
+        assert_eq!(Theme::solarized_light().ink, SOLARIZED_BASE3);
     }
 }

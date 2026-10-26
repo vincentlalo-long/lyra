@@ -72,35 +72,37 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             .split(layout_chunks[0]);
 
         let mut left_spans = vec![
-            Span::styled(" 󰎆 LYRA ", Style::default().fg(app.theme.info).add_modifier(Modifier::BOLD)),
+            Span::styled(" 󰎆 LYRA ", Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD)),
             Span::styled("│ ", Style::default().fg(app.theme.border)),
         ];
 
         let t = app.theme.clone();
-        let playlist_tab_style = if app.view_mode == ViewMode::Playlist {
-            Style::default().fg(t.selected_fg).bg(t.selected_bg).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(t.faint)
-        };
-        let queue_tab_style = if app.view_mode == ViewMode::Queue {
-            Style::default().fg(t.selected_fg).bg(t.selected_bg).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(t.faint)
-        };
-        let browser_tab_style = if app.view_mode == ViewMode::Browser {
-            Style::default().fg(t.selected_fg).bg(t.selected_bg).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(t.faint)
-        };
-        let extensions_tab_style = if app.view_mode == ViewMode::Extensions {
-            Style::default().fg(t.selected_fg).bg(t.selected_bg).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(t.faint)
-        };
-        let plugins_tab_style = if app.view_mode == ViewMode::Plugins {
-            Style::default().fg(t.selected_fg).bg(t.selected_bg).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(t.faint)
+        let push_tab = |spans: &mut Vec<Span<'_>>,
+                        key: &str,
+                        icon: &str,
+                        label: &str,
+                        selected: bool| {
+            if selected {
+                let style = Style::default()
+                    .fg(t.selected_fg)
+                    .bg(t.selected_bg)
+                    .add_modifier(Modifier::BOLD);
+                spans.push(Span::styled(format!(" [{key}]"), style));
+                if !icon.is_empty() {
+                    spans.push(Span::styled(format!(" {icon}"), style));
+                }
+                spans.push(Span::styled(format!(" {label} "), style));
+            } else {
+                let key_style = Style::default()
+                    .fg(t.accent_dim)
+                    .add_modifier(Modifier::BOLD);
+                let body_style = Style::default().fg(t.muted);
+                spans.push(Span::styled(format!(" [{key}]"), key_style));
+                if !icon.is_empty() {
+                    spans.push(Span::styled(format!(" {icon}"), body_style));
+                }
+                spans.push(Span::styled(format!(" {label} "), body_style));
+            }
         };
 
         let is_compact = layout_chunks[0].width < 96;
@@ -110,25 +112,25 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             format!("Queue ({})", app.queue.len())
         };
         if is_compact {
-            left_spans.push(Span::styled(" [1] Playlist ", playlist_tab_style));
+            push_tab(&mut left_spans, "1", "", "Playlist", app.view_mode == ViewMode::Playlist);
             left_spans.push(Span::raw(" "));
-            left_spans.push(Span::styled(format!(" [2] {queue_label} "), queue_tab_style));
+            push_tab(&mut left_spans, "2", "", &queue_label, app.view_mode == ViewMode::Queue);
             left_spans.push(Span::raw(" "));
-            left_spans.push(Span::styled(" [3] Browser ", browser_tab_style));
+            push_tab(&mut left_spans, "3", "", "Browser", app.view_mode == ViewMode::Browser);
             left_spans.push(Span::raw(" "));
-            left_spans.push(Span::styled(" [4] Extensions ", extensions_tab_style));
+            push_tab(&mut left_spans, "4", "", "Extensions", app.view_mode == ViewMode::Extensions);
             left_spans.push(Span::raw(" "));
-            left_spans.push(Span::styled(" [5] Plugins ", plugins_tab_style));
+            push_tab(&mut left_spans, "5", "", "Plugins", app.view_mode == ViewMode::Plugins);
         } else {
-            left_spans.push(Span::styled(" [1] 󰲸 Playlist ", playlist_tab_style));
+            push_tab(&mut left_spans, "1", "󰲸", "Playlist", app.view_mode == ViewMode::Playlist);
             left_spans.push(Span::raw(" "));
-            left_spans.push(Span::styled(format!(" [2] 󰐗 {queue_label} "), queue_tab_style));
+            push_tab(&mut left_spans, "2", "󰐗", &queue_label, app.view_mode == ViewMode::Queue);
             left_spans.push(Span::raw(" "));
-            left_spans.push(Span::styled(" [3] 󰉋 Browser ", browser_tab_style));
+            push_tab(&mut left_spans, "3", "󰉋", "Browser", app.view_mode == ViewMode::Browser);
             left_spans.push(Span::raw(" "));
-            left_spans.push(Span::styled(" [4] 󱊄 Extensions ", extensions_tab_style));
+            push_tab(&mut left_spans, "4", "󱊄", "Extensions", app.view_mode == ViewMode::Extensions);
             left_spans.push(Span::raw(" "));
-            left_spans.push(Span::styled(" [5] 󰏖 Plugins ", plugins_tab_style));
+            push_tab(&mut left_spans, "5", "󰏖", "Plugins", app.view_mode == ViewMode::Plugins);
         }
 
         frame.render_widget(Paragraph::new(Line::from(left_spans)), top_chunks[0]);
@@ -159,81 +161,59 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     if app.view_mode == ViewMode::Extensions {
         extensions::render(frame, app, layout_chunks[1]);
     } else if app.show_lyrics && app.plugin_enabled("lyrics") && app.view_mode != ViewMode::Plugins {
-        // Karaoke Mode (Lyric ON): Cover art on the left, wide lyrics area on the right.
-        // If visualizer is ON, it sits below lyrics, spanning full width.
-        if app.visualizer {
-            let main_chunks = Layout::default()
+        // Karaoke Mode (Lyric ON): Cover art and compact playlist on the left,
+        // lyrics and optional visualizer on the right (scoped to the lyrics column width).
+        let body_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(24), // Left: Compact width for cover art & playlist
+                Constraint::Percentage(76), // Right: Area for synchronized lyrics & visualizer
+            ])
+            .split(layout_chunks[1]);
+
+        let left_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(38), // Upper: Playlist, Queue, or Browser
+                Constraint::Percentage(62), // Lower: Cover Art
+            ])
+            .split(body_chunks[0]);
+
+        match app.view_mode {
+            ViewMode::Playlist => playlist::render(frame, app, left_chunks[0]),
+            ViewMode::Queue => queue::render(frame, app, left_chunks[0]),
+            ViewMode::Browser => browser::render(frame, app, left_chunks[0]),
+            ViewMode::Extensions => {}
+            ViewMode::Plugins => {}
+        }
+
+        cover::render(frame, app, left_chunks[1]);
+
+        let right_area = body_chunks[1];
+        if app.visualizer && right_area.height >= 14 {
+            let viz_h = if right_area.height >= 30 {
+                7
+            } else if right_area.height >= 22 {
+                6
+            } else {
+                5
+            };
+            let right_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Min(10),
-                    Constraint::Length(10),
+                    Constraint::Min(8),
+                    Constraint::Length(viz_h),
                 ])
-                .split(layout_chunks[1]);
+                .split(right_area);
 
-            // Top area: split horizontally into left (cover+playlist) and right (lyrics)
-            let h_chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Percentage(24),
-                    Constraint::Percentage(76),
-                ])
-                .split(main_chunks[0]);
-
-            // Left: cover + playlist
-            let left_chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Percentage(38),
-                    Constraint::Percentage(62),
-                ])
-                .split(h_chunks[0]);
-
-            match app.view_mode {
-                ViewMode::Playlist => playlist::render(frame, app, left_chunks[0]),
-                ViewMode::Queue => queue::render(frame, app, left_chunks[0]),
-                ViewMode::Browser => browser::render(frame, app, left_chunks[0]),
-                ViewMode::Extensions => {}
-                ViewMode::Plugins => {}
-            }
-
-            cover::render(frame, app, left_chunks[1]);
-
-            // Right: lyrics
-            lyrics::render(frame, app, h_chunks[1]);
-
-            // Bottom: visualizer full width
-            visualizer::render(frame, app, main_chunks[1]);
+            lyrics::render(frame, app, right_chunks[0]);
+            visualizer::render(frame, app, right_chunks[1]);
         } else {
-            // Original layout without visualizer
-            let body_chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Percentage(24), // Left: Compact width for cover art
-                    Constraint::Percentage(76), // Right: Wide area for synchronized lyrics
-                ])
-                .split(layout_chunks[1]);
-
-            let left_chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Percentage(38), // Upper: Playlist, Queue, or Browser
-                    Constraint::Percentage(62), // Lower: Cover Art
-                ])
-                .split(body_chunks[0]);
-
-            match app.view_mode {
-                ViewMode::Playlist => playlist::render(frame, app, left_chunks[0]),
-                ViewMode::Queue => queue::render(frame, app, left_chunks[0]),
-                ViewMode::Browser => browser::render(frame, app, left_chunks[0]),
-                ViewMode::Extensions => {}
-                ViewMode::Plugins => {}
-            }
-
-            cover::render(frame, app, left_chunks[1]);
-            lyrics::render(frame, app, body_chunks[1]);
+            lyrics::render(frame, app, right_area);
         }
     } else {
-        // Studio Mode (Lyric OFF): Cover Art + Spotlight specs on the left
+        // Studio Mode (Lyric OFF): Cover Art + Spotlight specs on the left,
+        // songs table + optional visualizer on the right.
         let available_h = layout_chunks[1].height;
         let available_w = layout_chunks[1].width;
         let spotlight_height = 10.min(available_h.saturating_sub(12));
@@ -258,28 +238,41 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             .split(body_chunks[0]);
 
         cover::render(frame, app, left_chunks[0]);
+        spotlight::render(frame, app, left_chunks[1]);
 
-        // Lower left: spotlight + optional visualizer below
-        if app.visualizer {
-            let left_lower = Layout::default()
+        let right_area = body_chunks[1];
+        if app.visualizer && right_area.height >= 14 {
+            let viz_h = if right_area.height >= 30 {
+                7
+            } else if right_area.height >= 22 {
+                6
+            } else {
+                5
+            };
+            let right_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Min(8),
-                    Constraint::Length(10),
+                    Constraint::Length(viz_h),
                 ])
-                .split(left_chunks[1]);
-            spotlight::render(frame, app, left_lower[0]);
-            visualizer::render(frame, app, left_lower[1]);
-        } else {
-            spotlight::render(frame, app, left_chunks[1]);
-        }
+                .split(right_area);
 
-        match app.view_mode {
-            ViewMode::Playlist => playlist::render(frame, app, body_chunks[1]),
-            ViewMode::Queue => queue::render(frame, app, body_chunks[1]),
-            ViewMode::Browser => browser::render(frame, app, body_chunks[1]),
-            ViewMode::Extensions => {}
-            ViewMode::Plugins => plugins::render(frame, app, body_chunks[1]),
+            match app.view_mode {
+                ViewMode::Playlist => playlist::render(frame, app, right_chunks[0]),
+                ViewMode::Queue => queue::render(frame, app, right_chunks[0]),
+                ViewMode::Browser => browser::render(frame, app, right_chunks[0]),
+                ViewMode::Extensions => {}
+                ViewMode::Plugins => plugins::render(frame, app, right_chunks[0]),
+            }
+            visualizer::render(frame, app, right_chunks[1]);
+        } else {
+            match app.view_mode {
+                ViewMode::Playlist => playlist::render(frame, app, right_area),
+                ViewMode::Queue => queue::render(frame, app, right_area),
+                ViewMode::Browser => browser::render(frame, app, right_area),
+                ViewMode::Extensions => {}
+                ViewMode::Plugins => plugins::render(frame, app, right_area),
+            }
         }
     }
 

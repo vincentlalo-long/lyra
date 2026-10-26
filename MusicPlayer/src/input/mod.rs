@@ -320,7 +320,7 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
 
     // Ctrl+V cycles visualizer color.
     if has_ctrl && event.code == KeyCode::Char('v') {
-        let colors = ["accent", "cyan", "green", "magenta", "yellow"];
+        let colors = ["accent", "cyan", "green", "magenta", "yellow", "rainbow"];
         let cur = app.visualizer_color.as_deref().unwrap_or("accent");
         let idx = colors.iter().position(|&s| s == cur).unwrap_or(0);
         let next = colors[(idx + 1) % colors.len()];

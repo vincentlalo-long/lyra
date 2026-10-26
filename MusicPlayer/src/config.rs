@@ -25,7 +25,7 @@ pub struct FileConfig {
     pub cover_embed: Option<bool>,
     /// Audio visualizer enabled.
     pub visualizer: Option<bool>,
-    /// Visualizer color preset name: "accent", "cyan", "green", "magenta", "yellow".
+    /// Visualizer color preset name: "accent", "cyan", "green", "magenta", "yellow", "rainbow".
     pub visualizer_color: Option<String>,
     /// Visualizer style: "bars", "wave", "dual".
     pub visualizer_style: Option<String>,
