@@ -22,6 +22,8 @@ mod scanner;
 mod terminal;
 mod theme;
 mod ui;
+#[cfg(feature = "update")]
+mod update;
 
 use std::{path::PathBuf, time::Duration};
 use anyhow::Result;
@@ -42,7 +44,22 @@ fn main() -> Result<()> {
         println!("Options:");
         println!("  -v, --version    Print version information");
         println!("  -h, --help       Print help information");
+        println!("      --check-deps   Check runtime dependencies (Python, ffmpeg, yt-dlp)");
+        println!("      --check-update Check GitHub for a newer Lyra release");
+        println!("      --update       Download and install the latest Lyra release");
         return Ok(());
+    }
+    if args.iter().any(|a| a == "--check-deps") {
+        return check_runtime_deps();
+    }
+    #[cfg(feature = "update")]
+    {
+        if args.iter().any(|a| a == "--check-update") {
+            return update_cli(false);
+        }
+        if args.iter().any(|a| a == "--update") {
+            return update_cli(true);
+        }
     }
 
     // Music folder priority: CLI arg > ~/.config/lyra/config.toml > ~/Music > CWD.
@@ -78,6 +95,72 @@ fn main() -> Result<()> {
         eprintln!("Error: {error:?}");
     }
 
+    Ok(())
+}
+
+/// Verifies the external tools needed by the Full TUI download pipeline.
+/// Exits with status 1 when anything is missing so scripts can gate on it.
+fn check_runtime_deps() -> Result<()> {
+    let mut missing = false;
+    println!("Lyra {} runtime dependency check\n", env!("CARGO_PKG_VERSION"));
+
+    let mut check = |name: &str, cmd: &str, cmd_args: &[&str], hint: &str| {
+        let available = std::process::Command::new(cmd)
+            .args(cmd_args)
+            .output()
+            .map(|out| out.status.success())
+            .unwrap_or(false);
+        if available {
+            println!("  [ok]      {name}");
+        } else {
+            missing = true;
+            println!("  [MISSING] {name}  -> {hint}");
+        }
+    };
+
+    check("python3", "python3", &["--version"], "install python3");
+    check("ffmpeg", "ffmpeg", &["-version"], "install ffmpeg");
+    check(
+        "yt-dlp + pillow + mutagen",
+        "python3",
+        &["-c", "import yt_dlp, PIL, mutagen"],
+        "python3 -m pip install --user yt-dlp pillow mutagen",
+    );
+
+    println!();
+    if missing {
+        println!("Missing dependencies detected.");
+        println!("Install guide: README -> Runtime Dependencies (Prebuilt Binaries)");
+        std::process::exit(1);
+    }
+    println!("All runtime dependencies are available.");
+    Ok(())
+}
+
+#[cfg(feature = "update")]
+fn update_cli(install: bool) -> Result<()> {
+    match crate::update::check_for_update(true) {
+        Ok(Some(manifest)) => {
+            if install {
+                match crate::update::install_update(&manifest) {
+                    Ok(version) => {
+                        println!("Updated Lyra to v{version}. Restart to use the new binary.");
+                    }
+                    Err(e) => {
+                        eprintln!("Update failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                crate::update::print_check_result(&Some(manifest));
+            }
+        }
+        Ok(None) => crate::update::print_check_result(&None),
+        Err(e) => {
+            eprintln!("Update check failed: {e}");
+            std::process::exit(1);
+        }
+    }
     Ok(())
 }
 
@@ -127,6 +210,10 @@ fn run_loop(terminal: &mut terminal::Tui, app: &mut App) -> Result<()> {
 
         // Check background community-plugin installer events
         app.check_plugin_downloads();
+
+        // Check background updater events (release check / self-update).
+        #[cfg(feature = "update")]
+        app.check_update_events();
 
         // Advance visualizer from elapsed time so animation speed stays stable
         // when terminal redraw latency changes.

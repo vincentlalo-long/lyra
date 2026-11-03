@@ -12,7 +12,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default()
         .title(" 󰏖 Plugin Manager & Extension Store ")
         .title_bottom(Line::from(vec![
-            Span::styled(" [↑/↓: Select | Space/Enter: Toggle | ←/→: Adjust Limit | d: Remove | r: Restore | e: Edit Path | D: Store] ", Style::default().fg(app.theme.faint)),
+            Span::styled(" [↑/↓: Select | Space/Enter: Toggle | ←/→: Adjust Limit | d: Remove | r: Restore | e: Edit Path | D: Store | U: Update] ", Style::default().fg(app.theme.faint)),
         ]))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)

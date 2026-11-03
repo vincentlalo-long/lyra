@@ -45,6 +45,39 @@ jobs:
         run: |
           tar --exclude='*__pycache__*' -czvf lyra-cli.tar.gz lyra main.py requirements.txt
 
+      - name: Generate update manifest & checksums
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          sha256sum lyra-linux-x86_64.tar.gz lyra-minimal-linux-x86_64.tar.gz lyra-cli.tar.gz > SHA256SUMS
+          python3 - <<'PY'
+          import hashlib, json, os
+          tag = os.environ["TAG"]
+          repo = os.environ["REPO"]
+          files = [
+              "lyra-linux-x86_64.tar.gz",
+              "lyra-minimal-linux-x86_64.tar.gz",
+              "lyra-cli.tar.gz",
+          ]
+          assets = []
+          for name in files:
+              digest = hashlib.sha256(open(name, "rb").read()).hexdigest()
+              assets.append({
+                  "name": name,
+                  "url": f"https://github.com/{repo}/releases/download/{tag}/{name}",
+                  "sha256": digest,
+              })
+          manifest = {
+              "version": tag[1:] if tag.startswith("v") else tag,
+              "tag": tag,
+              "notes": f"Lyra {tag}",
+              "assets": assets,
+          }
+          with open("latest.json", "w") as fh:
+              json.dump(manifest, fh, indent=2)
+          PY
+
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         with:
@@ -52,6 +85,8 @@ jobs:
             lyra-linux-x86_64.tar.gz
             lyra-minimal-linux-x86_64.tar.gz
             lyra-cli.tar.gz
+            SHA256SUMS
+            latest.json
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

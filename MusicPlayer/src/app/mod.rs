@@ -211,6 +211,18 @@ pub struct App {
     /// Override for the community-plugin data root (tests / dev).
     /// `None` = resolve via `DownloadablePlugin::data_root()`.
     pub plugin_data_root: Option<PathBuf>,
+    /// Built-in updater: sending side for background check/install jobs.
+    #[cfg(feature = "update")]
+    pub update_tx: plugin_mpsc::Sender<crate::update::UpdateEvent>,
+    /// Built-in updater: receiving side, drained every main-loop tick.
+    #[cfg(feature = "update")]
+    pub update_rx: plugin_mpsc::Receiver<crate::update::UpdateEvent>,
+    /// Newer release discovered by the background check, if any.
+    #[cfg(feature = "update")]
+    pub update_available: Option<crate::update::UpdateManifest>,
+    /// True while a self-update download/install is running.
+    #[cfg(feature = "update")]
+    pub update_busy: bool,
 }
 
 /// How long a toast stays visible.
@@ -239,6 +251,8 @@ impl App {
         let (mpris, media_rx) = crate::mpris::spawn();
         let (plugin_dl_tx, plugin_dl_rx) =
             plugin_mpsc::channel::<crate::plugin_dl::InstallEvent>();
+        #[cfg(feature = "update")]
+        let (update_tx, update_rx) = plugin_mpsc::channel::<crate::update::UpdateEvent>();
         let mut app = Self {
             view_mode: ViewMode::Playlist,
             browser: FileBrowser::new(music_folder),
@@ -324,7 +338,18 @@ impl App {
             plugin_dl_rx,
             plugin_dl_active: None,
             plugin_data_root: None,
+            #[cfg(feature = "update")]
+            update_tx,
+            #[cfg(feature = "update")]
+            update_rx,
+            #[cfg(feature = "update")]
+            update_available: None,
+            #[cfg(feature = "update")]
+            update_busy: false,
         };
+        // Background update check (never blocks the TUI or unit tests).
+        #[cfg(all(feature = "update", not(test)))]
+        crate::update::spawn_check(app.update_tx.clone(), false);
         // Theme preset: LYRA_THEME env wins, then config file `theme`.
         let env_theme = std::env::var("LYRA_THEME").ok();
         let theme_choice = env_theme.clone().or(config.theme.clone());

@@ -1,11 +1,34 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Margin},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
+use unicode_width::UnicodeWidthStr;
 use crate::app::App;
+use crate::ui::playlist::{fit_width, slice_visual_window};
+
+/// Computes the horizontally scrolled text before/after the caret so that the
+/// caret always stays visible inside `width` columns (caret glyph included).
+fn active_field_window(value: &str, caret: usize, width: usize) -> (String, String) {
+    if width == 0 {
+        return (String::new(), String::new());
+    }
+    let text_width = width.saturating_sub(1);
+    let caret = caret.min(value.chars().count());
+    let before_text: String = value.chars().take(caret).collect();
+    let caret_col = UnicodeWidthStr::width(before_text.as_str());
+    let visible_before = caret_col.min(text_width);
+    let start = caret_col - visible_before;
+    let before = slice_visual_window(value, start, visible_before);
+    let after = slice_visual_window(
+        value,
+        start + visible_before,
+        text_width.saturating_sub(visible_before),
+    );
+    (before, after)
+}
 
 pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
     let screen_area = frame.area();
@@ -192,70 +215,76 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
             Style::default().fg(app.theme.info)
         };
 
+        // Badge printed after the value. Built first so its display width can
+        // be reserved, otherwise a long value would push it off-screen.
+        let badge: Option<(String, Color)> = match idx {
+            1 if !app.download.existing_artists.is_empty() => {
+                let count = app.download.existing_artists.len();
+                let text = if let Some(i) = app.download.selected_artist_idx {
+                    format!(" [󰠃 Ctrl+←/→ {}/{}]", i + 1, count)
+                } else {
+                    format!(" [󰠃 Ctrl+←/→ {} artists]", count)
+                };
+                Some((text, app.theme.accent_dim))
+            }
+            2 if !app.download.existing_albums.is_empty() => {
+                let count = app.download.existing_albums.len();
+                let text = if let Some(i) = app.download.selected_album_idx {
+                    format!(" [󰀥 Ctrl+←/→ {}/{}]", i + 1, count)
+                } else {
+                    format!(" [󰀥 Ctrl+←/→ {} albums]", count)
+                };
+                Some((text, app.theme.hint))
+            }
+            3 if !app.download.suggested_genres.is_empty() => {
+                let count = app.download.suggested_genres.len();
+                let text = if let Some(i) = app.download.selected_genre_idx {
+                    format!(" [󰠃 Ctrl+←/→ {}/{} (type ',' to add)]", i + 1, count)
+                } else {
+                    " [󰠃 Ctrl+←/→ genres (type ',' to add)]".to_string()
+                };
+                Some((text, app.theme.accent_dim))
+            }
+            4 if !has_preview_col => Some((" [󰉋 Browse]".to_string(), app.theme.success)),
+            5 if !has_preview_col => Some((" [󰍉 Preview]".to_string(), app.theme.accent)),
+            _ => None,
+        };
+
+        let label_width = UnicodeWidthStr::width(*label) + 2;
+        let badge_width = badge
+            .as_ref()
+            .map(|(text, _)| UnicodeWidthStr::width(text.as_str()))
+            .unwrap_or(0);
+        let avail = (rows[idx].width as usize)
+            .saturating_sub(label_width + 4 + badge_width);
+
         let mut spans = vec![
             Span::styled(format!(" {label} "), label_style),
             Span::styled("[ ", if is_active { Style::default().fg(app.theme.warning) } else { Style::default().fg(app.theme.faint) }),
         ];
 
-        if val.is_empty() && idx == 3 && !is_active {
-            spans.push(Span::styled("Auto/iTunes (or type: Pop, Ballad)", Style::default().fg(app.theme.faint)));
-        } else {
-            spans.push(Span::styled(*val, style));
-        }
-
-        // For active text fields (Title, Artist, Album, Genre), show cursor █
-        // at the caret position (Left/Right/Home/End move it).
         if is_active && idx < 4 {
+            // Active text fields scroll horizontally so the caret is always
+            // visible, even when the value is wider than the input box.
             let val_str: &str = val.as_str();
             let caret = app.download.form_cursor.min(val_str.chars().count());
-            let before: String = val_str.chars().take(caret).collect();
-            let after: String = val_str.chars().skip(caret).collect();
-            spans.pop();
-            spans.push(Span::styled(before, style));
-            spans.push(Span::styled("█", Style::default().fg(app.theme.warning)));
-            spans.push(Span::styled(after, style));
+            if avail > 0 {
+                let (before, after) = active_field_window(val_str, caret, avail);
+                spans.push(Span::styled(before, style));
+                spans.push(Span::styled("█", Style::default().fg(app.theme.warning)));
+                spans.push(Span::styled(after, style));
+            }
+        } else if val.is_empty() && idx == 3 && !is_active {
+            spans.push(Span::styled("Auto/iTunes (or type: Pop, Ballad)", Style::default().fg(app.theme.faint)));
+        } else if avail > 0 {
+            // Inactive/long values get a trailing ellipsis instead of a hard cut.
+            spans.push(Span::styled(fit_width(val.as_str(), avail), style));
         }
 
         spans.push(Span::styled(" ]", if is_active { Style::default().fg(app.theme.warning) } else { Style::default().fg(app.theme.faint) }));
 
-        // Artist suggestions badge (Field 1)
-        if idx == 1 && !app.download.existing_artists.is_empty() {
-            let count = app.download.existing_artists.len();
-            let badge_text = if let Some(i) = app.download.selected_artist_idx {
-                format!(" [󰠃 Ctrl+←/→ {}/{}]", i + 1, count)
-            } else {
-                format!(" [󰠃 Ctrl+←/→ {} artists]", count)
-            };
-            spans.push(Span::styled(badge_text, Style::default().fg(app.theme.accent_dim)));
-        }
-
-        // Album suggestions badge (Field 2)
-        if idx == 2 && !app.download.existing_albums.is_empty() {
-            let count = app.download.existing_albums.len();
-            let badge_text = if let Some(i) = app.download.selected_album_idx {
-                format!(" [󰀥 Ctrl+←/→ {}/{}]", i + 1, count)
-            } else {
-                format!(" [󰀥 Ctrl+←/→ {} albums]", count)
-            };
-            spans.push(Span::styled(badge_text, Style::default().fg(app.theme.hint)));
-        }
-
-        // Genre suggestions badge (Field 3)
-        if idx == 3 && !app.download.suggested_genres.is_empty() {
-            let count = app.download.suggested_genres.len();
-            let badge_text = if let Some(i) = app.download.selected_genre_idx {
-                format!(" [󰠃 Ctrl+←/→ {}/{} (type ',' to add)]", i + 1, count)
-            } else {
-                " [󰠃 Ctrl+←/→ genres (type ',' to add)]".to_string()
-            };
-            spans.push(Span::styled(badge_text, Style::default().fg(app.theme.accent_dim)));
-        }
-
-        if idx == 4 && !has_preview_col {
-            spans.push(Span::styled(" [󰉋 Browse]", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)));
-        }
-        if idx == 5 && !has_preview_col {
-            spans.push(Span::styled(" [󰍉 Preview]", Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD)));
+        if let Some((text, color)) = badge {
+            spans.push(Span::styled(text, Style::default().fg(color)));
         }
 
         frame.render_widget(Paragraph::new(Line::from(spans)), rows[idx]);
@@ -467,5 +496,54 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
         }
     } else {
         app.kitty_cover_rect = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rendered_width(before: &str, after: &str) -> usize {
+        UnicodeWidthStr::width(format!("{before}█{after}").as_str())
+    }
+
+    #[test]
+    fn short_value_keeps_caret_after_text() {
+        let (before, after) = active_field_window("Short", 5, 20);
+        assert_eq!(before, "Short");
+        assert_eq!(rendered_width(&before, &after), 20);
+    }
+
+    #[test]
+    fn long_value_scrolls_to_keep_caret_visible() {
+        let value = "Castle | House | NCS - Copyright Free Music";
+        let caret = value.chars().count();
+        let (before, after) = active_field_window(value, caret, 12);
+        assert_eq!(rendered_width(&before, &after), 12);
+        assert!(format!("{before}█{after}").ends_with('█'));
+    }
+
+    #[test]
+    fn caret_in_middle_scrolls_window() {
+        let value = "abcdefghijklmnopqrstuvwxyz";
+        let (before, after) = active_field_window(value, 20, 10);
+        assert_eq!(rendered_width(&before, &after), 10);
+        assert_eq!(before, "lmnopqrst");
+        assert!(after.is_empty());
+    }
+
+    #[test]
+    fn unicode_value_uses_display_columns() {
+        let value = "Ánh Đèn Sân Khấu";
+        let caret = value.chars().count();
+        let (before, after) = active_field_window(value, caret, 8);
+        assert_eq!(rendered_width(&before, &after), 8);
+    }
+
+    #[test]
+    fn zero_width_returns_empty_window() {
+        let (before, after) = active_field_window("value", 2, 0);
+        assert!(before.is_empty());
+        assert!(after.is_empty());
     }
 }

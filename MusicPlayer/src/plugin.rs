@@ -169,6 +169,15 @@ impl ManagedPlugin {
                 is_removed: false,
                 is_builtin: true,
             },
+            Self {
+                id: "updater".into(),
+                name: "Update (GitHub Releases)".into(),
+                version: format!("v{}", LYRA_VERSION),
+                description: "Checks GitHub Releases for a newer Lyra; press U here to check/install (tarball builds)".into(),
+                enabled: cfg!(feature = "update"),
+                is_removed: false,
+                is_builtin: true,
+            },
         ]
     }
 

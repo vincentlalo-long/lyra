@@ -409,4 +409,63 @@ impl App {
             self.toggle_selected_plugin();
         }
     }
+
+    /// Drains background updater events (called every main-loop tick).
+    #[cfg(feature = "update")]
+    pub fn check_update_events(&mut self) {
+        use crate::update::UpdateEvent;
+        while let Ok(event) = self.update_rx.try_recv() {
+            match event {
+                UpdateEvent::Checked(Ok(Some(manifest))) => {
+                    let version = manifest.version.trim_start_matches('v').to_string();
+                    self.update_available = Some(manifest);
+                    self.set_toast(format!(
+                        "Update v{version} available — press U in Plugins or run 'lyra --update'"
+                    ));
+                }
+                UpdateEvent::Checked(Ok(None)) => {
+                    self.update_available = None;
+                }
+                UpdateEvent::Checked(Err(_)) => {
+                    // Network failures are silent unless the user asked
+                    // explicitly (CLI reports them).
+                }
+                UpdateEvent::Installed(Ok(version)) => {
+                    self.update_busy = false;
+                    self.update_available = None;
+                    self.set_toast(format!(
+                        "Updated to v{version} — restart Lyra to apply"
+                    ));
+                }
+                UpdateEvent::Installed(Err(message)) => {
+                    self.update_busy = false;
+                    self.set_toast(format!("Update failed: {message}"));
+                }
+            }
+        }
+    }
+
+    /// `U` in the Plugins view: check now, or install the known update.
+    #[cfg(feature = "update")]
+    pub fn start_update_install(&mut self) {
+        if !crate::update::is_enabled() {
+            self.set_toast(
+                "Updater is disabled (enable the 'Update' plugin in [5] Plugins)".to_string(),
+            );
+            return;
+        }
+        if self.update_busy {
+            self.set_toast("An update is already in progress".to_string());
+            return;
+        }
+        if let Some(manifest) = self.update_available.clone() {
+            let version = manifest.version.trim_start_matches('v').to_string();
+            self.update_busy = true;
+            self.set_toast(format!("Installing Lyra v{version}..."));
+            crate::update::spawn_install(self.update_tx.clone(), manifest);
+        } else {
+            self.set_toast("Checking for updates...".to_string());
+            crate::update::spawn_check(self.update_tx.clone(), true);
+        }
+    }
 }

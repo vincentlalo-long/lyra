@@ -104,6 +104,13 @@ fn format_python_error(stderr: &str, default_msg: &str) -> String {
     {
         return "Missing Python dependencies. Run: pip install yt-dlp pillow mutagen".to_string();
     }
+    if trimmed.contains("ffmpeg")
+        && (trimmed.contains("not found")
+            || trimmed.contains("No such file")
+            || trimmed.contains("not installed"))
+    {
+        return "ffmpeg not found. Install it with your package manager (e.g. 'sudo pacman -S ffmpeg', 'sudo apt install ffmpeg').".to_string();
+    }
     if trimmed.is_empty() {
         return default_msg.to_string();
     }
@@ -685,6 +692,17 @@ mod tests {
             }
         }
         assert!(got_error, "Expected DownloadEvent::Error on invalid URL");
+    }
+
+    #[test]
+    fn test_format_python_error_mentions_missing_tools() {
+        let modules = format_python_error("ModuleNotFoundError: No module named 'yt_dlp'", "");
+        assert!(modules.contains("pip install yt-dlp pillow mutagen"));
+
+        let ffmpeg = format_python_error("ERROR: ffmpeg not found. Please install it.", "");
+        assert!(ffmpeg.contains("ffmpeg not found"));
+
+        assert_eq!(format_python_error("", "fallback"), "fallback");
     }
 
     #[test]

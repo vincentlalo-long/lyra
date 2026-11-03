@@ -1,17 +1,18 @@
 [package]
 name = "lyra"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 
 [features]
 # Plugin model (compile-time): drop a feature to remove it, e.g.
 #   cargo install --path . --no-default-features
 # Core (audio/playlist/queue/browser/scanner/config/meta) is always on.
-default = ["download", "mpris", "notify", "genre"]
+default = ["download", "mpris", "notify", "genre", "update"]
 download = []
 mpris = ["dep:mpris-server", "dep:tokio"]
 notify = []
 genre = []
+update = []
 
 [dependencies]
 ratatui = "0.29"

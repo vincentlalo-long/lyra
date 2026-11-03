@@ -90,6 +90,52 @@ chmod +x ~/.local/bin/lyra
 ```
 Ensure `~/.local/bin` is in your `$PATH`.
 
+### Runtime Dependencies (Prebuilt Binaries)
+
+The prebuilt binaries are **dynamically linked** and do **not** bundle external
+tools. Install these before running Lyra, otherwise startup or downloads will
+fail with missing-library / `os error` messages:
+
+| Dependency | Needed by | Why |
+|---|---|---|
+| `ffmpeg` | Full TUI | Audio conversion and thumbnail processing |
+| `python3` | Full TUI | Runs the download / cover / lyrics pipeline |
+| `yt-dlp`, `pillow`, `mutagen` | Full TUI | Python packages for downloading and tagging |
+| `alsa-lib` (`libasound`) | All builds | Audio output |
+| `libudev` | All builds | Device detection |
+
+The **Minimal TUI** (`lyra-minimal-linux-x86_64.tar.gz`) has no Python or
+network dependency; it only needs the system audio libraries.
+
+Install per distro:
+
+```bash
+# Arch Linux
+sudo pacman -S ffmpeg python python-pip python-pillow python-mutagen yt-dlp alsa-lib
+
+# Debian / Ubuntu
+sudo apt install ffmpeg python3 python3-pip python3-pil python3-mutagen yt-dlp libasound2
+
+# Fedora (ffmpeg is in RPM Fusion)
+sudo dnf install ffmpeg python3 python3-pip python3-pillow python3-mutagen yt-dlp alsa-lib
+```
+
+If your distro packages are older, install the Python packages with pip:
+
+```bash
+python3 -m pip install --user yt-dlp pillow mutagen
+```
+
+Check what is missing at any time:
+
+```bash
+lyra --check-deps
+```
+
+> The Linux binaries are built on Ubuntu and link against its `glibc`. On
+> older distros, build from source (see below) instead of using the prebuilt
+> archive.
+
 ### Requirements (Source Build)
 - **Rust toolchain** (1.80+)
 - **ffmpeg** (required for audio conversion and thumbnail processing)
@@ -126,6 +172,29 @@ Available cargo features:
 - `genre`: Multi-choice genre filtering and inline metadata tagger
 - `mpris`: D-Bus media key and desktop widget bridge
 - `notify`: Desktop notifications on track change
+- `update`: GitHub Releases update check and self-update for tarball installs
+
+---
+
+## Updating
+
+The Full TUI includes a built-in updater plugin (visible in `[5] Plugins`).
+It reads the `latest.json` manifest published with each GitHub release, checks
+at most once per day, and shows a toast when a newer version is available.
+
+```bash
+lyra --check-update   # check now and print the result
+lyra --update         # download, verify and install the latest release
+```
+
+Press `U` in the Plugins view to check or install interactively.
+
+Self-update only runs for the Linux x86_64 **tarball** builds installed in a
+writable user directory (for example `~/.local/bin/lyra`). Binaries managed by
+`pacman`, `apt`, `nix`, or `cargo install` are never overwritten; Lyra asks you
+to update through that package manager instead. Downloads are SHA-256 verified
+against the release manifest before the atomic replacement. Set
+`LYRA_NO_UPDATE_CHECK=1` to disable background checks.
 
 ---
 

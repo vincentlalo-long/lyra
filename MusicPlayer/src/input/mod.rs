@@ -633,6 +633,13 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
                 app.set_toast("Opened Plugin Store (UI Preview)".to_string());
             }
         }
+        // Built-in updater: check now, or install an available release.
+        #[cfg(feature = "update")]
+        KeyCode::Char('U') => {
+            if app.view_mode == ViewMode::Plugins {
+                app.start_update_install();
+            }
+        }
         KeyCode::Char('e') => {
             if app.view_mode == ViewMode::Plugins {
                 app.start_editing_selected_path();
