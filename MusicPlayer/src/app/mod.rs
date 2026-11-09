@@ -372,11 +372,18 @@ impl App {
         // Lyrics layout defaults ON when its plugin ships enabled.
         let lyrics_on = app.plugin_enabled("lyrics");
         app.sync_plugin_runtime_flags(lyrics_on);
-        // Persisted YouTube search result limit (Plugins settings row / E).
+        // Persisted search result limit (Plugins settings row / E).
         #[cfg(feature = "download")]
         if let Some(n) = config.search_limit {
             if (1..=50).contains(&n) {
                 app.download.search_limit = n;
+            }
+        }
+        // Persisted search provider policy (search bar `s` / Ctrl+S).
+        #[cfg(feature = "download")]
+        if let Some(src) = &config.search_source {
+            if crate::download::state::SEARCH_SOURCE_PRESETS.contains(&src.as_str()) {
+                app.download.search_source = src.clone();
             }
         }
         app.cover_embed = config.cover_embed;

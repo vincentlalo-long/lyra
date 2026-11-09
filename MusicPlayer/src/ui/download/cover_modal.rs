@@ -5,7 +5,9 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
+use unicode_width::UnicodeWidthStr;
 use crate::app::App;
+use crate::ui::playlist::{caret_window, fit_width, truncate_ellipsis, truncate_front};
 
 pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
     let screen_area = frame.area();
@@ -82,12 +84,21 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(app.theme.border_focused));
 
-    let mut search_spans = vec![
-        Span::styled(&app.download.cover_picker_search, if is_search_focused { Style::default().fg(app.theme.text) } else { Style::default().fg(app.theme.muted) }),
-    ];
-    if is_search_focused {
-        search_spans.push(Span::styled("█", Style::default().fg(app.theme.warning)));
-    }
+    let search_width = (left_rows[0].width as usize).saturating_sub(2);
+    let search_text = &app.download.cover_picker_search;
+    let search_spans = if is_search_focused {
+        let (before, after) = caret_window(search_text, search_text.chars().count(), search_width);
+        vec![
+            Span::styled(before, Style::default().fg(app.theme.text)),
+            Span::styled("█", Style::default().fg(app.theme.warning)),
+            Span::styled(after, Style::default().fg(app.theme.text)),
+        ]
+    } else {
+        vec![Span::styled(
+            truncate_ellipsis(search_text, search_width),
+            Style::default().fg(app.theme.muted),
+        )]
+    };
     let search_p = Paragraph::new(Line::from(search_spans)).block(search_block);
     frame.render_widget(search_p, left_rows[0]);
 
@@ -105,6 +116,7 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
         Style::default().fg(app.theme.text)
     };
 
+    let list_inner_width = (left_rows[1].width as usize).saturating_sub(2);
     let local_label = if let Some(path) = &app.download.form_custom_cover {
         let fname = std::path::Path::new(path)
             .file_name()
@@ -114,6 +126,7 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
     } else {
         "󰉋 [ Browse local image from disk... ]".to_string()
     };
+    let local_label = truncate_ellipsis(&local_label, list_inner_width.saturating_sub(2));
     list_items.push(ListItem::new(Line::from(vec![
         Span::styled(if is_local_selected { "▶ " } else { "  " }, Style::default().fg(app.theme.warning)),
         Span::styled(local_label, local_style),
@@ -141,12 +154,14 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
         } else {
             &cand.album
         };
-        let album_trunc: String = album_disp.chars().take(22).collect();
+        // Prefix (2) + source tag (8) + score (4) + two spaces = 16.
+        let album_width = list_inner_width.saturating_sub(16);
+        let album_fit = fit_width(album_disp, album_width);
 
         list_items.push(ListItem::new(Line::from(vec![
             Span::styled(if is_cand_selected { "▶ " } else { "  " }, Style::default().fg(app.theme.warning)),
             Span::styled(src_tag, Style::default().fg(src_color).add_modifier(Modifier::BOLD)),
-            Span::styled(format!(" {album_trunc:<22} "), cand_style),
+            Span::styled(format!(" {album_fit} "), cand_style),
             Span::styled(format!("({:.0})", cand.score), Style::default().fg(app.theme.faint)),
         ])));
     }
@@ -226,6 +241,10 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
             );
 
             if crate::cover::is_kitty_supported() {
+                let blank: Vec<Line> = (0..max_rows)
+                    .map(|_| Line::from(" ".repeat(max_cols as usize)))
+                    .collect();
+                frame.render_widget(Paragraph::new(blank), right_rows[0]);
                 let buf = frame.buffer_mut();
                 for y in target_rect.y..target_rect.bottom() {
                     for x in target_rect.x..target_rect.right() {
@@ -272,33 +291,55 @@ pub fn render_cover_picker_modal(frame: &mut Frame, app: &mut App) {
                 ]),
                 Line::from(vec![
                     Span::styled("Path: ", Style::default().fg(app.theme.faint)),
-                    Span::styled(path.chars().take(34).collect::<String>(), Style::default().fg(app.theme.text)),
+                    Span::styled(
+                        truncate_front(path, (right_rows[1].width as usize).saturating_sub(6)),
+                        Style::default().fg(app.theme.text),
+                    ),
                 ]),
             ]
         } else {
             vec![
                 Line::from(vec![
                     Span::styled("Type: ", Style::default().fg(app.theme.faint)),
-                    Span::styled("Local File (Press Enter/b to choose)", Style::default().fg(app.theme.warning)),
+                    Span::styled(
+                        truncate_ellipsis(
+                            "Local File (Press Enter/b to choose)",
+                            (right_rows[1].width as usize).saturating_sub(6),
+                        ),
+                        Style::default().fg(app.theme.warning),
+                    ),
                 ]),
             ]
         }
     } else {
         let cand_idx = selected_idx - 1;
         if let Some(cand) = app.download.cover_candidates.get(cand_idx) {
+            let score = format!(" (Score: {:.1})", cand.score);
+            let source_budget = (right_rows[1].width as usize)
+                .saturating_sub(8)
+                .saturating_sub(UnicodeWidthStr::width(score.as_str()));
             vec![
                 Line::from(vec![
                     Span::styled("Source: ", Style::default().fg(app.theme.faint)),
-                    Span::styled(&cand.source, Style::default().fg(app.theme.info).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!(" (Score: {:.1})", cand.score), Style::default().fg(app.theme.warning)),
+                    Span::styled(
+                        truncate_ellipsis(&cand.source, source_budget),
+                        Style::default().fg(app.theme.info).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(score, Style::default().fg(app.theme.warning)),
                 ]),
                 Line::from(vec![
                     Span::styled("Album:  ", Style::default().fg(app.theme.faint)),
-                    Span::styled(cand.album.chars().take(28).collect::<String>(), Style::default().fg(app.theme.text)),
+                    Span::styled(
+                        truncate_ellipsis(&cand.album, (right_rows[1].width as usize).saturating_sub(8)),
+                        Style::default().fg(app.theme.text),
+                    ),
                 ]),
                 Line::from(vec![
                     Span::styled("Artist: ", Style::default().fg(app.theme.faint)),
-                    Span::styled(cand.artist.chars().take(28).collect::<String>(), Style::default().fg(app.theme.muted)),
+                    Span::styled(
+                        truncate_ellipsis(&cand.artist, (right_rows[1].width as usize).saturating_sub(8)),
+                        Style::default().fg(app.theme.muted),
+                    ),
                 ]),
             ]
         } else {
@@ -368,9 +409,13 @@ pub fn render_cover_file_picker_modal(frame: &mut Frame, app: &mut App) {
 
     // Current dir
     let curr_str = app.download.cover_file_picker.current_dir.to_string_lossy();
+    let path_avail = (left_rows[0].width as usize).saturating_sub(8);
     let path_p = Paragraph::new(Line::from(vec![
         Span::styled("Folder: ", Style::default().fg(app.theme.faint)),
-        Span::styled(curr_str, Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            truncate_front(&curr_str, path_avail),
+            Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD),
+        ),
     ]));
     frame.render_widget(path_p, left_rows[0]);
 
@@ -388,12 +433,12 @@ pub fn render_cover_file_picker_modal(frame: &mut Frame, app: &mut App) {
             entry.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "/".into())
         };
 
-        let (icon, icon_style) = if is_parent {
-            ("󰉍 ", Style::default().fg(app.theme.info))
+        let icon = if is_parent {
+            "󰉍 "
         } else if is_dir {
-            ("󰉋 ", Style::default().fg(app.theme.info))
+            "󰉋 "
         } else {
-            ("󰋩 ", Style::default().fg(app.theme.success))
+            "󰋩 "
         };
 
         let style = if is_selected {
@@ -402,10 +447,12 @@ pub fn render_cover_file_picker_modal(frame: &mut Frame, app: &mut App) {
             Style::default().fg(app.theme.text)
         };
 
-        list_items.push(ListItem::new(Line::from(vec![
-            Span::styled(icon, if is_selected { Style::default().fg(app.theme.warning) } else { icon_style }),
-            Span::styled(name, style),
-        ])));
+        let list_width = (left_rows[1].width as usize).saturating_sub(2);
+        let line = fit_width(&format!("{icon}{name}"), list_width);
+        list_items.push(ListItem::new(Line::from(Span::styled(
+            line,
+            if is_selected { style } else { Style::default().fg(app.theme.text) },
+        ))));
     }
 
     app.download.cover_file_picker.state.select(Some(app.download.cover_file_picker.selected));
@@ -458,6 +505,10 @@ pub fn render_cover_file_picker_modal(frame: &mut Frame, app: &mut App) {
                 rows,
             );
             if crate::cover::is_kitty_supported() {
+                let blank: Vec<Line> = (0..max_rows)
+                    .map(|_| Line::from(" ".repeat(max_cols as usize)))
+                    .collect();
+                frame.render_widget(Paragraph::new(blank), preview_inner);
                 let buf = frame.buffer_mut();
                 for y in target_rect.y..target_rect.bottom() {
                     for x in target_rect.x..target_rect.right() {

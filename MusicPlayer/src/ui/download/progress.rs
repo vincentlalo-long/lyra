@@ -123,7 +123,7 @@ pub(super) fn render_download_status(frame: &mut Frame, app: &App, area: Rect) {
             )
         } else {
             let stage_lbl = if app.download.current_stage.is_empty() {
-                "Connecting to YouTube..."
+                "Preparing audio source..."
             } else {
                 &app.download.current_stage
             };
@@ -169,7 +169,7 @@ pub(super) fn render_download_status(frame: &mut Frame, app: &App, area: Rect) {
                 Span::styled(err_msg, Style::default().fg(app.theme.danger).add_modifier(Modifier::BOLD)),
             ]),
             Line::from(Span::styled(
-                "Check YouTube link or internet connection. Press / to search again or Esc to dismiss.",
+                "Check the source/link or internet connection. Press / to search again or Esc to dismiss.",
                 Style::default().fg(app.theme.faint),
             )),
         ]).block(block);
@@ -204,7 +204,7 @@ pub(super) fn render_download_status(frame: &mut Frame, app: &App, area: Rect) {
 
         let p = Paragraph::new(vec![
             Line::from(Span::styled("No active download.", Style::default().fg(app.theme.faint))),
-            Line::from(Span::styled("Search for songs above or paste a direct YouTube link to begin.", Style::default().fg(app.theme.faint))),
+            Line::from(Span::styled("Search songs above (official sources) or paste a direct link to begin.", Style::default().fg(app.theme.faint))),
         ]).block(block);
         frame.render_widget(p, area);
     }

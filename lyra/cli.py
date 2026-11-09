@@ -111,7 +111,7 @@ def main():
     )
 
     # Command: search
-    search_parser = subparsers.add_parser("search", help="Search YouTube for tracks")
+    search_parser = subparsers.add_parser("search", help="Search official music sources (YouTube fallback)")
     search_parser.add_argument("query", type=str, help="Search query")
     search_parser.add_argument(
         "-l", "--limit",
@@ -120,10 +120,30 @@ def main():
         help="Number of results (default: 15)",
     )
     search_parser.add_argument(
+        "-s", "--source",
+        choices=["auto", "spotify", "musicbrainz", "deezer", "itunes", "youtube", "all"],
+        default="auto",
+        help="Source policy: auto (Spotify/MusicBrainz/Deezer/iTunes, then "
+             "YouTube), an official provider, youtube, or all",
+    )
+    search_parser.add_argument(
         "--json",
         action="store_true",
         help="Output results as JSON",
     )
+
+    # Command: resolve (official metadata -> downloadable YouTube match)
+    resolve_parser = subparsers.add_parser(
+        "resolve", help="Resolve an official music result to a downloadable video"
+    )
+    resolve_parser.add_argument("--artist", type=str, required=True, help="Artist name")
+    resolve_parser.add_argument("--title", type=str, required=True, help="Track title")
+    resolve_parser.add_argument("--album", type=str, default="", help="Album name (optional)")
+    resolve_parser.add_argument("--duration", type=int, default=0, help="Duration in seconds (optional)")
+    resolve_parser.add_argument("--source", type=str, default="", help="Original search source (metadata only)")
+    resolve_parser.add_argument("--cover-url", type=str, default="", help="Cover URL from the search result")
+    resolve_parser.add_argument("--year", type=str, default="", help="Release year from the search result")
+    resolve_parser.add_argument("--json", action="store_true", help="Output info as JSON")
 
     # Command: info
     info_parser = subparsers.add_parser("info", help="Get track info from URL")
@@ -135,8 +155,14 @@ def main():
     )
 
     # Command: probe-lyrics
-    probe_parser = subparsers.add_parser("probe-lyrics", help="Check subtitle availability for a video")
-    probe_parser.add_argument("url", type=str, help="Video URL")
+    probe_parser = subparsers.add_parser(
+        "probe-lyrics", help="Check lyric availability (LRCLIB metadata or video subtitles)"
+    )
+    probe_parser.add_argument("url", type=str, nargs="?", default="", help="Video URL (optional)")
+    probe_parser.add_argument("--artist", type=str, default="", help="Artist name for an LRCLIB lookup")
+    probe_parser.add_argument("--title", type=str, default="", help="Track title for an LRCLIB lookup")
+    probe_parser.add_argument("--album", type=str, default="", help="Album name (optional)")
+    probe_parser.add_argument("--duration", type=int, default=0, help="Duration in seconds (optional)")
     probe_parser.add_argument(
         "--json",
         action="store_true",
@@ -195,13 +221,48 @@ def main():
 
     if args.command == "search":
         try:
-            results = search_youtube(args.query, limit=args.limit)
+            from .search import search_music
+            results = search_music(args.query, limit=args.limit, source=args.source)
             if args.json:
                 print(json.dumps({"type": "search_results", "items": results}), flush=True)
             else:
                 for i, r in enumerate(results, 1):
-                    print(f"{i}. {r['artist']} - {r['title']} [{r['duration']}] ({r['uploader']})")
-                    print(f"   URL: {r['url']}")
+                    print(
+                        f"{i}. [{r.get('source', '?')}] {r['artist']} - {r['title']} "
+                        f"[{r['duration']}] ({r['uploader']})"
+                    )
+                    if r.get("url"):
+                        print(f"   URL: {r['url']}")
+                    if r.get("album"):
+                        print(f"   Album: {r['album']}")
+        except Exception as e:
+            if args.json:
+                print(json.dumps({"type": "error", "message": str(e)}), flush=True)
+            else:
+                print(f"error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    elif args.command == "resolve":
+        try:
+            from .search import resolve
+            info = resolve(
+                args.artist,
+                args.title,
+                album=args.album,
+                duration=args.duration or None,
+                source=args.source,
+                cover_url=args.cover_url,
+                year=args.year,
+            )
+            if args.json:
+                print(json.dumps({"type": "info", "data": info}), flush=True)
+            else:
+                print(f"Title:    {info['title']}")
+                print(f"Artist:   {info['artist']}")
+                print(f"Album:    {info.get('album', '')}")
+                print(f"Duration: {info['duration']}")
+                print(f"URL:      {info['url']}")
+                print(f"Lyrics:   {'yes' if info.get('has_lyrics') else 'no'}")
         except Exception as e:
             if args.json:
                 print(json.dumps({"type": "error", "message": str(e)}), flush=True)
@@ -227,12 +288,56 @@ def main():
 
     elif args.command == "probe-lyrics":
         try:
-            probe = probe_lyrics(args.url)
+            meta_probe = None
+            if args.artist or args.title:
+                from . import lrclib
+                meta_probe = lrclib.probe(
+                    args.artist, args.title, args.album, args.duration or None
+                )
+
+            # LRCLIB synced lyrics win in the download pipeline, so skip the
+            # slower YouTube probe when they are already available.
+            video_probe = None
+            if args.url and not (meta_probe and meta_probe.get("has_manual")):
+                video_probe = probe_lyrics(args.url)
+
+            if meta_probe and meta_probe.get("has_manual"):
+                probe = {
+                    "source": "lrclib",
+                    "has_manual": True,
+                    "has_auto": bool(meta_probe.get("has_auto")),
+                    "langs": [],
+                }
+            elif video_probe and (video_probe.get("has_manual") or video_probe.get("has_auto")):
+                probe = {"source": "youtube", **video_probe}
+            elif meta_probe and meta_probe.get("has_auto"):
+                probe = {
+                    "source": "lrclib",
+                    "has_manual": False,
+                    "has_auto": True,
+                    "langs": [],
+                }
+            else:
+                probe = {
+                    "source": "",
+                    "has_manual": False,
+                    "has_auto": False,
+                    "langs": [],
+                }
+
             if args.json:
                 print(json.dumps({"type": "lyrics_probe", **probe}), flush=True)
             else:
-                print(f"Manual subs: {'yes' if probe['has_manual'] else 'no'}")
-                print(f"Auto subs:   {'yes' if probe['has_auto'] else 'no'}")
+                if probe["source"] == "lrclib":
+                    print("Source: LRCLIB")
+                    print(f"Synced lyrics: {'yes' if probe['has_manual'] else 'no'}")
+                    print(f"Plain lyrics:  {'yes' if probe['has_auto'] else 'no'}")
+                elif probe["source"] == "youtube":
+                    print("Source: YouTube captions")
+                    print(f"Manual subtitles: {'yes' if probe['has_manual'] else 'no'}")
+                    print(f"Auto subtitles:   {'yes' if probe['has_auto'] else 'no'}")
+                else:
+                    print("No lyrics found")
         except Exception as e:
             if args.json:
                 print(json.dumps({"type": "error", "message": str(e)}), flush=True)

@@ -1,4 +1,4 @@
-//! Embedded Python helper scripts for YouTube search/download, artwork scraping, and lyric fetching.
+//! Embedded Python helper scripts for music search/download, artwork scraping, and lyric fetching.
 //!
 //! Enables standalone binary execution without requiring the user to clone the repository.
 //! When `lyra` is executed outside of the git workspace, it automatically unpacks these
@@ -43,6 +43,14 @@ pub const EMBEDDED_FILES: &[EmbeddedFile] = &[
     EmbeddedFile {
         rel_path: "lyra/lyric.py",
         content: include_str!("../../../lyra/lyric.py"),
+    },
+    EmbeddedFile {
+        rel_path: "lyra/lrclib.py",
+        content: include_str!("../../../lyra/lrclib.py"),
+    },
+    EmbeddedFile {
+        rel_path: "lyra/search.py",
+        content: include_str!("../../../lyra/search.py"),
     },
     EmbeddedFile {
         rel_path: "lyra/tagger.py",

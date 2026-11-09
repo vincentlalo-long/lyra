@@ -569,6 +569,10 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
                 KeyCode::Char('c') | KeyCode::Char('C') => {
                     app.download.is_input_active = false;
                 }
+                // Cycle the search provider without leaving the input.
+                KeyCode::Char('s') | KeyCode::Char('S') => {
+                    app.cycle_search_source(1);
+                }
                 _ => {}
             }
             return true;
@@ -579,6 +583,9 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
         }
 
         match event.code {
+            KeyCode::F(2) => {
+                app.cycle_search_source(1);
+            }
             KeyCode::Tab => {
                 app.download.is_input_active = false;
                 app.toggle_view();
@@ -661,6 +668,10 @@ pub(super) fn handle_download_key(app: &mut App, event: KeyEvent) -> bool {
         }
         KeyCode::Char('E') => {
             app.cycle_search_limit();
+            return true;
+        }
+        KeyCode::Char('s') | KeyCode::Char('S') => {
+            app.cycle_search_source(1);
             return true;
         }
         KeyCode::Char('1') => { app.view_mode = ViewMode::Playlist; return true; }

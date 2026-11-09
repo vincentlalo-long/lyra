@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Margin},
+    layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
@@ -7,28 +7,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 use crate::app::App;
-use crate::ui::playlist::{fit_width, slice_visual_window};
-
-/// Computes the horizontally scrolled text before/after the caret so that the
-/// caret always stays visible inside `width` columns (caret glyph included).
-fn active_field_window(value: &str, caret: usize, width: usize) -> (String, String) {
-    if width == 0 {
-        return (String::new(), String::new());
-    }
-    let text_width = width.saturating_sub(1);
-    let caret = caret.min(value.chars().count());
-    let before_text: String = value.chars().take(caret).collect();
-    let caret_col = UnicodeWidthStr::width(before_text.as_str());
-    let visible_before = caret_col.min(text_width);
-    let start = caret_col - visible_before;
-    let before = slice_visual_window(value, start, visible_before);
-    let after = slice_visual_window(
-        value,
-        start + visible_before,
-        text_width.saturating_sub(visible_before),
-    );
-    (before, after)
-}
+use crate::ui::playlist::{caret_window, fit_width, truncate_ellipsis};
 
 pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
     let screen_area = frame.area();
@@ -142,7 +121,11 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
     } else if app.download.is_cover_loading {
         format!("󰑮 Searching covers... {mode_badge} {src_badge}")
     } else if app.download.cover_candidates.is_empty() {
-        format!("< YouTube thumbnail fallback > {mode_badge} {src_badge}")
+        if app.download.search_cover_url.is_some() {
+            format!("< Official artwork (search result) > {mode_badge} {src_badge}")
+        } else {
+            format!("< YouTube thumbnail fallback > {mode_badge} {src_badge}")
+        }
     } else {
         match app.download.selected_cover {
             None => {
@@ -184,12 +167,16 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
         String::new()
     };
     // Subtitle probe badge: tells whether .lrc download is likely.
-    let lyrics_str = match app.download.lyrics_probe {
-        None => format!("{lyrics_base}{lyrics_lang_str} [probing LRC…]"),
-        Some((true, _)) => format!("{lyrics_base}{lyrics_lang_str} [LRC ✓ manual]"),
-        Some((false, true)) => format!("{lyrics_base}{lyrics_lang_str} [LRC ~ auto]"),
-        Some((false, false)) => format!("{lyrics_base}{lyrics_lang_str} [no LRC]"),
+    use crate::download::state::LyricsStatus;
+    let lyrics_badge = match app.download.lyrics_status {
+        LyricsStatus::Probing => "[checking lyrics…]",
+        LyricsStatus::LrclibSynced => "[LRCLIB ✓ synced]",
+        LyricsStatus::LrclibPlain => "[LRCLIB plain only]",
+        LyricsStatus::YoutubeManual => "[YouTube fallback ✓]",
+        LyricsStatus::YoutubeAuto => "[YouTube fallback ~ auto]",
+        LyricsStatus::None => "[no LRC]",
     };
+    let lyrics_str = format!("{lyrics_base}{lyrics_lang_str} {lyrics_badge}");
 
     let fields = [
         ("Title:   ", &app.download.form_title),
@@ -215,8 +202,8 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
             Style::default().fg(app.theme.info)
         };
 
-        // Badge printed after the value. Built first so its display width can
-        // be reserved, otherwise a long value would push it off-screen.
+        // Badges live on the second (blank) row of each field, so they never
+        // squeeze the editable value or force it to scroll horizontally.
         let badge: Option<(String, Color)> = match idx {
             1 if !app.download.existing_artists.is_empty() => {
                 let count = app.download.existing_artists.len();
@@ -251,12 +238,7 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
         };
 
         let label_width = UnicodeWidthStr::width(*label) + 2;
-        let badge_width = badge
-            .as_ref()
-            .map(|(text, _)| UnicodeWidthStr::width(text.as_str()))
-            .unwrap_or(0);
-        let avail = (rows[idx].width as usize)
-            .saturating_sub(label_width + 4 + badge_width);
+        let avail = (rows[idx].width as usize).saturating_sub(label_width + 4);
 
         let mut spans = vec![
             Span::styled(format!(" {label} "), label_style),
@@ -269,13 +251,16 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
             let val_str: &str = val.as_str();
             let caret = app.download.form_cursor.min(val_str.chars().count());
             if avail > 0 {
-                let (before, after) = active_field_window(val_str, caret, avail);
+                let (before, after) = caret_window(val_str, caret, avail);
                 spans.push(Span::styled(before, style));
                 spans.push(Span::styled("█", Style::default().fg(app.theme.warning)));
                 spans.push(Span::styled(after, style));
             }
         } else if val.is_empty() && idx == 3 && !is_active {
-            spans.push(Span::styled("Auto/iTunes (or type: Pop, Ballad)", Style::default().fg(app.theme.faint)));
+            spans.push(Span::styled(
+                fit_width("Auto/iTunes (or type: Pop, Ballad)", avail),
+                Style::default().fg(app.theme.faint),
+            ));
         } else if avail > 0 {
             // Inactive/long values get a trailing ellipsis instead of a hard cut.
             spans.push(Span::styled(fit_width(val.as_str(), avail), style));
@@ -283,11 +268,32 @@ pub(super) fn render_metadata_form(frame: &mut Frame, app: &mut App) {
 
         spans.push(Span::styled(" ]", if is_active { Style::default().fg(app.theme.warning) } else { Style::default().fg(app.theme.faint) }));
 
-        if let Some((text, color)) = badge {
-            spans.push(Span::styled(text, Style::default().fg(color)));
-        }
+        let field_area = Rect {
+            x: rows[idx].x,
+            y: rows[idx].y,
+            width: rows[idx].width,
+            height: 1,
+        };
+        frame.render_widget(Paragraph::new(Line::from(spans)), field_area);
 
-        frame.render_widget(Paragraph::new(Line::from(spans)), rows[idx]);
+        if let Some((text, color)) = badge {
+            let indent = " ".repeat(label_width + 2);
+            let max_width = (rows[idx].width as usize).saturating_sub(indent.len());
+            let badge_area = Rect {
+                x: rows[idx].x,
+                y: rows[idx].y.saturating_add(1),
+                width: rows[idx].width,
+                height: 1,
+            };
+            let badge_line = Line::from(vec![
+                Span::raw(indent),
+                Span::styled(
+                    truncate_ellipsis(text.trim_start(), max_width),
+                    Style::default().fg(color),
+                ),
+            ]);
+            frame.render_widget(Paragraph::new(badge_line), badge_area);
+        }
     }
 
     // Field 7: Submit button row
@@ -509,7 +515,7 @@ mod tests {
 
     #[test]
     fn short_value_keeps_caret_after_text() {
-        let (before, after) = active_field_window("Short", 5, 20);
+        let (before, after) = caret_window("Short", 5, 20);
         assert_eq!(before, "Short");
         assert_eq!(rendered_width(&before, &after), 20);
     }
@@ -518,7 +524,7 @@ mod tests {
     fn long_value_scrolls_to_keep_caret_visible() {
         let value = "Castle | House | NCS - Copyright Free Music";
         let caret = value.chars().count();
-        let (before, after) = active_field_window(value, caret, 12);
+        let (before, after) = caret_window(value, caret, 12);
         assert_eq!(rendered_width(&before, &after), 12);
         assert!(format!("{before}█{after}").ends_with('█'));
     }
@@ -526,7 +532,7 @@ mod tests {
     #[test]
     fn caret_in_middle_scrolls_window() {
         let value = "abcdefghijklmnopqrstuvwxyz";
-        let (before, after) = active_field_window(value, 20, 10);
+        let (before, after) = caret_window(value, 20, 10);
         assert_eq!(rendered_width(&before, &after), 10);
         assert_eq!(before, "lmnopqrst");
         assert!(after.is_empty());
@@ -536,13 +542,13 @@ mod tests {
     fn unicode_value_uses_display_columns() {
         let value = "Ánh Đèn Sân Khấu";
         let caret = value.chars().count();
-        let (before, after) = active_field_window(value, caret, 8);
+        let (before, after) = caret_window(value, caret, 8);
         assert_eq!(rendered_width(&before, &after), 8);
     }
 
     #[test]
     fn zero_width_returns_empty_window() {
-        let (before, after) = active_field_window("value", 2, 0);
+        let (before, after) = caret_window("value", 2, 0);
         assert!(before.is_empty());
         assert!(after.is_empty());
     }

@@ -238,8 +238,8 @@ fn run_loop(terminal: &mut terminal::Tui, app: &mut App) -> Result<()> {
                         return Ok(());
                     }
                 }
-                Event::Mouse(_mouse_event) => {
-                    // Mouse support removed; keyboard-only navigation.
+                Event::Mouse(mouse_event) => {
+                    input::mouse::handle_mouse(app, mouse_event);
                 }
                 _ => {}
             }

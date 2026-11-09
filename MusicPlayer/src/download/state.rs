@@ -2,6 +2,29 @@ use std::{path::PathBuf, time::Instant};
 
 use super::events::{CoverCandidate, SearchItem};
 
+/// Source-aware lyric availability shown next to the Lyrics field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LyricsStatus {
+    /// Probe in flight.
+    Probing,
+    /// LRCLIB has synchronized lyrics (used first by the download pipeline).
+    LrclibSynced,
+    /// LRCLIB only has plain text (no .lrc can be written).
+    LrclibPlain,
+    /// No LRCLIB synced lyrics; YouTube manual captions are the fallback.
+    YoutubeManual,
+    /// No LRCLIB synced lyrics; only YouTube auto captions are available.
+    YoutubeAuto,
+    /// No lyrics found.
+    None,
+}
+
+impl Default for LyricsStatus {
+    fn default() -> Self {
+        Self::Probing
+    }
+}
+
 pub struct DownloadState {
     pub query: String,
     pub is_input_active: bool,
@@ -10,6 +33,12 @@ pub struct DownloadState {
     pub selected_result: usize,
     pub result_list_state: ratatui::widgets::ListState,
     pub search_limit: usize,
+    /// Search provider policy: auto/spotify/musicbrainz/deezer/itunes/youtube/all.
+    /// `auto` prefers official music APIs and only falls back to YouTube.
+    pub search_source: String,
+    /// Official cover art attached to the opened (resolved) result.
+    /// Used as the download cover when the user has not picked one.
+    pub search_cover_url: Option<String>,
 
     // Mode 2: Metadata Review / Edit Form
     pub show_metadata_form: bool,
@@ -30,9 +59,8 @@ pub struct DownloadState {
     pub selected_genre_idx: Option<usize>,
     pub form_dir: PathBuf,
     pub form_cover_mode: String,
-    /// Subtitle availability probe for the Lyrics row:
-    /// None = probing, Some((manual, auto)).
-    pub lyrics_probe: Option<(bool, bool)>,
+    /// Source-aware lyric availability for the Lyrics row.
+    pub lyrics_status: LyricsStatus,
     /// Available subtitle language codes from the probe (for the language picker).
     pub available_lyric_langs: Vec<String>,
     /// Index into `available_lyric_langs` for the user's chosen lyric language.
@@ -118,6 +146,8 @@ impl DownloadState {
             selected_result: 0,
             result_list_state: ratatui::widgets::ListState::default(),
             search_limit: 15,
+            search_source: "auto".to_string(),
+            search_cover_url: None,
 
             show_metadata_form: false,
             form_field_idx: 0,
@@ -137,7 +167,7 @@ impl DownloadState {
             // Default to center_crop so picked local files are cropped,
             // not blur-padded ("auto" falls through to blur in Python).
             form_cover_mode: "center_crop".to_string(),
-            lyrics_probe: None,
+            lyrics_status: LyricsStatus::Probing,
             available_lyric_langs: Vec::new(),
             selected_lyric_lang_idx: 0,
             cover_source: "auto".to_string(),
@@ -471,6 +501,44 @@ impl DownloadState {
         self.search_limit
     }
 
+    /// Cycles the search provider policy and returns the new value.
+    pub fn cycle_search_source(&mut self, dir: i32) -> String {
+        let cur = SEARCH_SOURCE_PRESETS
+            .iter()
+            .position(|s| *s == self.search_source)
+            .unwrap_or(0);
+        let len = SEARCH_SOURCE_PRESETS.len() as i32;
+        let next = SEARCH_SOURCE_PRESETS[((cur as i32 + dir).rem_euclid(len)) as usize];
+        self.search_source = next.to_string();
+        self.search_source.clone()
+    }
+}
+
+/// Provider policies shown in the search bar (`Ctrl+S` / `S` cycles).
+pub const SEARCH_SOURCE_PRESETS: [&str; 7] = [
+    "auto",
+    "spotify",
+    "musicbrainz",
+    "deezer",
+    "itunes",
+    "youtube",
+    "all",
+];
+
+impl DownloadState {
+    /// Human-friendly label for the active source policy.
+    pub fn search_source_label(&self) -> &'static str {
+        match self.search_source.as_str() {
+            "spotify" => "Spotify",
+            "musicbrainz" => "MusicBrainz",
+            "deezer" => "Deezer",
+            "itunes" => "iTunes",
+            "youtube" => "YouTube",
+            "all" => "All sources",
+            _ => "Auto (official)",
+        }
+    }
+
     /// Returns the currently selected lyric language code (if any), else None.
     pub fn selected_lyric_lang(&self) -> Option<String> {
         if self.available_lyric_langs.is_empty() {
@@ -578,6 +646,24 @@ mod tests {
         assert_eq!(*img.get_pixel(0, 0), Rgba([200, 30, 30, 255]));
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_cycle_search_source_presets_and_labels() {
+        let mut state = DownloadState::new(std::path::Path::new("/tmp"));
+        assert_eq!(state.search_source, "auto");
+        assert_eq!(state.search_source_label(), "Auto (official)");
+        assert_eq!(state.cycle_search_source(1), "spotify");
+        assert_eq!(state.search_source_label(), "Spotify");
+        assert_eq!(state.cycle_search_source(1), "musicbrainz");
+        assert_eq!(state.search_source_label(), "MusicBrainz");
+        assert_eq!(state.cycle_search_source(1), "deezer");
+        assert_eq!(state.cycle_search_source(-1), "musicbrainz");
+        assert_eq!(state.cycle_search_source(-1), "spotify");
+        // Wraps around both directions.
+        assert_eq!(state.cycle_search_source(-1), "auto");
+        assert_eq!(state.cycle_search_source(-1), "all");
+        assert_eq!(state.search_source_label(), "All sources");
     }
 
     #[test]

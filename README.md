@@ -24,7 +24,7 @@ Instead, Lyra was written out of personal daily workflow preferences:
 - **ID3 & Audio Metadata**: `id3`
 - **IPC & Media Keys**: `mpris-server`, `zbus` (desktop integration, playerctl)
 - **Terminal Graphics**: Native Kitty Graphics Protocol with automatic ANSI half-block fallback
-- **Helper Pipeline (Optional)**: Python 3 (`yt-dlp`, `pillow`, `mutagen`) for multi-source studio cover art scoring (iTunes, Deezer, Cover Art Archive), synced lyrics extraction, and audio conversion.
+- **Helper Pipeline (Optional)**: Python 3 (`yt-dlp`, `pillow`, `mutagen`) for metadata-first music search, multi-source studio cover art scoring (iTunes, Deezer, Cover Art Archive), LRCLIB lyrics, and audio conversion.
 
 ---
 
@@ -47,7 +47,7 @@ Because of its modular design, Lyra ships in different flavors:
 The standard build with all built-in extensions compiled in:
 - Track list & day-list queue management
 - File system browser with quick-import and folder-level queuing
-- Integrated YouTube audio search and background downloader
+- Metadata-first music search (Spotify/MusicBrainz/Deezer/iTunes) with YouTube fallback and background downloader
 - Multi-provider studio cover art search, preview, and tagger
 - Real-time synchronized lyrics renderer (`.lrc`)
 - MPRIS desktop integration (`playerctl`, media keys, lock screen display)
@@ -198,6 +198,59 @@ against the release manifest before the atomic replacement. Set
 
 ---
 
+## Music Search, Metadata & Lyrics
+
+Search is **metadata-first**:
+
+1. **Official APIs by default** — Spotify (when credentials are configured),
+   then MusicBrainz, Deezer and iTunes. These provide canonical artist,
+   title, album, year, duration, and cover art. MusicBrainz needs no API key
+   and is rate-limited to one request per second.
+2. **YouTube is a fallback** — it is only used when the official sources
+   return no matches, or when you explicitly select pure YouTube search.
+3. **LRCLIB fills in lyrics + metadata** — synced `.lrc` lyrics are fetched
+   before download, and the canonical album/metadata is merged into the ID3
+   tags. YouTube captions are used only when LRCLIB has no synced lyrics.
+
+When an official result is selected, Lyra resolves it to a matching
+YouTube video only at download time, ranked by title/artist relevance and
+duration proximity. Search therefore stays fast and YouTube never
+outranks the official catalog.
+
+### Choosing a search source
+
+The search bar always shows the active source, e.g. `[Auto (official)]`.
+Cycle it with:
+
+- `s` in the Download view (normal mode)
+- `Ctrl+S` while typing a query
+- `F2` while the search input is focused
+
+Available sources: `auto` (recommended), `spotify`, `musicbrainz`, `deezer`,
+`itunes`, `youtube` (pure YouTube search), and `all` (official + YouTube
+merged).
+The choice is saved to `config.toml` as `search_source`.
+
+### Spotify credentials
+
+Spotify's Web API requires a free developer app (Client Credentials flow):
+
+```bash
+export SPOTIFY_CLIENT_ID="your-client-id"
+export SPOTIFY_CLIENT_SECRET="your-client-secret"
+```
+
+or create `~/.config/lyra/spotify.json`:
+
+```json
+{ "client_id": "your-client-id", "client_secret": "your-client-secret" }
+```
+
+Without credentials, `auto` uses MusicBrainz + Deezer + iTunes (no keys
+needed); choosing `spotify` explicitly shows a setup hint.
+
+---
+
 ## Basic Controls
 
 | Key | Action |
@@ -217,6 +270,8 @@ against the release manifest before the atomic replacement. Set
 | `a` / `d` | Add track to queue / Remove from playlist or queue |
 | `i` | Import folder/album from Browser into Playlist |
 | `/` | Search in Playlist or Browser |
+| `s` | Download view: cycle search source (auto/spotify/musicbrainz/deezer/itunes/youtube/all) |
+| `Ctrl+S` | While typing a download query: cycle search source |
 | `?` | Toggle keybindings help modal |
 | `X` | Cycle theme (mocha → gruvbox → tokyo-night → dracula → nord → latte; saved to config.toml) |
 | `Z` | Reload theme from config.toml (use after changing theme via theme-packs plugin) |
@@ -241,6 +296,9 @@ against the release manifest before the atomic replacement. Set
   visualizer = true
   visualizer_color = "cyan"
   visualizer_style = "wave"
+  search_limit = 15
+  search_source = "auto"
+  lyric_download = true
   ```
 - Genre Sidecar: `~/.config/lyra/genres.json`
 - Artwork Cache: `~/.cache/lyra/covers/`

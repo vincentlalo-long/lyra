@@ -153,7 +153,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             ]));
             lines.push(Line::from(vec![
                 Span::raw("     "),
-                Span::styled("How many YouTube results each search fetches (saved)", Style::default().fg(app.theme.text)),
+                Span::styled("How many results each search fetches (saved)", Style::default().fg(app.theme.text)),
             ]));
         } else {
             lines.push(Line::from(vec![
@@ -163,7 +163,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
             ]));
             lines.push(Line::from(vec![
                 Span::raw("     "),
-                Span::styled("How many YouTube results each search fetches (saved)", Style::default().fg(app.theme.faint)),
+                Span::styled("How many results each search fetches (saved)", Style::default().fg(app.theme.faint)),
             ]));
         }
         lines.push(Line::raw(""));

@@ -5,17 +5,23 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
+use unicode_width::UnicodeWidthStr;
 use crate::{
     app::{App, ViewMode},
     browser::BrowserActionModal,
+    ui::playlist::{caret_window, fit_width, truncate_ellipsis, truncate_front},
 };
 
-/// Splits an input around the caret so the `█` block renders at the
-/// real editing position instead of always at end-of-text.
-fn caret_spans(text: &str, caret: usize, text_style: Style, cursor_style: Style) -> Vec<Span<'_>> {
-    let caret = caret.min(text.chars().count());
-    let before: String = text.chars().take(caret).collect();
-    let after: String = text.chars().skip(caret).collect();
+/// Splits an input around the caret, scrolling horizontally so the caret
+/// remains visible inside `width` columns.
+fn caret_spans(
+    text: &str,
+    caret: usize,
+    width: usize,
+    text_style: Style,
+    cursor_style: Style,
+) -> Vec<Span<'static>> {
+    let (before, after) = caret_window(text, caret, width);
     vec![
         Span::styled(before, text_style),
         Span::styled("█", cursor_style),
@@ -81,7 +87,8 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         };
 
         let prefix = if is_selected { "❯ " } else { "  " };
-        let line_text = format!("{prefix}{icon}{display_label}");
+        let list_width = area.width.saturating_sub(3) as usize;
+        let line_text = fit_width(&format!("{prefix}{icon}{display_label}"), list_width);
         list_items.push(ListItem::new(Line::from(Span::styled(line_text, style))));
     }
 
@@ -176,9 +183,11 @@ fn render_browser_modal(
             let mut input_spans = vec![
                 Span::raw("  [ "),
             ];
+            let input_width = inner.width.saturating_sub(6) as usize;
             input_spans.extend(caret_spans(
                 input,
                 caret,
+                input_width,
                 Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
                 Style::default().fg(theme.success),
             ));
@@ -222,9 +231,11 @@ fn render_browser_modal(
             let mut input_spans = vec![
                 Span::raw("  [ "),
             ];
+            let input_width = inner.width.saturating_sub(6) as usize;
             input_spans.extend(caret_spans(
                 input,
                 caret,
+                input_width,
                 Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
                 Style::default().fg(theme.hint),
             ));
@@ -293,6 +304,8 @@ fn render_browser_modal(
 
             for (idx, (label, val)) in fields.iter().enumerate() {
                 let is_active = *field_idx == idx;
+                let label_width = UnicodeWidthStr::width(*label) + 2;
+                let avail = (inner.width as usize).saturating_sub(label_width + 4);
                 let mut spans = vec![
                     Span::styled(format!(" {label} "), if is_active { Style::default().fg(theme.warning).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.info) }),
                     Span::styled("[ ", if is_active { Style::default().fg(theme.warning) } else { Style::default().fg(theme.faint) }),
@@ -301,11 +314,15 @@ fn render_browser_modal(
                     spans.extend(caret_spans(
                         val.as_str(),
                         caret,
+                        avail,
                         Style::default().fg(theme.warning).add_modifier(Modifier::BOLD),
                         Style::default().fg(theme.warning),
                     ));
                 } else {
-                    spans.push(Span::styled(*val, Style::default().fg(theme.text)));
+                    spans.push(Span::styled(
+                        truncate_ellipsis(val, avail),
+                        Style::default().fg(theme.text),
+                    ));
                 }
                 spans.push(Span::styled(" ]", if is_active { Style::default().fg(theme.warning) } else { Style::default().fg(theme.faint) }));
                 frame.render_widget(Paragraph::new(Line::from(spans)), rows[idx]);
@@ -354,9 +371,11 @@ fn render_browser_modal(
                 let mut input_spans = vec![
                     Span::raw("   [ "),
                 ];
+                let input_width = inner.width.saturating_sub(7) as usize;
                 input_spans.extend(caret_spans(
                     new_album_input,
                     caret,
+                    input_width,
                     Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
                     Style::default().fg(theme.success),
                 ));
@@ -386,11 +405,11 @@ fn render_browser_modal(
                     } else {
                         Style::default().fg(theme.text)
                     };
-                    list_items.push(ListItem::new(Line::from(vec![
-                        Span::styled(prefix, Style::default().fg(theme.warning)),
-                        Span::styled("󰉋 ", Style::default().fg(theme.info)),
-                        Span::styled(name, style),
-                    ])));
+                    let line = fit_width(
+                        &format!("{prefix}󰉋 {name}"),
+                        inner.width as usize,
+                    );
+                    list_items.push(ListItem::new(Line::from(Span::styled(line, style))));
                 }
 
                 // Last option: Create New Album
@@ -439,9 +458,14 @@ fn render_browser_modal(
             frame.render_widget(block, popup_area);
 
             let cur = picker.current_dir.to_string_lossy().to_string();
-            let mut list_items = vec![ListItem::new(Line::from(vec![
-                Span::styled(format!(" 󰉋 {cur}"), Style::default().fg(theme.info)),
-            ]))];
+            let cur_line = fit_width(
+                &format!(" 󰉋 {}", truncate_front(&cur, (inner.width as usize).saturating_sub(4))),
+                inner.width as usize,
+            );
+            let mut list_items = vec![ListItem::new(Line::from(Span::styled(
+                cur_line,
+                Style::default().fg(theme.info),
+            )))];
             for (idx, p) in picker.entries.iter().enumerate() {
                 let is_sel = picker.selected == idx;
                 let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
@@ -453,11 +477,12 @@ fn render_browser_modal(
                 } else {
                     ("󰋩 ", Style::default().fg(theme.text))
                 };
-                list_items.push(ListItem::new(Line::from(vec![
-                    Span::styled(prefix, Style::default().fg(theme.warning)),
-                    Span::styled(icon, Style::default().fg(theme.info)),
-                    Span::styled(name, style),
-                ])));
+                let label_width = (inner.width as usize).saturating_sub(4);
+                let line = fit_width(
+                    &format!("{prefix}{icon}{}", truncate_ellipsis(&name, label_width)),
+                    inner.width as usize,
+                );
+                list_items.push(ListItem::new(Line::from(Span::styled(line, style))));
             }
             frame.render_widget(List::new(list_items), inner);
         }

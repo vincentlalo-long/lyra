@@ -13,6 +13,7 @@ from .image import process_cover_art
 from .artwork import search_candidates, download_best_cover, prepare_cover_art
 from .artwork.images import download_cover_image
 from .tagger import tag_audio_file
+from . import lrclib
 
 #: Map --cover-source values to provider tuples. "auto" queries everything.
 COVER_SOURCES = {
@@ -57,6 +58,7 @@ def search_youtube(query: str, limit: int = 15) -> List[Dict[str, Any]]:
                 "artist": artist,
                 "uploader": uploader,
                 "duration": f"{mins:02}:{secs:02}",
+                "duration_secs": int(duration_sec),
             })
         return results
 
@@ -88,6 +90,7 @@ def get_video_info(url: str) -> Dict[str, Any]:
             "artist": artist,
             "uploader": uploader,
             "duration": f"{mins:02}:{secs:02}",
+            "duration_secs": int(duration_sec),
         }
 
 
@@ -167,7 +170,7 @@ class LyraPipeline:
         if not self.json_mode:
             print(f"Fetching: {url}")
         else:
-            self._emit({"type": "status", "stage": "Connecting to YouTube..."})
+            self._emit({"type": "status", "stage": "Connecting to audio source..."})
 
         # Resolve effective lyrics language: CLI arg > pipeline default > None
         effective_lang = lyrics_lang or self.lyrics_lang
@@ -243,54 +246,82 @@ class LyraPipeline:
                 raise FileNotFoundError("Audio extraction failed; no .mp3 generated.")
             raw_mp3_path = mp3_candidates[0]
 
-            # Fetch subtitles for the selected language (or vi/en fallback if none chosen)
+            # Lyrics: LRCLIB first (canonical synced lyrics + metadata),
+            # YouTube subtitles only as a fallback (or when LRCLIB has none).
             lrc_map: Dict[str, str] = {}
             primary_lrc = ""
             primary_lang = ""
+            lyrics_source_used = ""
             if not no_lyrics:
-                self._emit({"type": "status", "stage": "Extracting synced lyrics (.lrc)..."})
+                rec = None
                 try:
-                    # When a specific language is chosen, download ONLY that one
-                    # (download_all=False). Otherwise fall back to vi then en.
-                    if effective_lang:
-                        target_langs = [effective_lang]
-                    else:
-                        target_langs = ["vi", "en"]
-                    vtt_dict = fetch_all_vtt(
-                        info,
-                        target_langs=target_langs,
-                        allow_auto=not no_auto_lyrics,
-                        download_all=not bool(effective_lang),
+                    rec = lrclib.best_match(
+                        artist,
+                        song_title,
+                        album or "",
+                        int(info.get("duration") or 0),
                     )
-                    for lang, vtt_text in vtt_dict.items():
-                        parsed = vtt_to_lrc(vtt_text)
-                        if parsed.strip():
-                            lrc_map[lang] = parsed
-
-                    if lrc_map:
-                        if effective_lang:
-                            # Use the explicitly chosen language if available
-                            for k in lrc_map.keys():
-                                if k == effective_lang or k.startswith(f"{effective_lang}-"):
-                                    primary_lang = k
-                                    break
-                            if not primary_lang:
-                                primary_lang = next(iter(lrc_map.keys()))
-                        else:
-                            # Prioritize 'vi' first, then 'en', then first available language
-                            for candidate in ["vi", "en"]:
-                                for k in lrc_map.keys():
-                                    if k == candidate or k.startswith(f"{candidate}-"):
-                                        primary_lang = k
-                                        break
-                                if primary_lang:
-                                    break
-                            if not primary_lang:
-                                primary_lang = next(iter(lrc_map.keys()))
-                        primary_lrc = lrc_map[primary_lang]
                 except Exception as e:
                     if not self.json_mode:
-                        print(f"Warning: Failed to extract lyrics: {e}")
+                        print(f"Warning: LRCLIB lookup failed: {e}")
+
+                if rec:
+                    # Fill missing metadata from the canonical record.
+                    if not album and rec.get("album"):
+                        album = rec["album"]
+                    synced = lrclib.to_lrc(rec)
+                    if synced:
+                        lrc_map["lrclib"] = synced
+                        primary_lang = "lrclib"
+                        primary_lrc = synced
+                        lyrics_source_used = "lrclib"
+                        self._emit({"type": "status", "stage": "Loaded synced lyrics from LRCLIB..."})
+
+                if not primary_lrc:
+                    self._emit({"type": "status", "stage": "Extracting synced lyrics (.lrc)..."})
+                    try:
+                        # When a specific language is chosen, download ONLY that one
+                        # (download_all=False). Otherwise fall back to vi then en.
+                        if effective_lang:
+                            target_langs = [effective_lang]
+                        else:
+                            target_langs = ["vi", "en"]
+                        vtt_dict = fetch_all_vtt(
+                            info,
+                            target_langs=target_langs,
+                            allow_auto=not no_auto_lyrics,
+                            download_all=not bool(effective_lang),
+                        )
+                        for lang, vtt_text in vtt_dict.items():
+                            parsed = vtt_to_lrc(vtt_text)
+                            if parsed.strip():
+                                lrc_map[lang] = parsed
+
+                        if lrc_map:
+                            if effective_lang:
+                                # Use the explicitly chosen language if available
+                                for k in lrc_map.keys():
+                                    if k == effective_lang or k.startswith(f"{effective_lang}-"):
+                                        primary_lang = k
+                                        break
+                                if not primary_lang:
+                                    primary_lang = next(iter(lrc_map.keys()))
+                            else:
+                                # Prioritize 'vi' first, then 'en', then first available language
+                                for candidate in ["vi", "en"]:
+                                    for k in lrc_map.keys():
+                                        if k == candidate or k.startswith(f"{candidate}-"):
+                                            primary_lang = k
+                                            break
+                                    if primary_lang:
+                                        break
+                                if not primary_lang:
+                                    primary_lang = next(iter(lrc_map.keys()))
+                            primary_lrc = lrc_map[primary_lang]
+                            lyrics_source_used = primary_lang
+                    except Exception as e:
+                        if not self.json_mode:
+                            print(f"Warning: Failed to extract lyrics: {e}")
 
             # Process 1:1 cover art (termusic songtag-style: online search first,
             # YouTube thumbnail last). Single search_candidates() call feeds
@@ -447,6 +478,7 @@ class LyraPipeline:
                 "audio_path": dest_mp3,
                 "lyric_path": dest_lrc if primary_lrc else None,
                 "lyric_lang": primary_lang if primary_lrc else None,
+                "lyric_source": lyrics_source_used or None,
                 "all_lyric_paths": saved_lrc_paths,
                 "has_cover": has_cover,
                 "cover_source": cover_source_used,
