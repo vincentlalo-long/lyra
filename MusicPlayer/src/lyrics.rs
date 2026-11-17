@@ -1,11 +1,11 @@
 use std::{
     fs::File,
     io::{BufRead, BufReader},
-    path::Path,
+    path::{Path, PathBuf},
     time::Duration,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LyricLine {
     pub timestamp: Duration,
     pub text: String,
@@ -14,62 +14,187 @@ pub struct LyricLine {
 #[derive(Clone, Debug, Default)]
 pub struct Lyrics {
     pub lines: Vec<LyricLine>,
+    pub synced: bool,
 }
 
 impl Lyrics {
     /// Loads matching .lrc file if present in the same directory as song
+    /// (checking `<stem>.lrc`, `<stem>.vi.lrc`, `<stem>.en.lrc`, `<stem>.*.lrc`),
+    /// falling back to embedded ID3 `USLT` lyrics when no sidecar `.lrc` exists.
     pub fn load_for_song(song_path: &Path) -> Option<Self> {
-        let lrc_path = song_path.with_extension("lrc");
-        if !lrc_path.exists() {
-            return None;
+        if let Some(candidate) = Self::find_lrc_path_for_song(song_path) {
+            if let Some(parsed) = Self::load_from_lrc_path(&candidate) {
+                return Some(parsed);
+            }
         }
 
-        let file = File::open(&lrc_path).ok()?;
-        let reader = BufReader::new(file);
-        let mut lines = Vec::new();
+        // Fallback: check embedded ID3 USLT lyrics frame inside the audio file
+        if let Ok(tag) = id3::Tag::read_from_path(song_path) {
+            for uslt in tag.lyrics() {
+                if let Some(parsed) = Self::parse_str(&uslt.text) {
+                    return Some(parsed);
+                }
+            }
+        }
 
-        for line_res in reader.lines() {
-            let line = line_res.ok()?;
-            let trimmed = line.trim();
+        None
+    }
+
+    /// Returns the path to the sidecar `.lrc` file if one exists and parses cleanly.
+    pub fn find_lrc_path_for_song(song_path: &Path) -> Option<PathBuf> {
+        for candidate in Self::candidate_lrc_paths(song_path) {
+            if candidate.is_file() && Self::load_from_lrc_path(&candidate).is_some() {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    fn candidate_lrc_paths(song_path: &Path) -> Vec<PathBuf> {
+        let mut paths = vec![song_path.with_extension("lrc")];
+        let Some(parent) = song_path.parent() else {
+            return paths;
+        };
+        let Some(stem) = song_path.file_stem().and_then(|s| s.to_str()) else {
+            return paths;
+        };
+        for lang in ["vi", "en", "ja", "ko", "zh", "lrclib"] {
+            paths.push(parent.join(format!("{stem}.{lang}.lrc")));
+        }
+        if let Ok(entries) = std::fs::read_dir(parent) {
+            let prefix = format!("{stem}.");
+            let mut extra: Vec<PathBuf> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("lrc"))
+                        && p.file_name()
+                            .and_then(|n| n.to_str())
+                            .is_some_and(|n| n.starts_with(&prefix))
+                })
+                .collect();
+            extra.sort();
+            for p in extra {
+                if !paths.contains(&p) {
+                    paths.push(p);
+                }
+            }
+        }
+        paths
+    }
+
+    pub fn load_from_lrc_path(lrc_path: &Path) -> Option<Self> {
+        let file = File::open(lrc_path).ok()?;
+        let reader = BufReader::new(file);
+        let mut raw = String::new();
+        for line in reader.lines().map_while(Result::ok) {
+            raw.push_str(&line);
+            raw.push('\n');
+        }
+        Self::parse_str(&raw)
+    }
+
+    /// Parses `.lrc` content (either synced `[mm:ss.xx]` lines or plain text lines).
+    pub fn parse_str(content: &str) -> Option<Self> {
+        let mut synced_lines: Vec<(Duration, String)> = Vec::new();
+        let mut plain_lines: Vec<String> = Vec::new();
+        let mut offset_ms: i64 = 0;
+
+        for raw_line in content.lines() {
+            let trimmed = raw_line.trim();
             if trimmed.is_empty() {
                 continue;
             }
 
-            // Parse timestamp format: e.g. [mm:ss.xx] or multiple [mm:ss.xx][mm:ss.xx]
+            // Check for [offset:+/-ms] metadata tag
+            if let Some(off) = parse_offset_tag(trimmed) {
+                offset_ms = off;
+                continue;
+            }
+
             if trimmed.starts_with('[') {
                 let mut timestamps = Vec::new();
                 let mut rest = trimmed;
+                let mut had_non_time_tag = false;
 
                 while rest.starts_with('[') {
                     if let Some(close_bracket) = rest.find(']') {
-                        let time_str = &rest[1..close_bracket];
-                        if let Some(duration) = parse_timestamp(time_str) {
+                        let tag_inner = &rest[1..close_bracket];
+                        if let Some(duration) = parse_timestamp(tag_inner) {
                             timestamps.push(duration);
+                            rest = &rest[close_bracket + 1..];
+                        } else if is_lrc_metadata_tag(tag_inner) {
+                            had_non_time_tag = true;
+                            rest = &rest[close_bracket + 1..];
+                        } else {
+                            break;
                         }
-                        rest = &rest[close_bracket + 1..];
                     } else {
                         break;
                     }
                 }
 
                 let text = rest.trim().to_string();
-                if !timestamps.is_empty() && !text.is_empty() {
+                if !timestamps.is_empty() {
+                    let display_text = if text.is_empty() {
+                        "♪".to_string()
+                    } else {
+                        text
+                    };
                     for ts in timestamps {
-                        lines.push(LyricLine {
-                            timestamp: ts,
-                            text: text.clone(),
-                        });
+                        synced_lines.push((ts, display_text.clone()));
                     }
+                } else if !had_non_time_tag && !trimmed.is_empty() {
+                    plain_lines.push(trimmed.to_string());
                 }
+            } else {
+                plain_lines.push(trimmed.to_string());
             }
         }
 
-        if lines.is_empty() {
-            return None;
+        if !synced_lines.is_empty() {
+            let mut lines: Vec<LyricLine> = synced_lines
+                .into_iter()
+                .map(|(ts, text)| LyricLine {
+                    timestamp: apply_offset(ts, offset_ms),
+                    text,
+                })
+                .collect();
+            lines.sort_by_key(|l| l.timestamp);
+
+            // Deduplicate consecutive identical instrumental break markers ("♪")
+            let mut deduped: Vec<LyricLine> = Vec::with_capacity(lines.len());
+            for line in lines {
+                if line.text == "♪" && deduped.last().is_some_and(|prev| prev.text == "♪") {
+                    continue;
+                }
+                deduped.push(line);
+            }
+            if deduped.iter().all(|l| l.text == "♪") {
+                return None;
+            }
+            return Some(Self {
+                lines: deduped,
+                synced: true,
+            });
         }
 
-        lines.sort_by_key(|l| l.timestamp);
-        Some(Self { lines })
+        if !plain_lines.is_empty() {
+            let lines = plain_lines
+                .into_iter()
+                .enumerate()
+                .map(|(idx, text)| LyricLine {
+                    timestamp: Duration::from_secs((idx as u64) * 3),
+                    text,
+                })
+                .collect();
+            return Some(Self {
+                lines,
+                synced: false,
+            });
+        }
+
+        None
     }
 
     /// Finds the currently active lyric line for the given playback position
@@ -79,6 +204,33 @@ impl Lyrics {
             .iter()
             .take_while(|l| l.timestamp <= position)
             .last()
+    }
+}
+
+fn parse_offset_tag(line: &str) -> Option<i64> {
+    let lower = line.to_ascii_lowercase();
+    if lower.starts_with("[offset:") && lower.ends_with(']') {
+        let inner = &line[8..line.len() - 1].trim();
+        return inner.parse::<i64>().ok();
+    }
+    None
+}
+
+fn is_lrc_metadata_tag(tag: &str) -> bool {
+    let Some((key, _)) = tag.split_once(':') else {
+        return false;
+    };
+    matches!(
+        key.trim().to_ascii_lowercase().as_str(),
+        "ar" | "ti" | "al" | "au" | "by" | "length" | "re" | "ve" | "id" | "offset" | "tool"
+    )
+}
+
+fn apply_offset(ts: Duration, offset_ms: i64) -> Duration {
+    if offset_ms >= 0 {
+        ts.saturating_add(Duration::from_millis(offset_ms as u64))
+    } else {
+        ts.saturating_sub(Duration::from_millis(offset_ms.unsigned_abs()))
     }
 }
 
@@ -186,5 +338,30 @@ mod tests {
 
         // Metadata tag should be None
         assert_eq!(parse_timestamp("ar:Singer"), None);
+    }
+
+    #[test]
+    fn test_parse_str_synced_with_offset_and_instrumental() {
+        let lrc = "[ar:Artist]\n[offset:+500]\n[00:01.00] First line\n[00:05.00]\n[00:06.00]\n[00:10.00] Second line\n";
+        let parsed = Lyrics::parse_str(lrc).expect("should parse synced LRC");
+        assert!(parsed.synced);
+        // Consecutive empty instrumental lines [00:05.00] and [00:06.00] are deduped into a single "♪"
+        assert_eq!(parsed.lines.len(), 3);
+        assert_eq!(parsed.lines[0].timestamp, Duration::from_millis(1500));
+        assert_eq!(parsed.lines[0].text, "First line");
+        assert_eq!(parsed.lines[1].timestamp, Duration::from_millis(5500));
+        assert_eq!(parsed.lines[1].text, "♪");
+        assert_eq!(parsed.lines[2].timestamp, Duration::from_millis(10500));
+        assert_eq!(parsed.lines[2].text, "Second line");
+    }
+
+    #[test]
+    fn test_parse_str_plain_lyrics_fallback() {
+        let plain = "[ar:Artist]\n[ti:Song]\nLine one\nLine two\n";
+        let parsed = Lyrics::parse_str(plain).expect("should parse plain lyrics");
+        assert!(!parsed.synced);
+        assert_eq!(parsed.lines.len(), 2);
+        assert_eq!(parsed.lines[0].text, "Line one");
+        assert_eq!(parsed.lines[1].text, "Line two");
     }
 }

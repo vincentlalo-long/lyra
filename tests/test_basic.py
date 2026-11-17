@@ -37,10 +37,128 @@ Hello &amp; world
 2
 00:00:05.100 --> 00:00:08.200
 <c.colorE5E5E5>This is a test</c>
+
+3
+00:00:59.999 --> 00:01:02.000
+Rollover line
 """
         lrc = vtt_to_lrc(sample_vtt)
-        expected = "[00:01.23] Hello & world\n[00:05.10] This is a test"
+        expected = "[00:01.23] Hello & world\n[00:05.10] This is a test\n[01:00.00] Rollover line"
         self.assertEqual(lrc.strip(), expected)
+
+    def test_search_lrclib_splits_stem_and_prefers_synced(self):
+        from unittest.mock import patch
+        import lyra.lyric as lyr
+
+        fake_api_hits = [
+            {
+                "artistName": "Sơn Tùng M-TP",
+                "trackName": "Lạc Trôi",
+                "albumName": "Lạc Trôi - Single",
+                "duration": 233,
+                "plainLyrics": "Người theo hương hoa mây mù giăng lối",
+                "syncedLyrics": "",
+            },
+            {
+                "artistName": "Sơn Tùng M-TP",
+                "trackName": "Lạc Trôi",
+                "albumName": "Lạc Trôi - Single",
+                "duration": 233,
+                "plainLyrics": "Người theo hương hoa mây mù giăng lối",
+                "syncedLyrics": "[00:15.20] Người theo hương hoa mây mù giăng lối",
+            },
+        ]
+        with patch.object(lyr, "_lrclib_request", return_value=fake_api_hits):
+            # Even when caller passes identical stem for artist and title, it splits and ranks synced first
+            results = lyr.search_lrclib(
+                "Sơn Tùng M-TP - Lạc Trôi (Official MV)",
+                "Sơn Tùng M-TP - Lạc Trôi (Official MV)",
+            )
+        self.assertEqual(len(results), 2)
+        self.assertTrue(results[0]["synced"])
+        self.assertIn("[00:15.20]", results[0]["lyrics"])
+        self.assertFalse(results[1]["synced"])
+
+    def test_segments_to_lrc_strips_hallucinations_and_sorts(self):
+        from lyra.lyric import _segments_to_lrc
+
+        segs = [
+            {"start": 45.0, "end": 48.0, "text": "Second line", "no_speech_prob": 0.1, "avg_logprob": -0.2},
+            {"start": 10.0, "end": 14.0, "text": "First line Hãy subscribe cho kênh Ghiền Mì Gõ Để không bỏ lỡ những video hấp dẫn", "no_speech_prob": 0.1, "avg_logprob": -0.2},
+            {"start": 18.0, "end": 22.0, "text": "H subscribe cho k Ghi M G kh b l nh video h d", "no_speech_prob": 0.1, "avg_logprob": -0.2},
+            {"start": 24.0, "end": 27.0, "text": "tóc, tóc, tóc, tóc, tóc, tóc", "no_speech_prob": 0.1, "avg_logprob": -0.2},
+            {"start": 20.0, "end": 23.0, "text": "Tập 3. Tập 3", "no_speech_prob": 0.1, "avg_logprob": -0.2},
+            {"start": 25.0, "end": 28.0, "text": "Thank you. Thank you.", "no_speech_prob": 0.1, "avg_logprob": -0.2},
+        ]
+        lrc = _segments_to_lrc(segs)
+        lines = lrc.splitlines()
+        self.assertEqual(lines[0], "[00:10.00] First line")
+        self.assertEqual(lines[-1], "[00:45.00] Second line")
+        self.assertNotIn("Ghiền Mì Gõ", lrc)
+        self.assertNotIn("Ghi M G", lrc)
+        self.assertNotIn("tóc", lrc)
+        self.assertNotIn("Tập 3", lrc)
+        self.assertNotIn("Thank you", lrc)
+
+    def test_verify_lrc_rejects_corrupt_or_reversed_without_network(self):
+        from lyra.lyric import verify_lrc_with_audio
+
+        bad_halluc = "[00:10.00] First line\n[00:20.00] hãy subscribe cho kênh lalaschool Để không bỏ lỡ\n"
+        ok, conf, reason = verify_lrc_with_audio("nonexistent.mp3", bad_halluc, api_key="test")
+        self.assertFalse(ok)
+        self.assertEqual(conf, 0.0)
+        self.assertIn("hallucinated", reason.lower())
+
+        bad_reversed = (
+            "[00:10.00] Line 1\n"
+            "[00:20.00] Line 2\n"
+            "[02:45.00] Line 3\n"
+            "[02:30.00] Line 4\n"
+        )
+        ok2, conf2, reason2 = verify_lrc_with_audio("nonexistent.mp3", bad_reversed, api_key="test")
+        self.assertFalse(ok2)
+        self.assertEqual(conf2, 0.0)
+        self.assertIn("timestamps", reason2.lower())
+
+    def test_verify_lrc_plain_and_timed_with_mock_audio(self):
+        import io
+        import json
+        import tempfile
+        from unittest.mock import patch
+        from lyra.lyric import verify_lrc_with_audio
+
+        class _FakeResp:
+            def __init__(self, text):
+                self._b = json.dumps({"text": text}).encode("utf-8")
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return self._b
+
+        with tempfile.TemporaryDirectory() as td:
+            mp3 = os.path.join(td, "song.mp3")
+            with open(mp3, "wb") as f:
+                f.write(b"\xff\xfb\x90\x00" + b"\x00" * 2048)
+
+            def _fake_ffmpeg(cmd, **kwargs):
+                out_path = cmd[-1]
+                with open(out_path, "wb") as f:
+                    f.write(b"\xff\xfb\x90\x00" + b"\x00" * 1024)
+
+            plain_lrc = "Who we are tonight\nI don't wanna know where you go\nWithout each other it is just too hard\nLeave here without you forever"
+            with patch("shutil.which", return_value="/usr/bin/ffmpeg"), \
+                 patch("subprocess.run", side_effect=_fake_ffmpeg), \
+                 patch("urllib.request.urlopen", return_value=_FakeResp("completely different vietnamese song lyrics")):
+                ok, conf, _ = verify_lrc_with_audio(mp3, plain_lrc, api_key="gsk_test")
+            self.assertFalse(ok)
+            self.assertLess(conf, 0.28)
+
+            timed_lrc = "[00:15.00] Every time we kiss you make me a believer\n[00:20.00] Let the music hear me take my body deeper\n[00:25.00] Run me like a fever fever fever\n"
+            with patch("shutil.which", return_value="/usr/bin/ffmpeg"), \
+                 patch("subprocess.run", side_effect=_fake_ffmpeg), \
+                 patch("urllib.request.urlopen", return_value=_FakeResp("Every time we kiss you make me a believer Let the music hear me")):
+                ok2, conf2, _ = verify_lrc_with_audio(mp3, timed_lrc, api_key="gsk_test")
+            self.assertTrue(ok2)
+            self.assertGreaterEqual(conf2, 0.50)
 
     def test_fetch_all_vtt_options(self):
         from lyra.lyric import fetch_all_vtt

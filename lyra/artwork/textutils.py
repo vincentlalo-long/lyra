@@ -36,10 +36,11 @@ def strip_suffix_tags(text: str) -> str:
 
 
 def ascii_fold(text: str) -> str:
-    """Lowercase + strip diacritics (``Sơn Tùng`` -> ``son tung``), stdlib only."""
+    """Lowercase + strip diacritics (``Sơn Tùng`` -> ``son tung``, ``Đen`` -> ``den``), stdlib only."""
     if not text:
         return ""
-    norm = unicodedata.normalize("NFKD", text)
+    folded = text.replace("đ", "d").replace("Đ", "D")
+    norm = unicodedata.normalize("NFKD", folded)
     ascii_only = "".join(c for c in norm if not unicodedata.combining(c))
     ascii_only = ascii_only.encode("ascii", "ignore").decode("ascii")
     return _WS_RE.sub(" ", ascii_only.lower()).strip()

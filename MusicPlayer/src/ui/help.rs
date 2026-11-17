@@ -54,8 +54,12 @@ pub fn render(frame: &mut Frame, app: &App) {
             Span::styled("Scroll page up / down", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("    g / G      ", Style::default().fg(app.theme.warning)),
+            Span::styled("    Home / G   ", Style::default().fg(app.theme.warning)),
             Span::styled("Jump to top / bottom", Style::default().fg(app.theme.text)),
+        ]),
+        Line::from(vec![
+            Span::styled("    g          ", Style::default().fg(app.theme.warning)),
+            Span::styled("Search & download synced lyrics via LRCLIB", Style::default().fg(app.theme.text)),
         ]),
         Line::from(vec![
             Span::styled("    C          ", Style::default().fg(app.theme.warning)),
@@ -138,6 +142,10 @@ pub fn render(frame: &mut Frame, app: &App) {
         Line::from(vec![
             Span::styled("    v / y      ", Style::default().fg(app.theme.warning)),
             Span::styled("Toggle Lyrics on / off (Studio <-> Karaoke)", Style::default().fg(app.theme.text)),
+        ]),
+        Line::from(vec![
+            Span::styled("    V          ", Style::default().fg(app.theme.warning)),
+            Span::styled("Verify current .lrc lyrics against song audio", Style::default().fg(app.theme.text)),
         ]),
         Line::raw(""),
         Line::from(Span::styled("  Queue (Scratchpad, never deletes files)", Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD))),

@@ -5,15 +5,15 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
-use crate::app::App;
+use crate::app::{App, LyricVerifyStatus};
 
 pub fn render(frame: &mut Frame, app: &App) {
     let Some(modal) = &app.lyric_search_modal else {
         return;
     };
     let screen = frame.area();
-    let popup_w: u16 = 60u16.min(screen.width.saturating_sub(4));
-    let popup_h: u16 = ((modal.results.len() + 6).min(18).min(screen.height.saturating_sub(4) as usize)) as u16;
+    let popup_w: u16 = 68u16.min(screen.width.saturating_sub(4));
+    let popup_h: u16 = ((modal.results.len() + 8).min(20).min(screen.height.saturating_sub(4) as usize)) as u16;
 
     let v_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -45,15 +45,24 @@ pub fn render(frame: &mut Frame, app: &App) {
         popup_area,
     );
 
+    let bottom_hints = if modal.editing_query {
+        Line::from(vec![
+            Span::styled(" Type query (Artist - Title)  ", Style::default().fg(app.theme.faint)),
+            Span::styled("Enter: Search  Esc: Cancel Edit", Style::default().fg(app.theme.faint)),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled(" ↑/k ↓/j  /: Query  a: AI Whisper  v: Verify  ", Style::default().fg(app.theme.faint)),
+            Span::styled("Enter: Save  Esc: Close", Style::default().fg(app.theme.faint)),
+        ])
+    };
+
     let block = Block::default()
         .title(Span::styled(
             "  Search Lyrics (LRCLIB) ",
             Style::default().fg(app.theme.accent).add_modifier(Modifier::BOLD),
         ))
-        .title_bottom(Line::from(vec![
-            Span::styled(" ↑/k: Up  ↓/j: Down  ", Style::default().fg(app.theme.faint)),
-            Span::styled("Enter: Save  Esc: Cancel", Style::default().fg(app.theme.faint)),
-        ]))
+        .title_bottom(bottom_hints)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(app.theme.border_focused));
@@ -67,19 +76,61 @@ pub fn render(frame: &mut Frame, app: &App) {
     let mut lines = Vec::new();
 
     // Query line
-    lines.push(Line::from(vec![
+    let mut query_spans = vec![
         Span::styled("Query: ", Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
-        Span::styled(&modal.query, Style::default().fg(app.theme.text)),
-    ]));
+        Span::styled(&modal.query, Style::default().fg(app.theme.text).add_modifier(Modifier::BOLD)),
+    ];
+    if modal.editing_query {
+        query_spans.push(Span::styled("█", Style::default().fg(app.theme.warning)));
+    }
+    lines.push(Line::from(query_spans));
+
+    // Verification status of any existing `.lrc` on disk
+    if let Some(sp) = &modal.song_path {
+        if let Some(st) = app.lyric_verify_cache.get(sp) {
+            let (msg, color) = match st {
+                LyricVerifyStatus::Checking => ("Checking against audio…".to_string(), app.theme.info),
+                LyricVerifyStatus::Verified { confidence } => (
+                    format!("✓ Verified match ({confidence}% with vocals)"),
+                    app.theme.success,
+                ),
+                LyricVerifyStatus::Plain { confidence } => (
+                    format!("Plain untimed text ({confidence}% overlap) — pick synced below"),
+                    app.theme.warning,
+                ),
+                LyricVerifyStatus::Mismatch { confidence, heard } => {
+                    let clip: String = heard.chars().take(34).collect();
+                    let extra = if clip.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" [heard: \"{clip}\"]")
+                    };
+                    (format!("⚠️ MISMATCH ({confidence}%){extra}"), app.theme.danger)
+                }
+                LyricVerifyStatus::Missing => ("No .lrc file on disk yet".to_string(), app.theme.faint),
+            };
+            lines.push(Line::from(vec![
+                Span::styled("Current .lrc: ", Style::default().fg(app.theme.faint)),
+                Span::styled(msg, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+            ]));
+        }
+    }
     lines.push(Line::raw(""));
 
-    if modal.results.is_empty() {
+    if modal.is_loading {
         lines.push(Line::from(vec![
-            Span::styled("No results found.", Style::default().fg(app.theme.muted)),
+            Span::styled("⏳ Searching LRCLIB / Groq Whisper AI for synced lyrics...", Style::default().fg(app.theme.info)),
+        ]));
+    } else if modal.results.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled("No results found. Press '/' to edit query or 'a' for AI Whisper.", Style::default().fg(app.theme.muted)),
         ]));
     } else {
         lines.push(Line::from(vec![
-            Span::styled("Results: ", Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("Results ({}):", modal.results.len()),
+                Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD),
+            ),
         ]));
         lines.push(Line::raw(""));
 
@@ -101,11 +152,21 @@ pub fn render(frame: &mut Frame, app: &App) {
             } else {
                 " [plain]"
             };
+            let album_tag = if result.album.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", result.album)
+            };
+            let artist_title = if result.artist.is_empty() {
+                result.title.clone()
+            } else {
+                format!("{} - {}", result.artist, result.title)
+            };
 
             lines.push(Line::from(vec![
                 Span::styled(prefix, prefix_style),
                 Span::styled(
-                    format!("{}{} - {} ({}s){}", result.artist, result.title, result.album, result.duration, synced_tag),
+                    format!("{artist_title}{album_tag} ({}s){synced_tag}", result.duration),
                     if is_selected {
                         Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)
                     } else {

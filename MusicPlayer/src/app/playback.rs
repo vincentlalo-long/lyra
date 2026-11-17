@@ -57,7 +57,11 @@ impl App {
         if let Some(current_idx) = self.playlist.playing_index {
             if let Some(song_path) = self.playlist.songs.get(current_idx).cloned() {
                 self.play_track(&song_path);
+                return;
             }
+        }
+        if let Some(song_path) = self.current_playing_path.clone() {
+            self.play_track(&song_path);
         }
     }
 
@@ -76,7 +80,7 @@ impl App {
                 if self.download.show_dir_picker {
                     self.download.dir_picker.next("");
                 } else if self.download.show_metadata_form {
-                    self.download.form_field_idx = (self.download.form_field_idx + 1) % 6;
+                    self.download.form_field_idx = (self.download.form_field_idx + 1) % 8;
                 } else if !self.download.search_results.is_empty() {
                     self.download.selected_result = (self.download.selected_result + 1) % self.download.search_results.len();
                 }
@@ -105,7 +109,7 @@ impl App {
                 if self.download.show_dir_picker {
                     self.download.dir_picker.previous("");
                 } else if self.download.show_metadata_form {
-                    self.download.form_field_idx = if self.download.form_field_idx == 0 { 5 } else { self.download.form_field_idx - 1 };
+                    self.download.form_field_idx = if self.download.form_field_idx == 0 { 7 } else { self.download.form_field_idx - 1 };
                 } else if !self.download.search_results.is_empty() {
                     self.download.selected_result = if self.download.selected_result == 0 {
                         self.download.search_results.len() - 1
@@ -297,6 +301,10 @@ impl App {
             } else {
                 None
             };
+            #[cfg(not(test))]
+            if self.plugin_enabled("lyrics") && self.lyrics.is_some() {
+                self.verify_lyrics_for_path(song_path, false, false);
+            }
             self.cover = if self.plugin_enabled("artwork") {
                 Some(AlbumArt::load_for_song(song_path))
             } else {
@@ -593,18 +601,25 @@ impl App {
     }
 
     pub fn check_auto_advance(&mut self) {
-        if self.playlist.playing_index.is_some()
+        if (self.playlist.playing_index.is_some() || self.current_playing_path.is_some())
             && !self.audio.is_paused
             && self.audio.is_finished()
         {
-            if self.playlist.songs.is_empty() {
+            match self.repeat_mode {
+                RepeatMode::Track => {
+                    self.replay_current_track();
+                    return;
+                }
+                _ => {}
+            }
+
+            // Always drain the scratchpad queue first, even in RepeatMode::Off or 1-song playlists.
+            if !self.queue.is_empty() {
+                self.play_next_track();
                 return;
             }
 
-            // If playlist only has 1 track: always repeat it
-            if self.playlist.songs.len() == 1 {
-                let song_path = self.playlist.songs[0].clone();
-                self.play_track(&song_path);
+            if self.playlist.songs.is_empty() {
                 return;
             }
 

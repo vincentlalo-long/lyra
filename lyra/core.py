@@ -5,10 +5,21 @@ import glob
 import json
 from typing import Dict, Any, List, Optional
 
-import yt_dlp
+try:
+    import yt_dlp
+except ImportError:
+    yt_dlp = None  # type: ignore[assignment]
 
 from .utils import clean_title_and_artist, sanitize_filename
-from .lyric import vtt_to_lrc, fetch_best_vtt, fetch_all_vtt
+from .lyric import (
+    vtt_to_lrc,
+    fetch_best_vtt,
+    fetch_all_vtt,
+    search_lrclib,
+    extract_lyrics_from_description,
+    transcribe_lyrics_groq,
+    verify_lrc_with_audio,
+)
 from .image import process_cover_art
 from .artwork import search_candidates, download_best_cover, prepare_cover_art
 from .artwork.images import download_cover_image
@@ -38,8 +49,19 @@ def search_youtube(query: str, limit: int = 15) -> List[Dict[str, Any]]:
             }
         },
     }
+    q_trimmed = (query or "").strip()
+    lower_q = q_trimmed.lower()
+    if lower_q.startswith("sc:"):
+        search_expr = f"scsearch{limit}:{q_trimmed[3:].strip()}"
+    elif lower_q.startswith("soundcloud:"):
+        search_expr = f"scsearch{limit}:{q_trimmed[11:].strip()}"
+    elif lower_q.startswith("sc "):
+        search_expr = f"scsearch{limit}:{q_trimmed[3:].strip()}"
+    else:
+        search_expr = f"ytsearch{limit}:{q_trimmed}"
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        res = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
+        res = ydl.extract_info(search_expr, download=False)
         entries = res.get("entries", []) if res else []
         results = []
         for entry in entries:
@@ -50,9 +72,12 @@ def search_youtube(query: str, limit: int = 15) -> List[Dict[str, Any]]:
             duration_sec = entry.get("duration") or 0
             mins = int(duration_sec // 60)
             secs = int(duration_sec % 60)
+            entry_url = entry.get("url") or entry.get("webpage_url") or ""
+            if not entry_url.startswith("http"):
+                entry_url = f"https://www.youtube.com/watch?v={video_id}"
             results.append({
-                "id": video_id,
-                "url": f"https://www.youtube.com/watch?v={video_id}",
+                "id": str(video_id),
+                "url": entry_url,
                 "raw_title": raw_title,
                 "title": title,
                 "artist": artist,
@@ -246,82 +271,120 @@ class LyraPipeline:
                 raise FileNotFoundError("Audio extraction failed; no .mp3 generated.")
             raw_mp3_path = mp3_candidates[0]
 
-            # Lyrics: LRCLIB first (canonical synced lyrics + metadata),
-            # YouTube subtitles only as a fallback (or when LRCLIB has none).
+            # Lyrics: LRCLIB + audio verification + Groq Whisper AI fallback
             lrc_map: Dict[str, str] = {}
             primary_lrc = ""
             primary_lang = ""
             lyrics_source_used = ""
             if not no_lyrics:
-                rec = None
+                self._emit({"type": "status", "stage": "Extracting synced lyrics (.lrc)..."})
                 try:
-                    rec = lrclib.best_match(
-                        artist,
-                        song_title,
-                        album or "",
-                        int(info.get("duration") or 0),
+                    # When a specific language is chosen, download ONLY that one
+                    # (download_all=False). Otherwise fall back to vi then en.
+                    if effective_lang:
+                        target_langs = [effective_lang]
+                    else:
+                        target_langs = ["vi", "en"]
+
+                    # 1. Try manual creator-uploaded YouTube subtitles first
+                    vtt_dict = fetch_all_vtt(
+                        info,
+                        target_langs=target_langs,
+                        allow_auto=False,
+                        download_all=not bool(effective_lang),
                     )
-                except Exception as e:
-                    if not self.json_mode:
-                        print(f"Warning: LRCLIB lookup failed: {e}")
+                    for lang, vtt_text in vtt_dict.items():
+                        parsed = vtt_to_lrc(vtt_text)
+                        if parsed.strip():
+                            lrc_map[lang] = parsed
 
-                if rec:
-                    # Fill missing metadata from the canonical record.
-                    if not album and rec.get("album"):
-                        album = rec["album"]
-                    synced = lrclib.to_lrc(rec)
-                    if synced:
-                        lrc_map["lrclib"] = synced
-                        primary_lang = "lrclib"
-                        primary_lrc = synced
-                        lyrics_source_used = "lrclib"
-                        self._emit({"type": "status", "stage": "Loaded synced lyrics from LRCLIB..."})
+                    # 2. If no manual subtitles on YouTube, try LRCLIB synced lyrics
+                    lrclib_fallback_items: List[Dict[str, Any]] = []
+                    if not lrc_map:
+                        try:
+                            dur_sec = int(round(float(info.get("duration") or 0)))
+                            lrclib_fallback_items = search_lrclib(
+                                artist=artist,
+                                title=song_title,
+                                album=album or "",
+                                duration=dur_sec,
+                                limit=5,
+                            )
+                            synced_hit = next((it for it in lrclib_fallback_items if it.get("synced") and it.get("lyrics")), None)
+                            if synced_hit:
+                                self._emit({"type": "status", "stage": "Verifying LRCLIB lyrics against audio..."})
+                                is_ok, _, _ = verify_lrc_with_audio(raw_mp3_path, synced_hit["lyrics"])
+                                if is_ok:
+                                    lrc_map["lrclib"] = synced_hit["lyrics"]
+                        except Exception:
+                            pass
 
-                if not primary_lrc:
-                    self._emit({"type": "status", "stage": "Extracting synced lyrics (.lrc)..."})
-                    try:
-                        # When a specific language is chosen, download ONLY that one
-                        # (download_all=False). Otherwise fall back to vi then en.
-                        if effective_lang:
-                            target_langs = [effective_lang]
-                        else:
-                            target_langs = ["vi", "en"]
-                        vtt_dict = fetch_all_vtt(
+                    # 3. If still no synced lyrics (e.g. SoundCloud or underground track),
+                    #    generate synced .lrc via Groq Whisper AI (using description lyrics as hint)
+                    if not lrc_map:
+                        try:
+                            desc_hint = extract_lyrics_from_description(info.get("description") or "")
+                            self._emit({"type": "status", "stage": "Generating synced lyrics with Groq Whisper AI..."})
+                            ai_lrc = transcribe_lyrics_groq(
+                                audio_path=raw_mp3_path,
+                                artist=artist,
+                                title=song_title,
+                                description_hint=desc_hint,
+                                lang=effective_lang,
+                            )
+                            if ai_lrc and ai_lrc.strip():
+                                lrc_map["ai-whisper"] = ai_lrc
+                        except Exception:
+                            pass
+
+                    # 4. Fallback to YouTube automatic captions when allowed
+                    if not lrc_map and not no_auto_lyrics:
+                        auto_vtt = fetch_all_vtt(
                             info,
                             target_langs=target_langs,
-                            allow_auto=not no_auto_lyrics,
+                            allow_auto=True,
                             download_all=not bool(effective_lang),
                         )
-                        for lang, vtt_text in vtt_dict.items():
+                        for lang, vtt_text in auto_vtt.items():
                             parsed = vtt_to_lrc(vtt_text)
                             if parsed.strip():
                                 lrc_map[lang] = parsed
 
-                        if lrc_map:
-                            if effective_lang:
-                                # Use the explicitly chosen language if available
+                    # 5. Final fallback to LRCLIB plain lyrics or description text if nothing else matched
+                    if not lrc_map and lrclib_fallback_items:
+                        first_hit = lrclib_fallback_items[0]
+                        if first_hit.get("lyrics"):
+                            lrc_map["lrclib"] = first_hit["lyrics"]
+                    if not lrc_map:
+                        desc_plain = extract_lyrics_from_description(info.get("description") or "")
+                        if desc_plain:
+                            lrc_map["desc"] = desc_plain
+
+                    if lrc_map:
+                        if effective_lang:
+                            # Use the explicitly chosen language if available
+                            for k in lrc_map.keys():
+                                if k == effective_lang or k.startswith(f"{effective_lang}-"):
+                                    primary_lang = k
+                                    break
+                            if not primary_lang:
+                                primary_lang = next(iter(lrc_map.keys()))
+                        else:
+                            # Prioritize 'vi' first, then 'en', then first available language
+                            for candidate in ["vi", "en"]:
                                 for k in lrc_map.keys():
-                                    if k == effective_lang or k.startswith(f"{effective_lang}-"):
+                                    if k == candidate or k.startswith(f"{candidate}-"):
                                         primary_lang = k
                                         break
-                                if not primary_lang:
-                                    primary_lang = next(iter(lrc_map.keys()))
-                            else:
-                                # Prioritize 'vi' first, then 'en', then first available language
-                                for candidate in ["vi", "en"]:
-                                    for k in lrc_map.keys():
-                                        if k == candidate or k.startswith(f"{candidate}-"):
-                                            primary_lang = k
-                                            break
-                                    if primary_lang:
-                                        break
-                                if not primary_lang:
-                                    primary_lang = next(iter(lrc_map.keys()))
-                            primary_lrc = lrc_map[primary_lang]
-                            lyrics_source_used = primary_lang
-                    except Exception as e:
-                        if not self.json_mode:
-                            print(f"Warning: Failed to extract lyrics: {e}")
+                                if primary_lang:
+                                    break
+                            if not primary_lang:
+                                primary_lang = next(iter(lrc_map.keys()))
+                        primary_lrc = lrc_map[primary_lang]
+                        lyrics_source_used = primary_lang
+                except Exception as e:
+                    if not self.json_mode:
+                        print(f"Warning: Failed to extract lyrics: {e}")
 
             # Process 1:1 cover art (termusic songtag-style: online search first,
             # YouTube thumbnail last). Single search_candidates() call feeds
@@ -426,7 +489,13 @@ class LyraPipeline:
                 target_dir = self.output_dir
 
             if name:
-                clean_name = os.path.splitext(name)[0]
+                import re as _re
+                clean_name = _re.sub(
+                    r"\.(mp3|flac|m4a|wav|ogg|opus)$",
+                    "",
+                    name.strip(),
+                    flags=_re.IGNORECASE,
+                )
                 base_filename = sanitize_filename(clean_name)
             else:
                 base_filename = sanitize_filename(f"{artist} - {song_title}")

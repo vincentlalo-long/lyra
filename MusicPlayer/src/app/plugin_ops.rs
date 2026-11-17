@@ -379,10 +379,10 @@ impl App {
                 let status = v.get("status").and_then(|s| s.as_str()).unwrap_or("?");
                 let msg = v.get("message").and_then(|s| s.as_str()).unwrap_or("");
                 let mut text = format!("'{}': {status} — {msg}", item.name);
-                // Toasts are one line; keep them readable.
+                // Toasts are one line; keep them readable (char-boundary safe for UTF-8).
                 const MAX: usize = 110;
-                if text.len() > MAX {
-                    text.truncate(MAX);
+                if text.chars().count() > MAX {
+                    text = text.chars().take(MAX).collect();
                     text.push('…');
                 }
                 self.set_toast(text);

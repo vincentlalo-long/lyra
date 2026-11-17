@@ -65,11 +65,12 @@ def embed(file_path: str, cover_path: str | None = None) -> Dict[str, Any]:
 
     try:
         audio = MP3(file_path, ID3=ID3)
-        try:
-            tags = audio.tags
-        except Exception:
-            tags = ID3()
-            audio.tags = tags
+        if audio.tags is None:
+            try:
+                audio.add_tags()
+            except Exception:
+                audio.tags = ID3()
+        tags = audio.tags
 
         # Remove existing APIC frames
         tags.delall("APIC")

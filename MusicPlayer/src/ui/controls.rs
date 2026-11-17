@@ -33,9 +33,15 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         .split(inner);
 
     // --- Line 1: Track Title, Repeat Mode, Volume ---
-    let (icon, label, track_name) = if let Some(playing_idx) = app.playlist.playing_index {
-        let name = app.playlist.songs.get(playing_idx)
-            .and_then(|p| p.file_stem())
+    let active_song = app
+        .playlist
+        .playing_index
+        .and_then(|idx| app.playlist.songs.get(idx))
+        .or(app.current_playing_path.as_ref());
+
+    let (icon, label, track_name) = if let Some(song_path) = active_song {
+        let name = song_path
+            .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "Unknown".to_string());
 
