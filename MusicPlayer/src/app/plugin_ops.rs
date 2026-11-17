@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use crate::browser::FileBrowser;
 use super::App;
 
-/// YouTube search result-count presets for the Plugins settings row.
+/// Search result-count presets for the Plugins settings row.
 #[cfg(feature = "download")]
 pub const SEARCH_LIMIT_PRESETS: [usize; 5] = [5, 10, 15, 25, 50];
 
@@ -112,7 +112,7 @@ impl App {
         }
     }
 
-    /// Cycles the persisted YouTube search result limit through the
+    /// Cycles the persisted search result limit through the
     /// presets (`dir`: +1 forward, -1 backward). Shared by the Plugins
     /// settings row and the Extensions `E` key.
     #[cfg(feature = "download")]

@@ -24,6 +24,7 @@ from .image import process_cover_art
 from .artwork import search_candidates, download_best_cover, prepare_cover_art
 from .artwork.images import download_cover_image
 from .tagger import tag_audio_file
+from . import lrclib
 
 #: Map --cover-source values to provider tuples. "auto" queries everything.
 COVER_SOURCES = {
@@ -82,6 +83,7 @@ def search_youtube(query: str, limit: int = 15) -> List[Dict[str, Any]]:
                 "artist": artist,
                 "uploader": uploader,
                 "duration": f"{mins:02}:{secs:02}",
+                "duration_secs": int(duration_sec),
             })
         return results
 
@@ -113,6 +115,7 @@ def get_video_info(url: str) -> Dict[str, Any]:
             "artist": artist,
             "uploader": uploader,
             "duration": f"{mins:02}:{secs:02}",
+            "duration_secs": int(duration_sec),
         }
 
 
@@ -192,7 +195,7 @@ class LyraPipeline:
         if not self.json_mode:
             print(f"Fetching: {url}")
         else:
-            self._emit({"type": "status", "stage": "Connecting to YouTube..."})
+            self._emit({"type": "status", "stage": "Connecting to audio source..."})
 
         # Resolve effective lyrics language: CLI arg > pipeline default > None
         effective_lang = lyrics_lang or self.lyrics_lang
@@ -268,10 +271,11 @@ class LyraPipeline:
                 raise FileNotFoundError("Audio extraction failed; no .mp3 generated.")
             raw_mp3_path = mp3_candidates[0]
 
-            # Fetch subtitles for the selected language (or vi/en fallback if none chosen)
+            # Lyrics: LRCLIB + audio verification + Groq Whisper AI fallback
             lrc_map: Dict[str, str] = {}
             primary_lrc = ""
             primary_lang = ""
+            lyrics_source_used = ""
             if not no_lyrics:
                 self._emit({"type": "status", "stage": "Extracting synced lyrics (.lrc)..."})
                 try:
@@ -377,6 +381,7 @@ class LyraPipeline:
                             if not primary_lang:
                                 primary_lang = next(iter(lrc_map.keys()))
                         primary_lrc = lrc_map[primary_lang]
+                        lyrics_source_used = primary_lang
                 except Exception as e:
                     if not self.json_mode:
                         print(f"Warning: Failed to extract lyrics: {e}")
@@ -542,6 +547,7 @@ class LyraPipeline:
                 "audio_path": dest_mp3,
                 "lyric_path": dest_lrc if primary_lrc else None,
                 "lyric_lang": primary_lang if primary_lrc else None,
+                "lyric_source": lyrics_source_used or None,
                 "all_lyric_paths": saved_lrc_paths,
                 "has_cover": has_cover,
                 "cover_source": cover_source_used,

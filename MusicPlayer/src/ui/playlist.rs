@@ -42,6 +42,82 @@ pub fn fit_width(s: &str, target_width: usize) -> String {
     }
 }
 
+/// Truncates `s` to at most `max_width` display columns, appending `…`
+/// when characters had to be dropped. No padding is added.
+pub fn truncate_ellipsis(s: &str, max_width: usize) -> String {
+    if max_width == 0 {
+        return String::new();
+    }
+    if UnicodeWidthStr::width(s) <= max_width {
+        return s.to_string();
+    }
+    if max_width == 1 {
+        return "…".to_string();
+    }
+    let budget = max_width - 1;
+    let mut out = String::new();
+    let mut width = 0;
+    for ch in s.chars() {
+        let ch_w = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if width + ch_w > budget {
+            break;
+        }
+        out.push(ch);
+        width += ch_w;
+    }
+    out.push('…');
+    out
+}
+
+/// Truncates from the left, keeping the tail visible. Useful for long paths
+/// where the final segment matters most.
+pub fn truncate_front(s: &str, max_width: usize) -> String {
+    if max_width == 0 {
+        return String::new();
+    }
+    if UnicodeWidthStr::width(s) <= max_width {
+        return s.to_string();
+    }
+    if max_width == 1 {
+        return "…".to_string();
+    }
+    let budget = max_width - 1;
+    let mut tail: Vec<char> = Vec::new();
+    let mut width = 0;
+    for ch in s.chars().rev() {
+        let ch_w = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if width + ch_w > budget {
+            break;
+        }
+        tail.push(ch);
+        width += ch_w;
+    }
+    let mut out = String::from("…");
+    out.extend(tail.into_iter().rev());
+    out
+}
+
+/// Computes the horizontally scrolled text before/after the caret so that the
+/// caret stays visible inside `width` display columns (caret glyph included).
+pub fn caret_window(value: &str, caret: usize, width: usize) -> (String, String) {
+    if width == 0 {
+        return (String::new(), String::new());
+    }
+    let text_width = width.saturating_sub(1);
+    let caret = caret.min(value.chars().count());
+    let before_text: String = value.chars().take(caret).collect();
+    let caret_col = UnicodeWidthStr::width(before_text.as_str());
+    let visible_before = caret_col.min(text_width);
+    let start = caret_col - visible_before;
+    let before = slice_visual_window(value, start, visible_before);
+    let after = slice_visual_window(
+        value,
+        start + visible_before,
+        text_width.saturating_sub(visible_before),
+    );
+    (before, after)
+}
+
 /// Slices exactly `target_width` display columns from `s` starting at visual column `start_col`.
 pub fn slice_visual_window(s: &str, start_col: usize, target_width: usize) -> String {
     if target_width == 0 {
@@ -510,6 +586,18 @@ mod tests {
         // Vietnamese text
         let vn = fit_width("Ánh Đèn Sân Khấu", 12);
         assert_eq!(UnicodeWidthStr::width(vn.as_str()), 12);
+
+        assert_eq!(truncate_ellipsis("Short", 10), "Short");
+        assert_eq!(truncate_ellipsis("Long track name", 8), "Long tr…");
+        assert_eq!(truncate_front("/home/user/Music/Album", 12), "…Music/Album");
+        assert_eq!(UnicodeWidthStr::width(truncate_front("/home/user/Music/Album", 12).as_str()), 12);
+
+        let (before, after) = caret_window("abcdef", 6, 4);
+        assert_eq!(before, "def");
+        assert_eq!(after, "");
+        let (before, after) = caret_window("abcdef", 0, 4);
+        assert_eq!(before, "");
+        assert_eq!(after, "abc");
     }
 
     #[test]

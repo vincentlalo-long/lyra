@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use crate::download::{DownloadEvent, DownloadRequest};
+use crate::download::state::LyricsStatus;
 
 use super::App;
 
@@ -31,6 +32,9 @@ impl App {
                 .and_then(|i| self.download.cover_candidates.get(i))
                 .map(|c| c.cover_url.clone())
                 .filter(|u| !u.is_empty())
+                // Official search result cover is the default when the
+                // user has not picked a studio candidate / local file.
+                .or_else(|| self.download.search_cover_url.clone())
         };
         let req = DownloadRequest {
             url: self.download.form_url.clone(),
@@ -54,7 +58,7 @@ impl App {
         self.download.reset_progress();
         self.download.speed.clear();
         self.download.eta.clear();
-        self.download.current_stage = "Connecting to YouTube...".into();
+        self.download.current_stage = "Preparing audio source...".into();
         self.download.last_error = None;
         self.download.last_completed = None;
         self.download.show_metadata_form = false;
@@ -186,7 +190,21 @@ impl App {
 
     /// Open the metadata form and kick off background studio-cover search
     /// (termusic songtag-style: user reviews metadata while candidates load).
-    fn open_metadata_form(&mut self, url: String, title: String, artist: String) {
+    ///
+    /// `album`/`cover_url`/`has_lyrics`/`lyric_langs`/`duration_secs` come
+    /// from an official metadata source (Spotify/Deezer/iTunes + LRCLIB);
+    /// direct YouTube URLs leave them empty/None.
+    fn open_metadata_form(
+        &mut self,
+        url: String,
+        title: String,
+        artist: String,
+        album: Option<String>,
+        cover_url: Option<String>,
+        has_lyrics: Option<bool>,
+        lyric_langs: Vec<String>,
+        duration_secs: u64,
+    ) {
         self.download.existing_artists = self.collect_existing_artists();
         self.download.selected_artist_idx = None;
         self.download.existing_albums = self.collect_existing_albums();
@@ -197,7 +215,12 @@ impl App {
         self.download.form_url = url;
         self.download.form_title = title.clone();
         self.download.form_artist = artist.clone();
-        self.download.form_album = format!("{title} - Single");
+        let album_value = album
+            .clone()
+            .filter(|a| !a.trim().is_empty())
+            .unwrap_or_else(|| format!("{title} - Single"));
+        self.download.form_album = album_value;
+        self.download.search_cover_url = cover_url.filter(|u| !u.trim().is_empty());
         self.download.form_genre.clear();
         self.download.show_metadata_form = true;
         self.download.form_field_idx = 0;
@@ -212,8 +235,13 @@ impl App {
         self.download.cover_candidates.clear();
         self.download.selected_cover = None;
         self.download.is_cover_loading = true;
-        self.download.lyrics_probe = None;
-        self.download.available_lyric_langs.clear();
+        // LRCLIB already told us whether synced lyrics exist; otherwise probe.
+        self.download.lyrics_status = if has_lyrics == Some(true) {
+            LyricsStatus::LrclibSynced
+        } else {
+            LyricsStatus::Probing
+        };
+        self.download.available_lyric_langs = lyric_langs;
         self.download.selected_lyric_lang_idx = 0;
         // Fresh cover state per download: a previous crop focus / staging
         // must never leak into the next form.
@@ -226,9 +254,19 @@ impl App {
         self.download.file_hover_preview = None;
         self.download.file_hover_path = None;
         let src = self.download.cover_source.clone();
-        self.downloader.fetch_covers_query(artist, title, None, Some(src));
-        // Background subtitle probe for the Lyrics-row badge (silent on failure).
-        self.downloader.probe_lyrics(self.download.form_url.clone());
+        self.downloader.fetch_covers_query(artist.clone(), title.clone(), None, Some(src));
+        // Background lyric probe for the Lyrics-row badge (silent on failure).
+        // A positive LRCLIB hit is authoritative and the download will use it,
+        // so skip the (slower) combined probe in that case.
+        if has_lyrics != Some(true) {
+            self.downloader.probe_lyrics(
+                self.download.form_url.clone(),
+                artist,
+                title,
+                album.unwrap_or_default(),
+                duration_secs,
+            );
+        }
     }
 
     pub fn handle_download_enter(&mut self) {
@@ -282,18 +320,41 @@ impl App {
                 self.download.is_searching = true;
                 self.download.is_input_active = false;
                 let limit = self.download.search_limit;
-                self.downloader.search_with_limit(q, limit);
+                let source = self.download.search_source.clone();
+                self.downloader.search_with_limit(q, limit, source);
             }
         } else if !self.download.search_results.is_empty() {
             let item = self.download.search_results[self.download.selected_result].clone();
-            let url = item.url.clone();
-            let title = item.title.clone();
-            let artist = item.artist.clone();
-            self.open_metadata_form(url, title, artist);
+            if item.needs_resolve() {
+                // Official metadata result: resolve to a playable video
+                // only now, so search stays fast and YouTube stays secondary.
+                self.download.is_searching = true;
+                self.download.last_error = None;
+                self.downloader.resolve_item(
+                    item.artist.clone(),
+                    item.title.clone(),
+                    item.album.clone(),
+                    item.duration_secs,
+                    item.source.clone(),
+                    item.cover_url.clone(),
+                    item.year.clone(),
+                );
+            } else {
+                self.open_metadata_form(
+                    item.url.clone(),
+                    item.title.clone(),
+                    item.artist.clone(),
+                    Some(item.album.clone()).filter(|a| !a.is_empty()),
+                    Some(item.cover_url.clone()).filter(|u| !u.is_empty()),
+                    item.has_lyrics,
+                    Vec::new(),
+                    item.duration_secs,
+                );
+            }
         }
     }
 
-    /// Expands search results by +10 items (up to 50) and refetches from YouTube
+    /// Expands search results by +10 items (up to 50) and refetches.
     pub fn expand_download_search(&mut self) {
         let q = self.download.query.trim().to_string();
         if q.is_empty() || q.starts_with("http://") || q.starts_with("https://") || q.contains("youtu.be") {
@@ -301,7 +362,8 @@ impl App {
         }
         let new_limit = self.download.expand_search_limit();
         self.download.is_searching = true;
-        self.downloader.search_with_limit(q.clone(), new_limit);
+        let source = self.download.search_source.clone();
+        self.downloader.search_with_limit(q.clone(), new_limit, source);
         self.set_toast(format!("Expanding results for '{q}' to {new_limit}..."));
     }
 
@@ -315,8 +377,29 @@ impl App {
             return;
         }
         self.download.is_searching = true;
-        self.downloader.search_with_limit(q.clone(), next);
+        let source = self.download.search_source.clone();
+        self.downloader.search_with_limit(q.clone(), next, source);
         self.set_toast(format!("Search result limit: {next} (refetching '{q}')"));
+    }
+
+    /// Cycles the search provider (auto → spotify → musicbrainz → deezer →
+    /// youtube → all), persists it, and refetches the current query.
+    pub fn cycle_search_source(&mut self, dir: i32) {
+        let next = self.download.cycle_search_source(dir);
+        let _ = crate::config::Config::save_setting("search_source", &next);
+        let label = self.download.search_source_label();
+        let q = self.download.query.trim().to_string();
+        if q.is_empty() || q.starts_with("http://") || q.starts_with("https://") || q.contains("youtu.be") {
+            self.set_toast(format!("Search source: {label} (saved)"));
+            return;
+        }
+        self.download.search_results.clear();
+        self.download.selected_result = 0;
+        self.download.is_searching = true;
+        let source = self.download.search_source.clone();
+        let limit = self.download.search_limit;
+        self.downloader.search_with_limit(q.clone(), limit, source);
+        self.set_toast(format!("Search source: {label} (refetching '{q}')"));
     }
 
     pub fn check_download_events(&mut self) {
@@ -332,14 +415,37 @@ impl App {
                     self.download.selected_result = 0;
                     self.download.is_input_active = false;
                 }
-                DownloadEvent::InfoLoaded { url, title, artist } => {
+                DownloadEvent::InfoLoaded {
+                    url,
+                    title,
+                    artist,
+                    album,
+                    source: _source,
+                    cover_url,
+                    has_lyrics,
+                    lyric_langs,
+                    duration_secs,
+                } => {
                     self.download.is_searching = false;
-                    self.open_metadata_form(url, title, artist);
+                    self.open_metadata_form(
+                        url,
+                        title,
+                        artist,
+                        album,
+                        cover_url,
+                        has_lyrics,
+                        lyric_langs,
+                        duration_secs,
+                    );
                 }
-                DownloadEvent::LyricsProbe { has_manual, has_auto, available_langs } => {
-                    // Only a badge hint: manual subs ~ .lrc likely,
-                    // auto-only ~ auto captions, neither ~ skip lyrics.
-                    self.download.lyrics_probe = Some((has_manual, has_auto));
+                DownloadEvent::LyricsProbe { source, has_manual, has_auto, available_langs } => {
+                    self.download.lyrics_status = match (source.as_str(), has_manual, has_auto) {
+                        ("lrclib", true, _) => LyricsStatus::LrclibSynced,
+                        ("lrclib", false, true) => LyricsStatus::LrclibPlain,
+                        ("youtube", true, _) => LyricsStatus::YoutubeManual,
+                        ("youtube", false, true) => LyricsStatus::YoutubeAuto,
+                        _ => LyricsStatus::None,
+                    };
                     // Populate the language picker from probed subtitle langs.
                     if !available_langs.is_empty() {
                         self.download.available_lyric_langs = available_langs;

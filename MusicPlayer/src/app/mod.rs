@@ -427,6 +427,14 @@ impl App {
                 app.download.search_limit = n;
             }
         }
+        // Persisted search provider policy (search bar `s` / Ctrl+S).
+        #[cfg(feature = "download")]
+        if let Some(src) = &config.search_source {
+            if crate::download::state::SEARCH_SOURCE_PRESETS.contains(&src.as_str()) {
+                app.download.search_source = src.clone();
+            }
+        }
+
         Ok(app)
     }
 

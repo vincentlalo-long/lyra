@@ -18,6 +18,8 @@ pub struct FileConfig {
     pub music_folder: Option<String>,
     pub download_dir: Option<String>,
     pub search_limit: Option<usize>,
+    /// Search provider policy: auto/spotify/musicbrainz/deezer/itunes/youtube/all.
+    pub search_source: Option<String>,
     /// Theme preset name: "mocha" (default), "gruvbox", "tokyo-night",
     /// "dracula", "nord", "latte".
     pub theme: Option<String>,
@@ -78,8 +80,10 @@ pub struct Config {
     pub music_folder: Option<String>,
     /// Raw `download_dir` value from the file, if present.
     pub download_dir: Option<String>,
-    /// Saved YouTube search result limit, if present.
+    /// Saved search result limit, if present.
     pub search_limit: Option<usize>,
+    /// Search provider policy (auto/spotify/musicbrainz/deezer/itunes/youtube/all).
+    pub search_source: Option<String>,
     /// Theme preset name, if present.
     pub theme: Option<String>,
     /// Auto-embed cover art into ID3 after download.
@@ -106,6 +110,7 @@ impl Config {
             music_folder: file.music_folder,
             download_dir: file.download_dir,
             search_limit: file.search_limit,
+            search_source: file.search_source,
             theme: file.theme,
             cover_embed: file.cover_embed.unwrap_or(true),
             visualizer: file.visualizer.unwrap_or(false),
@@ -195,12 +200,27 @@ impl Config {
                     table.insert(key.to_string(), toml::Value::String(canonical));
                 }
             }
-            // Numeric setting (YouTube search result limit).
+            // Numeric setting (search result limit).
             "search_limit" => {
                 if let Ok(n) = value.parse::<i64>() {
                     if (1..=50).contains(&n) {
                         table.insert(key.to_string(), toml::Value::Integer(n));
                     }
+                }
+            }
+            // Search provider policy.
+            "search_source" => {
+                const VALID: [&str; 7] = [
+                    "auto",
+                    "spotify",
+                    "musicbrainz",
+                    "deezer",
+                    "itunes",
+                    "youtube",
+                    "all",
+                ];
+                if VALID.contains(&value) {
+                    table.insert(key.to_string(), toml::Value::String(value.to_string()));
                 }
             }
             // Boolean flag (auto-embed cover after download).
@@ -250,6 +270,7 @@ impl Config {
             music_folder: file.music_folder,
             download_dir: file.download_dir,
             search_limit: file.search_limit,
+            search_source: file.search_source,
             theme: file.theme,
             cover_embed: file.cover_embed.unwrap_or(true),
             visualizer: file.visualizer.unwrap_or(false),
@@ -351,6 +372,7 @@ mod tests {
             music_folder: Some("/cfg/music".to_string()),
             download_dir: None,
             search_limit: None,
+            search_source: None,
             theme: None,
             cover_embed: true,
             visualizer: false,
@@ -369,6 +391,7 @@ mod tests {
             music_folder: Some("/nonexistent-lyra-dir-xyz".to_string()),
             download_dir: None,
             search_limit: None,
+            search_source: None,
             theme: None,
             cover_embed: true,
             visualizer: false,
@@ -387,6 +410,7 @@ mod tests {
             music_folder: None,
             download_dir: Some("~/Custom/Downloads".to_string()),
             search_limit: None,
+            search_source: None,
             theme: None,
             cover_embed: true,
             visualizer: false,
@@ -410,11 +434,13 @@ mod tests {
         Config::save_setting_to(&path, "music_folder", "/tmp/mytest_music").unwrap();
         Config::save_setting_to(&path, "download_dir", "/tmp/mytest_music/dl").unwrap();
         Config::save_setting_to(&path, "search_limit", "25").unwrap();
+        Config::save_setting_to(&path, "search_source", "deezer").unwrap();
         Config::save_setting_to(&path, "theme", "gruvbox").unwrap();
         let cfg = Config::load_from(&path);
         assert_eq!(cfg.music_folder, Some("/tmp/mytest_music".to_string()));
         assert_eq!(cfg.download_dir, Some("/tmp/mytest_music/dl".to_string()));
         assert_eq!(cfg.search_limit, Some(25));
+        assert_eq!(cfg.search_source, Some("deezer".to_string()));
         assert_eq!(cfg.theme, Some("gruvbox".to_string()));
 
         // Overwriting one key must not drop the other.

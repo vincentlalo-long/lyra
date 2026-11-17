@@ -6,6 +6,7 @@ use ratatui::{
     Frame,
 };
 use crate::app::App;
+use crate::ui::playlist::{fit_width, truncate_front};
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     let screen_area = frame.area();
@@ -60,9 +61,13 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     // Current dir label
     let curr_path_str = app.download.dir_picker.current_dir.to_string_lossy();
+    let path_avail = (chunks[0].width as usize).saturating_sub(9);
     let path_p = Paragraph::new(Line::from(vec![
         Span::styled("Current: ", Style::default().fg(app.theme.faint)),
-        Span::styled(curr_path_str, Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            truncate_front(&curr_path_str, path_avail),
+            Style::default().fg(app.theme.warning).add_modifier(Modifier::BOLD),
+        ),
     ]));
     frame.render_widget(path_p, chunks[0]);
 
@@ -86,10 +91,12 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         };
 
         let icon = if is_parent { "󰉍 " } else { "󰉋 " };
-        list_items.push(ListItem::new(Line::from(vec![
-            Span::styled(icon, if is_selected { Style::default().fg(app.theme.warning) } else { Style::default().fg(app.theme.info) }),
-            Span::styled(name, style),
-        ])));
+        let list_width = (chunks[1].width as usize).saturating_sub(2);
+        let line = fit_width(&format!("{icon}{name}"), list_width);
+        list_items.push(ListItem::new(Line::from(Span::styled(
+            line,
+            if is_selected { style } else { Style::default().fg(app.theme.text) },
+        ))));
     }
 
     app.download.dir_picker.state.select(Some(app.download.dir_picker.selected));

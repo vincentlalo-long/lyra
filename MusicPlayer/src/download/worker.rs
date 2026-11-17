@@ -24,6 +24,18 @@ struct RawInfoData {
     url: String,
     title: String,
     artist: String,
+    #[serde(default)]
+    album: Option<String>,
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default)]
+    cover_url: Option<String>,
+    #[serde(default)]
+    has_lyrics: Option<bool>,
+    #[serde(default, alias = "available_langs")]
+    lyrics_langs: Vec<String>,
+    #[serde(default)]
+    duration_secs: u64,
 }
 
 #[derive(Deserialize)]
@@ -41,6 +53,9 @@ struct RawCoverResult {
 struct RawLyricsProbe {
     #[serde(rename = "type")]
     _event_type: Option<String>,
+    /// Preferred provider: "lrclib" or "youtube".
+    #[serde(default)]
+    source: String,
     #[serde(default)]
     has_manual: bool,
     #[serde(default)]
@@ -250,10 +265,10 @@ impl Downloader {
     }
 
     pub fn search(&self, query: String) {
-        self.search_with_limit(query, 15);
+        self.search_with_limit(query, 15, "auto".to_string());
     }
 
-    pub fn search_with_limit(&self, query: String, limit: usize) {
+    pub fn search_with_limit(&self, query: String, limit: usize, source: String) {
         let sender = self.sender.clone();
         let script = Self::find_script();
         let Some(_permit) = self.try_aux_task() else {
@@ -274,6 +289,8 @@ impl Downloader {
                 .arg(&query)
                 .arg("--limit")
                 .arg(limit.to_string())
+                .arg("--source")
+                .arg(&source)
                 .arg("--json")
                 .output();
 
@@ -292,6 +309,83 @@ impl Downloader {
                 }
                 Err(e) => {
                     let _ = sender.send(DownloadEvent::Error(format_spawn_error("run search", &e)));
+                }
+            }
+        });
+    }
+
+    /// Resolves an official music result (Spotify/Deezer/iTunes) to a
+    /// downloadable YouTube video, enriching metadata through LRCLIB.
+    pub fn resolve_item(
+        &self,
+        artist: String,
+        title: String,
+        album: String,
+        duration_secs: u64,
+        source: String,
+        cover_url: String,
+        year: String,
+    ) {
+        let sender = self.sender.clone();
+        let script = Self::find_script();
+        let Some(_permit) = self.try_aux_task() else {
+            let _ = sender.send(DownloadEvent::Error(
+                "Too many background requests; please wait a moment.".to_string(),
+            ));
+            return;
+        };
+        let _ = sender.send(DownloadEvent::Searching);
+
+        thread::spawn(move || {
+            let _permit = _permit;
+            let script_dir = script.parent().unwrap_or(std::path::Path::new("."));
+            let mut cmd = Command::new("python3");
+            cmd.env("PYTHONPATH", script_dir)
+                .arg(&script)
+                .arg("resolve")
+                .arg("--artist")
+                .arg(&artist)
+                .arg("--title")
+                .arg(&title)
+                .arg("--album")
+                .arg(&album)
+                .arg("--source")
+                .arg(&source)
+                .arg("--year")
+                .arg(&year)
+                .arg("--json");
+            if duration_secs > 0 {
+                cmd.arg("--duration").arg(duration_secs.to_string());
+            }
+            if !cover_url.is_empty() {
+                cmd.arg("--cover-url").arg(&cover_url);
+            }
+
+            match cmd.output() {
+                Ok(out) => {
+                    let text = String::from_utf8_lossy(&out.stdout);
+                    if let Ok(res) = serde_json::from_str::<RawInfoResult>(text.trim()) {
+                        if let Some(data) = res.data {
+                            let _ = sender.send(DownloadEvent::InfoLoaded {
+                                url: data.url,
+                                title: data.title,
+                                artist: data.artist,
+                                album: data.album,
+                                source: data.source,
+                                cover_url: data.cover_url,
+                                has_lyrics: data.has_lyrics,
+                                lyric_langs: data.lyrics_langs,
+                                duration_secs: data.duration_secs,
+                            });
+                            return;
+                        }
+                    }
+                    let err = String::from_utf8_lossy(&out.stderr);
+                    let msg = format_python_error(&err, "No downloadable match found.");
+                    let _ = sender.send(DownloadEvent::Error(msg));
+                }
+                Err(e) => {
+                    let _ = sender.send(DownloadEvent::Error(format_spawn_error("resolve track", &e)));
                 }
             }
         });
@@ -327,6 +421,12 @@ impl Downloader {
                                 url: data.url,
                                 title: data.title,
                                 artist: data.artist,
+                                album: data.album,
+                                source: data.source,
+                                cover_url: data.cover_url,
+                                has_lyrics: data.has_lyrics,
+                                lyric_langs: data.lyrics_langs,
+                                duration_secs: data.duration_secs,
                             });
                             return;
                         }
@@ -342,10 +442,17 @@ impl Downloader {
         });
     }
 
-    /// Probes subtitle availability for the Lyrics-row badge.
-    /// Failures are silent (badge stays neutral) — never an Error event,
-    /// so a failed probe can't clobber the form.
-    pub fn probe_lyrics(&self, url: String) {
+    /// Probes lyric availability for the Lyrics-row badge. Combines the
+    /// LRCLIB (metadata) and YouTube-caption checks in one background call;
+    /// failures are silent so a failed probe can't clobber the form.
+    pub fn probe_lyrics(
+        &self,
+        url: String,
+        artist: String,
+        title: String,
+        album: String,
+        duration: u64,
+    ) {
         let sender = self.sender.clone();
         let script = Self::find_script();
         let Some(_permit) = self.try_aux_task() else {
@@ -355,19 +462,30 @@ impl Downloader {
         thread::spawn(move || {
             let _permit = _permit;
             let script_dir = script.parent().unwrap_or(std::path::Path::new("."));
-            let output = Command::new("python3")
-                .env("PYTHONPATH", script_dir)
+            let mut cmd = Command::new("python3");
+            cmd.env("PYTHONPATH", script_dir)
                 .arg(&script)
-                .arg("probe-lyrics")
-                .arg(&url)
-                .arg("--json")
-                .output();
+                .arg("probe-lyrics");
+            if !url.trim().is_empty() {
+                cmd.arg(&url);
+            }
+            cmd.arg("--artist")
+                .arg(&artist)
+                .arg("--title")
+                .arg(&title)
+                .arg("--album")
+                .arg(&album)
+                .arg("--json");
+            if duration > 0 {
+                cmd.arg("--duration").arg(duration.to_string());
+            }
 
-            match output {
+            match cmd.output() {
                 Ok(out) => {
                     let text = String::from_utf8_lossy(&out.stdout);
                     if let Ok(probe) = serde_json::from_str::<RawLyricsProbe>(text.trim()) {
                         let _ = sender.send(DownloadEvent::LyricsProbe {
+                            source: probe.source,
                             has_manual: probe.has_manual,
                             has_auto: probe.has_auto,
                             available_langs: probe.available_langs,
