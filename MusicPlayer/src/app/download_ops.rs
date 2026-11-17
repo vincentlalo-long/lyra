@@ -376,7 +376,7 @@ impl App {
                 DownloadEvent::Status(stage) => {
                     self.download.current_stage = stage;
                 }
-                DownloadEvent::Completed { title, artist, mp3_path, lrc_path: _, lyric_lang, cover_source } => {
+                DownloadEvent::Completed { title, artist, mp3_path, lrc_path, lyric_lang, cover_source } => {
                     self.download.is_downloading = false;
                     let src = cover_source.unwrap_or_default();
                     let suffix = if src.is_empty() || src == "none" {
@@ -392,15 +392,18 @@ impl App {
                     // Sorted insert that preserves playing/selected cursors
                     // by path identity (no display/cursor jump mid-playback).
                     self.playlist.insert_sorted(mp3_p.clone());
-                    // Auto-embed cover art into ID3 after download (if enabled).
-                    if self.cover_embed {
+                    // Auto-embed sibling cover art into ID3 only if pipeline did not already embed one.
+                    if self.cover_embed && (src.is_empty() || src == "none") {
                         self.embed_cover_for_track(&mp3_p);
                     }
-                    // Auto-download lyrics via LRCLIB after download (if enabled).
-                    if self.lyric_download {
+                    // If the pipeline did not already produce a .lrc file and lyric_download is enabled,
+                    // fetch synced lyrics from LRCLIB in the background.
+                    if lrc_path.is_none() && self.lyric_download {
                         if let Err(e) = self.download_lyrics_for_track(&mp3_p) {
                             self.set_toast(format!("Lyrics download failed: {e}"));
                         }
+                    } else if self.current_playing_path.as_ref() == Some(&mp3_p) && self.plugin_enabled("lyrics") {
+                        self.lyrics = crate::lyrics::Lyrics::load_for_song(&mp3_p);
                     }
                 }
                 DownloadEvent::Error(err) => {
@@ -442,15 +445,17 @@ impl App {
              from mutagen.mp3 import MP3\n\
              try:\n\
                  audio = MP3(\"{mp3}\", ID3=ID3)\n\
-                 try:\n\
-                     tags = audio.tags\n\
-                 except Exception:\n\
-                     tags = ID3()\n\
-                     audio.tags = tags\n\
+                 if audio.tags is None:\n\
+                     try:\n\
+                         audio.add_tags()\n\
+                     except Exception:\n\
+                         audio.tags = ID3()\n\
+                 tags = audio.tags\n\
                  tags.delall(\"APIC\")\n\
                  with open(\"{cover}\", \"rb\") as f:\n\
                      data = f.read()\n\
-                 mime = \"image/png\" if \"{cover}\".lower().endswith(\".png\") else \"image/jpeg\"\n\
+                 lower_cov = \"{cover}\".lower()\n\
+                 mime = \"image/png\" if lower_cov.endswith(\".png\") else (\"image/webp\" if lower_cov.endswith(\".webp\") else \"image/jpeg\")\n\
                  tags.add(APIC(encoding=3, mime=mime, type=3, desc=\"Cover\", data=data))\n\
                  audio.save(v2_version=3)\n\
                  print(\"OK\")\n\

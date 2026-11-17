@@ -682,7 +682,8 @@ mod tests {
 
         let start = std::time::Instant::now();
         let mut got_error = false;
-        while start.elapsed() < std::time::Duration::from_secs(10) {
+        // Allow extra headroom for Python/yt-dlp startup + remote YouTube error response.
+        while start.elapsed() < std::time::Duration::from_secs(25) {
             if let Ok(event) = downloader.receiver.recv_timeout(std::time::Duration::from_millis(500)) {
                 if let DownloadEvent::Error(msg) = event {
                     assert!(!msg.is_empty(), "Error message should not be empty");

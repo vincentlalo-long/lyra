@@ -1,16 +1,22 @@
 import os
 from typing import Optional
-from mutagen.mp3 import MP3
-from mutagen.id3 import (
-    ID3,
-    TIT2,
-    TPE1,
-    TALB,
-    TCON,
-    APIC,
-    USLT,
-    ID3NoHeaderError,
-)
+try:
+    from mutagen.mp3 import MP3
+    from mutagen.id3 import (
+        ID3,
+        TIT2,
+        TPE1,
+        TALB,
+        TCON,
+        APIC,
+        USLT,
+        ID3NoHeaderError,
+    )
+except ImportError:
+    MP3 = None  # type: ignore[assignment]
+    ID3 = None  # type: ignore[assignment]
+    TIT2 = TPE1 = TALB = TCON = APIC = USLT = None  # type: ignore[assignment]
+    ID3NoHeaderError = Exception  # type: ignore[assignment,misc]
 
 
 def suggest_lyrics_lang(title: str = "", artist: str = "", lrc_text: str = "") -> str:
@@ -40,7 +46,7 @@ def tag_audio_file(
     lrc_text: Optional[str] = None,
     genre: Optional[str] = None,
 ) -> bool:
-    if not os.path.exists(file_path):
+    if not os.path.exists(file_path) or ID3 is None:
         return False
 
     try:

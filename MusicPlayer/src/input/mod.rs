@@ -1,7 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
-use std::io::{BufRead, BufReader};
-use crate::app::{App, PlaylistIoModal, PlaylistIoMode, ThemePickerModal, LyricSearchModal, LyricSearchResult, ViewMode};
+use crate::app::{App, PlaylistIoModal, PlaylistIoMode, ThemePickerModal, ViewMode};
 use crate::playlist::{export_m3u, load_m3u};
 
 #[cfg(feature = "download")]
@@ -262,9 +261,11 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
             match event.code {
                 KeyCode::Char('u') | KeyCode::Char('U') => {
                     app.search_query.clear();
+                    sync_search_selection(app);
                 }
                 KeyCode::Char('w') | KeyCode::Char('W') => {
                     delete_last_word(&mut app.search_query);
+                    sync_search_selection(app);
                 }
                 KeyCode::Char('c') | KeyCode::Char('C') => {
                     app.is_searching = false;
@@ -285,10 +286,12 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
                 app.search_query.clear();
             }
             KeyCode::Enter => {
+                sync_search_selection(app);
                 app.on_enter();
             }
             KeyCode::Backspace => {
                 app.search_query.pop();
+                sync_search_selection(app);
             }
             KeyCode::Up => app.previous(),
             KeyCode::Down => app.next(),
@@ -296,6 +299,7 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
             KeyCode::PageDown => app.page_down(),
             KeyCode::Char(c) => {
                 app.search_query.push(c);
+                sync_search_selection(app);
             }
             _ => {}
         }
@@ -305,51 +309,26 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
     let has_ctrl = event.modifiers.contains(KeyModifiers::CONTROL);
     let has_alt = event.modifiers.contains(KeyModifiers::ALT);
 
-    // Ctrl+C quits application cleanly from normal mode
-    if has_ctrl && (event.code == KeyCode::Char('c') || event.code == KeyCode::Char('C')) {
-        return false;
-    }
-
-    // Replay current track (Ctrl+r or capital R)
-    if (has_ctrl && (event.code == KeyCode::Char('r') || event.code == KeyCode::Char('R')))
-        || (!has_ctrl && !has_alt && event.code == KeyCode::Char('R'))
-    {
-        app.replay_current_track();
-        return true;
-    }
-
-    // Ctrl+V cycles visualizer color.
-    if has_ctrl && event.code == KeyCode::Char('v') {
-        let colors = ["accent", "cyan", "green", "magenta", "yellow", "rainbow"];
-        let cur = app.visualizer_color.as_deref().unwrap_or("accent");
-        let idx = colors.iter().position(|&s| s == cur).unwrap_or(0);
-        let next = colors[(idx + 1) % colors.len()];
-        app.visualizer_color = Some(next.to_string());
-        app.visualizer = true;
-        app.set_toast(format!("Visualizer color: {}", next));
-        return true;
-    }
-
-    // Ctrl+B cycles visualizer style.
-    if has_ctrl && event.code == KeyCode::Char('b') {
-        let styles = ["bars", "wave", "dual", "spectrum", "dots"];
-        let cur = app.visualizer_style.as_deref().unwrap_or("bars");
-        let idx = styles.iter().position(|&s| s == cur).unwrap_or(0);
-        let next = styles[(idx + 1) % styles.len()];
-        app.visualizer_style = Some(next.to_string());
-        app.visualizer = true;
-        app.set_toast(format!("Visualizer style: {}", next));
-        return true;
-    }
-
-    // If Alt or Ctrl is held in Normal Mode, do not trigger single-key shortcuts
-    // (e.g. Alt+Z is Unikey toggle, Ctrl+Z, Ctrl+S, etc.)
-    if has_ctrl || has_alt {
-        return true;
-    }
-
-    // Playlist import/export modal input handling.
+    // Playlist import/export modal input handling (placed before global shortcuts so capital R / Ctrl+U work).
     if let Some(modal) = &mut app.playlist_io_modal {
+        if has_alt {
+            return true;
+        }
+        if has_ctrl {
+            match event.code {
+                KeyCode::Char('c') | KeyCode::Char('C') => {
+                    app.playlist_io_modal = None;
+                }
+                KeyCode::Char('u') | KeyCode::Char('U') => {
+                    modal.input.clear();
+                }
+                KeyCode::Char('w') | KeyCode::Char('W') => {
+                    delete_last_word(&mut modal.input);
+                }
+                _ => {}
+            }
+            return true;
+        }
         match event.code {
             KeyCode::Esc => {
                 app.playlist_io_modal = None;
@@ -400,6 +379,16 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
 
     // Theme picker modal input handling.
     if let Some(modal) = &mut app.theme_picker_modal {
+        if has_ctrl && (event.code == KeyCode::Char('c') || event.code == KeyCode::Char('C')) {
+            let original = modal.original_theme.clone();
+            app.set_theme(&original);
+            app.theme_name = original;
+            app.theme_picker_modal = None;
+            return true;
+        }
+        if has_ctrl || has_alt {
+            return true;
+        }
         match event.code {
             KeyCode::Esc => {
                 // Cancel: restore original theme
@@ -451,9 +440,67 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
 
     // Lyric search modal input handling.
     if let Some(modal) = &mut app.lyric_search_modal {
+        if has_alt {
+            return true;
+        }
+        if modal.editing_query {
+            if has_ctrl {
+                match event.code {
+                    KeyCode::Char('c') | KeyCode::Char('C') => {
+                        modal.editing_query = false;
+                    }
+                    KeyCode::Char('u') | KeyCode::Char('U') => {
+                        modal.query.clear();
+                    }
+                    KeyCode::Char('w') | KeyCode::Char('W') => {
+                        delete_last_word(&mut modal.query);
+                    }
+                    _ => {}
+                }
+                return true;
+            }
+            match event.code {
+                KeyCode::Esc => {
+                    modal.editing_query = false;
+                }
+                KeyCode::Enter => {
+                    app.start_modal_lyric_query_search();
+                }
+                KeyCode::Backspace => {
+                    modal.query.pop();
+                }
+                KeyCode::Char(c) => {
+                    modal.query.push(c);
+                }
+                _ => {}
+            }
+            return true;
+        }
+
+        if has_ctrl && (event.code == KeyCode::Char('c') || event.code == KeyCode::Char('C')) {
+            app.lyric_search_modal = None;
+            return true;
+        }
+        if has_ctrl {
+            return true;
+        }
         match event.code {
-            KeyCode::Esc => {
+            KeyCode::Esc | KeyCode::Char('q') => {
                 app.lyric_search_modal = None;
+                return true;
+            }
+            KeyCode::Char('/') | KeyCode::Char('e') => {
+                modal.editing_query = true;
+                return true;
+            }
+            KeyCode::Char('a') | KeyCode::Char('A') => {
+                app.start_modal_lyric_ai_transcribe();
+                return true;
+            }
+            KeyCode::Char('v') | KeyCode::Char('V') => {
+                if let Some(sp) = modal.song_path.clone() {
+                    app.verify_lyrics_for_path(&sp, true, true);
+                }
                 return true;
             }
             KeyCode::Enter => {
@@ -486,6 +533,53 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
             }
             _ => return true,
         }
+    }
+
+    // Ctrl+C quits application cleanly from normal mode
+    if has_ctrl && (event.code == KeyCode::Char('c') || event.code == KeyCode::Char('C')) {
+        return false;
+    }
+
+    // Replay current track (Ctrl+r or capital R)
+    if (has_ctrl && (event.code == KeyCode::Char('r') || event.code == KeyCode::Char('R')))
+        || (!has_ctrl && !has_alt && event.code == KeyCode::Char('R'))
+    {
+        app.replay_current_track();
+        return true;
+    }
+
+    // Ctrl+V cycles visualizer color.
+    if has_ctrl && event.code == KeyCode::Char('v') {
+        let colors = ["accent", "cyan", "green", "magenta", "yellow", "rainbow"];
+        let cur = app.visualizer_color.as_deref().unwrap_or("accent");
+        let idx = colors.iter().position(|&s| s == cur).unwrap_or(0);
+        let next = colors[(idx + 1) % colors.len()];
+        app.visualizer_color = Some(next.to_string());
+        app.visualizer = true;
+        let _ = crate::config::Config::save_setting("visualizer_color", next);
+        let _ = crate::config::Config::save_setting("visualizer", "true");
+        app.set_toast(format!("Visualizer color: {}", next));
+        return true;
+    }
+
+    // Ctrl+B cycles visualizer style.
+    if has_ctrl && event.code == KeyCode::Char('b') {
+        let styles = ["bars", "wave", "dual", "spectrum", "dots"];
+        let cur = app.visualizer_style.as_deref().unwrap_or("bars");
+        let idx = styles.iter().position(|&s| s == cur).unwrap_or(0);
+        let next = styles[(idx + 1) % styles.len()];
+        app.visualizer_style = Some(next.to_string());
+        app.visualizer = true;
+        let _ = crate::config::Config::save_setting("visualizer_style", next);
+        let _ = crate::config::Config::save_setting("visualizer", "true");
+        app.set_toast(format!("Visualizer style: {}", next));
+        return true;
+    }
+
+    // If Alt or Ctrl is held in Normal Mode, do not trigger single-key shortcuts
+    // (e.g. Alt+Z is Unikey toggle, Ctrl+Z, Ctrl+S, etc.)
+    if has_ctrl || has_alt {
+        return true;
     }
 
     // Normal Mode
@@ -533,7 +627,10 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         }
 
         // Toggle Lyrics display (v / y: Studio mode <-> Karaoke mode)
-        KeyCode::Char('v') | KeyCode::Char('V') | KeyCode::Char('y') | KeyCode::Char('Y') => app.toggle_lyrics(),
+        KeyCode::Char('v') | KeyCode::Char('y') | KeyCode::Char('Y') => app.toggle_lyrics(),
+
+        // Verify current `.lrc` against audio track (`V`: Shift+v)
+        KeyCode::Char('V') => app.verify_selected_or_playing_lyrics(),
 
         // Toggle Help popup
         KeyCode::Char('?') => {
@@ -708,29 +805,9 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
             });
         }
 
-        // Lyric search (opens on `g`; searches LRCLIB for synced lyrics).
+        // Lyric search (opens on `g`; searches LRCLIB for synced lyrics in background).
         KeyCode::Char('g') => {
-            let song_path = app.get_selected_path();
-            let artist = song_path.as_ref()
-                .and_then(|p| p.file_stem())
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_string();
-            let title = song_path.as_ref()
-                .and_then(|p| p.file_stem())
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_string();
-            
-            // Call Python lyric-search API via App method
-            let results = app.fetch_lyrics_from_api(&artist, &title);
-            
-            app.lyric_search_modal = Some(LyricSearchModal {
-                query: format!("{} - {}", artist, title),
-                results,
-                selected: 0,
-                song_path,
-            });
+            app.open_lyric_search_modal();
         }
 
         // Reload theme preset from config.toml (e.g. after the theme-packs
@@ -747,6 +824,16 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         // Audio visualizer toggle (b), cycle color (Ctrl+V).
         KeyCode::Char('b') => {
             app.visualizer = !app.visualizer;
+            if let Some(p) = app.plugins.iter_mut().find(|p| p.id == "visualizer") {
+                if !p.is_removed {
+                    p.enabled = app.visualizer;
+                }
+            }
+            let _ = crate::plugin::ManagedPlugin::save_plugins(&app.plugins);
+            let _ = crate::config::Config::save_setting(
+                "visualizer",
+                if app.visualizer { "true" } else { "false" },
+            );
             app.set_toast(if app.visualizer {
                 "Visualizer: ON".to_string()
             } else {
@@ -818,6 +905,34 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
     }
 
     true
+}
+
+/// Ensures the active view's `selected` cursor stays inside `filtered_indices`
+/// whenever the user types or edits the `/` search query.
+fn sync_search_selection(app: &mut App) {
+    match app.view_mode {
+        ViewMode::Playlist => {
+            #[cfg(feature = "genre")]
+            let filtered = app.playlist.filtered_indices(
+                &app.search_query,
+                &app.genre_filters,
+                &mut app.genre_db,
+            );
+            #[cfg(not(feature = "genre"))]
+            let filtered = app.playlist.filtered_indices(&app.search_query);
+
+            if !filtered.is_empty() && !filtered.contains(&app.playlist.selected) {
+                app.playlist.selected = filtered[0];
+            }
+        }
+        ViewMode::Browser => {
+            let filtered = app.browser.filtered_indices(&app.search_query);
+            if !filtered.is_empty() && !filtered.contains(&app.browser.selected) {
+                app.browser.selected = filtered[0];
+            }
+        }
+        _ => {}
+    }
 }
 
 pub(crate) fn delete_last_word(s: &mut String) {

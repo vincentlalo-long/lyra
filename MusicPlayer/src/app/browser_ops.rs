@@ -93,15 +93,47 @@ impl App {
         self.browser_caret = 0;
     }
 
+    /// Resolves the currently selected browser entry path, respecting any active `/` search filter.
+    fn selected_browser_entry(&self) -> Option<PathBuf> {
+        let filtered = self.browser.filtered_indices(&self.search_query);
+        let entry_idx = if filtered.contains(&self.browser.selected) {
+            Some(self.browser.selected)
+        } else {
+            filtered.first().copied()
+        };
+        entry_idx.and_then(|i| self.browser.entries.get(i).cloned())
+    }
+
+    /// Renames or moves sibling `.lrc` files (`<stem>.lrc`, `<stem>.<lang>.lrc`) alongside an audio file.
+    fn move_sibling_lrc_files(old_audio: &Path, new_audio: &Path) {
+        let old_lrc = old_audio.with_extension("lrc");
+        let new_lrc = new_audio.with_extension("lrc");
+        if old_lrc.is_file() && old_lrc != new_lrc {
+            let _ = std::fs::rename(&old_lrc, &new_lrc);
+        }
+        let (Some(old_parent), Some(new_parent)) = (old_audio.parent(), new_audio.parent()) else {
+            return;
+        };
+        let (Some(old_stem), Some(new_stem)) = (
+            old_audio.file_stem().and_then(|s| s.to_str()),
+            new_audio.file_stem().and_then(|s| s.to_str()),
+        ) else {
+            return;
+        };
+        for lang in ["vi", "en", "ja", "ko", "zh", "lrclib"] {
+            let src = old_parent.join(format!("{old_stem}.{lang}.lrc"));
+            let dst = new_parent.join(format!("{new_stem}.{lang}.lrc"));
+            if src.is_file() && src != dst {
+                let _ = std::fs::rename(&src, &dst);
+            }
+        }
+    }
+
     /// Deletes the currently selected item in browser.
     /// If it's an album/folder: ONLY deletes if the folder is empty (safe data protection).
     /// If it's a file: deletes the file and removes it from active playlist if present.
     pub fn browser_delete_selected(&mut self) {
-        let filtered = self.browser.filtered_indices(&self.search_query);
-        let Some(&entry_idx) = filtered.get(self.browser.selected) else {
-            return;
-        };
-        let Some(entry_path) = self.browser.entries.get(entry_idx).cloned() else {
+        let Some(entry_path) = self.selected_browser_entry() else {
             return;
         };
 
@@ -134,10 +166,24 @@ impl App {
             if let Err(e) = std::fs::remove_file(&entry_path) {
                 self.set_toast(format!("Failed to delete '{file_name}': {e}"));
             } else {
-                // Remove from playlist if present
+                // Remove from playlist if present and keep playing_index / selected in bounds
                 if let Some(pos) = self.playlist.songs.iter().position(|p| p == &entry_path) {
                     self.playlist.songs.remove(pos);
+                    if let Some(playing) = self.playlist.playing_index {
+                        if playing == pos {
+                            self.playlist.playing_index = None;
+                        } else if playing > pos {
+                            self.playlist.playing_index = Some(playing - 1);
+                        }
+                    }
+                    if self.playlist.songs.is_empty() {
+                        self.playlist.selected = 0;
+                        self.playlist.playing_index = None;
+                    } else if self.playlist.selected >= self.playlist.songs.len() {
+                        self.playlist.selected = self.playlist.songs.len() - 1;
+                    }
                 }
+                self.queue.items.retain(|p| p != &entry_path);
                 self.meta_cache.remove(&entry_path);
                 self.browser.refresh();
                 self.set_toast(format!("󰄬 Deleted track '{file_name}'"));
@@ -183,11 +229,7 @@ impl App {
 
     /// Opens modal to move selected track to another album
     pub fn browser_move_track_prompt(&mut self) {
-        let filtered = self.browser.filtered_indices(&self.search_query);
-        let Some(&entry_idx) = filtered.get(self.browser.selected) else {
-            return;
-        };
-        let Some(entry_path) = self.browser.entries.get(entry_idx).cloned() else {
+        let Some(entry_path) = self.selected_browser_entry() else {
             return;
         };
 
@@ -209,11 +251,7 @@ impl App {
     /// Opens modal to edit track metadata (Title, Artist, Album, File name)
     /// or rename album folder
     pub fn browser_edit_prompt(&mut self) {
-        let filtered = self.browser.filtered_indices(&self.search_query);
-        let Some(&entry_idx) = filtered.get(self.browser.selected) else {
-            return;
-        };
-        let Some(entry_path) = self.browser.entries.get(entry_idx).cloned() else {
+        let Some(entry_path) = self.selected_browser_entry() else {
             return;
         };
 
@@ -341,11 +379,7 @@ impl App {
 
     /// Opens the cover-art picker for the selected track (`B` in Browser).
     pub fn browser_set_cover_prompt(&mut self) {
-        let filtered = self.browser.filtered_indices(&self.search_query);
-        let Some(&entry_idx) = filtered.get(self.browser.selected) else {
-            return;
-        };
-        let Some(entry_path) = self.browser.entries.get(entry_idx).cloned() else {
+        let Some(entry_path) = self.selected_browser_entry() else {
             return;
         };
         if !entry_path.is_file() {
@@ -768,6 +802,7 @@ impl App {
                                         let dest = parent.join(&wanted_name);
                                         match std::fs::rename(&target_file, &dest) {
                                             Ok(_) => {
+                                                Self::move_sibling_lrc_files(&target_file, &dest);
                                                 self.remap_track_path(&target_file, &dest);
                                                 final_path = dest;
                                             }
@@ -1054,6 +1089,7 @@ impl App {
 
         match std::fs::rename(&source_file, &dest_path) {
             Ok(_) => {
+                Self::move_sibling_lrc_files(&source_file, &dest_path);
                 // Update ID3 album tag
                 if let Ok(mut tag) = id3::Tag::read_from_path(&dest_path) {
                     tag.set_album(album_name);

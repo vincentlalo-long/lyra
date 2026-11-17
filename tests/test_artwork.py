@@ -50,6 +50,9 @@ class TestTextUtils(unittest.TestCase):
     def test_hyphen_preserved(self):
         self.assertEqual(textutils.ascii_fold("Sơn Tùng M-TP"), "son tung m-tp")
 
+    def test_vietnamese_d_stroke_folded(self):
+        self.assertEqual(textutils.ascii_fold("Đen Vâu - Đi Về Nhà"), "den vau - di ve nha")
+
     def test_norm_key(self):
         self.assertEqual(
             textutils.norm_key("Chúng Ta Của Hiện Tại (Official MV)"),

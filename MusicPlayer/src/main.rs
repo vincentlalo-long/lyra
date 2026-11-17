@@ -196,7 +196,12 @@ fn run_loop(terminal: &mut terminal::Tui, app: &mut App) -> Result<()> {
                 && start.elapsed() >= std::time::Duration::from_secs(app.sleep_timer_minutes * 60)
             {
                 app.sleep_timer = None;
-                app.audio.toggle_pause();
+                app.sleep_timer_minutes = 0;
+                if !app.audio.is_paused {
+                    app.audio.toggle_pause();
+                    #[cfg(feature = "mpris")]
+                    app.mpris.set_playing(false);
+                }
                 app.set_toast("Sleep timer: playback stopped".to_string());
             }
         }
@@ -207,6 +212,9 @@ fn run_loop(terminal: &mut terminal::Tui, app: &mut App) -> Result<()> {
         // Check background YouTube download events (download plugin)
         #[cfg(feature = "download")]
         app.check_download_events();
+
+        // Check background LRCLIB lyric search events
+        app.check_lyric_search_events();
 
         // Check background community-plugin installer events
         app.check_plugin_downloads();

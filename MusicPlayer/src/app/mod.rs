@@ -81,6 +81,8 @@ pub struct LyricSearchModal {
     pub results: Vec<LyricSearchResult>,
     pub selected: usize,
     pub song_path: Option<PathBuf>,
+    pub is_loading: bool,
+    pub editing_query: bool,
 }
 
 /// Result from LRCLIB lyric search.
@@ -92,6 +94,34 @@ pub struct LyricSearchResult {
     pub duration: u64,
     pub lyrics: String,
     pub synced: bool,
+}
+
+/// Verification status of an existing `.lrc` file compared against the audio track.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LyricVerifyStatus {
+    Checking,
+    Verified { confidence: u8 },
+    Plain { confidence: u8 },
+    Mismatch { confidence: u8, heard: String },
+    Missing,
+}
+
+/// Background event from non-blocking LRCLIB lyric search / audio verification worker.
+#[derive(Clone, Debug)]
+pub enum LyricSearchEvent {
+    ModalResults {
+        query: String,
+        results: Vec<LyricSearchResult>,
+    },
+    AutoTrackDone {
+        song_path: PathBuf,
+        result: Option<LyricSearchResult>,
+    },
+    Verified {
+        song_path: PathBuf,
+        status: LyricVerifyStatus,
+        manual: bool,
+    },
 }
 
 pub struct App {
@@ -211,6 +241,12 @@ pub struct App {
     /// Override for the community-plugin data root (tests / dev).
     /// `None` = resolve via `DownloadablePlugin::data_root()`.
     pub plugin_data_root: Option<PathBuf>,
+    /// Background LRCLIB search sender.
+    pub lyric_tx: plugin_mpsc::Sender<LyricSearchEvent>,
+    /// Background LRCLIB search receiver, drained every main-loop tick.
+    pub lyric_rx: plugin_mpsc::Receiver<LyricSearchEvent>,
+    /// Session cache of `.lrc` audio-verification results per track path.
+    pub lyric_verify_cache: HashMap<PathBuf, LyricVerifyStatus>,
     /// Built-in updater: sending side for background check/install jobs.
     #[cfg(feature = "update")]
     pub update_tx: plugin_mpsc::Sender<crate::update::UpdateEvent>,
@@ -251,6 +287,8 @@ impl App {
         let (mpris, media_rx) = crate::mpris::spawn();
         let (plugin_dl_tx, plugin_dl_rx) =
             plugin_mpsc::channel::<crate::plugin_dl::InstallEvent>();
+        let (lyric_tx, lyric_rx) =
+            plugin_mpsc::channel::<LyricSearchEvent>();
         #[cfg(feature = "update")]
         let (update_tx, update_rx) = plugin_mpsc::channel::<crate::update::UpdateEvent>();
         let mut app = Self {
@@ -338,6 +376,9 @@ impl App {
             plugin_dl_rx,
             plugin_dl_active: None,
             plugin_data_root: None,
+            lyric_tx,
+            lyric_rx,
+            lyric_verify_cache: HashMap::new(),
             #[cfg(feature = "update")]
             update_tx,
             #[cfg(feature = "update")]
@@ -367,11 +408,18 @@ impl App {
         for warning in config.validate() {
             eprintln!("Warning: {warning}");
         }
+        app.cover_embed = config.cover_embed;
+        app.visualizer_color = config.visualizer_color.clone();
+        app.visualizer_style = config.visualizer_style.clone();
+        app.lyric_download = config.lyric_download;
         // Derive runtime flags from saved plugin states (a plugin disabled
         // in a previous session stays off — no recompile needed).
         // Lyrics layout defaults ON when its plugin ships enabled.
         let lyrics_on = app.plugin_enabled("lyrics");
         app.sync_plugin_runtime_flags(lyrics_on);
+        if config.visualizer && app.plugin_enabled("visualizer") {
+            app.visualizer = true;
+        }
         // Persisted YouTube search result limit (Plugins settings row / E).
         #[cfg(feature = "download")]
         if let Some(n) = config.search_limit {
@@ -379,11 +427,6 @@ impl App {
                 app.download.search_limit = n;
             }
         }
-        app.cover_embed = config.cover_embed;
-        app.visualizer = config.visualizer;
-        app.visualizer_color = config.visualizer_color.clone();
-        app.visualizer_style = config.visualizer_style.clone();
-        app.lyric_download = config.lyric_download;
         Ok(app)
     }
 
@@ -500,71 +543,425 @@ impl App {
     }
 
     /// Search and download lyrics via LRCLIB API for the given result,
-    /// saving a `.lrc` file next to the song and loading it into `app.lyrics`.
+    /// saving a `.lrc` file next to the song and loading it into `app.lyrics`
+    /// if the song is currently playing.
     pub fn download_lyrics(&mut self, result: &crate::app::LyricSearchResult, song_path: &Path) -> Result<()> {
         let lrc_path = song_path.with_extension("lrc");
         std::fs::write(&lrc_path, &result.lyrics)?;
-        
-        // Load the lyrics into the app
-        self.lyrics = crate::lyrics::Lyrics::load_for_song(song_path);
-        
+
+        // Best-effort: also embed into MP3 ID3 USLT tag so lyrics travel with the file
+        if song_path.extension().is_some_and(|e| e.eq_ignore_ascii_case("mp3")) {
+            use id3::TagLike;
+            let mut tag = id3::Tag::read_from_path(song_path).unwrap_or_else(|_| id3::Tag::new());
+            tag.add_frame(id3::frame::Lyrics {
+                lang: "eng".to_string(),
+                description: "Lyrics".to_string(),
+                text: result.lyrics.clone(),
+            });
+            let _ = tag.write_to_path(song_path, id3::Version::Id3v24);
+        }
+
+        // Only replace active in-memory lyrics if this song is currently playing (or nothing is playing yet)
+        self.lyric_verify_cache.remove(song_path);
+        if self.current_playing_path.as_deref() == Some(song_path) || self.current_playing_path.is_none() {
+            self.lyrics = if self.plugin_enabled("lyrics") {
+                crate::lyrics::Lyrics::load_for_song(song_path)
+            } else {
+                None
+            };
+            if self.plugin_enabled("lyrics") && self.lyrics.is_some() {
+                self.show_lyrics = true;
+            }
+        }
+        self.verify_lyrics_for_path(song_path, false, true);
+
         Ok(())
     }
 
-    /// Fetch lyrics from LRCLIB API for artist/title. Returns matching results.
-    pub fn fetch_lyrics_from_api(&self, artist: &str, title: &str) -> Vec<crate::app::LyricSearchResult> {
+    /// Blocking helper that invokes `python3 main.py lyric-search` and parses all candidate items.
+    pub fn run_lyric_search_blocking(
+        artist: &str,
+        title: &str,
+        album: &str,
+        duration_secs: u64,
+        audio_file: Option<&Path>,
+        force_ai: bool,
+    ) -> Vec<crate::app::LyricSearchResult> {
         let script = Self::find_lyric_script();
-        let Ok(output) = Command::new("python3")
-            .arg(&script)
+        let mut cmd = Command::new("python3");
+        cmd.arg(&script)
             .arg("lyric-search")
             .arg("--artist")
             .arg(artist)
             .arg("--title")
-            .arg(title)
-            .arg("--json")
-            .output()
-        else {
+            .arg(title);
+        if !album.is_empty() {
+            cmd.arg("--album").arg(album);
+        }
+        if duration_secs > 0 {
+            cmd.arg("--duration").arg(duration_secs.to_string());
+        }
+        if let Some(af) = audio_file {
+            cmd.arg("--audio-file").arg(af);
+        }
+        if force_ai {
+            cmd.arg("--ai");
+        }
+        cmd.arg("--json");
+
+        let Ok(output) = cmd.output() else {
             return Vec::new();
         };
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let data: serde_json::Value = match serde_json::from_str(&stdout) {
+        let data: serde_json::Value = match serde_json::from_str(stdout.trim()) {
             Ok(d) => d,
             Err(_) => return Vec::new(),
         };
+
         let mut results = Vec::new();
-        if let Some(lyrics) = data.get("lyrics").and_then(|v| v.as_str()) {
-            if !lyrics.is_empty() {
-                results.push(crate::app::LyricSearchResult {
-                    artist: data.get("artist").and_then(|v| v.as_str()).unwrap_or(artist).to_string(),
-                    title: data.get("title").and_then(|v| v.as_str()).unwrap_or(title).to_string(),
-                    album: data.get("album").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    duration: data.get("duration").and_then(|v| v.as_u64()).unwrap_or(0),
-                    lyrics: lyrics.to_string(),
-                    synced: data.get("synced").and_then(|v| v.as_bool()).unwrap_or(false),
-                });
+        if let Some(items) = data.get("items").and_then(|v| v.as_array()) {
+            for item in items {
+                if let Some(lyrics) = item.get("lyrics").and_then(|v| v.as_str()) {
+                    if !lyrics.trim().is_empty() {
+                        results.push(crate::app::LyricSearchResult {
+                            artist: item.get("artist").and_then(|v| v.as_str()).unwrap_or(artist).to_string(),
+                            title: item.get("title").and_then(|v| v.as_str()).unwrap_or(title).to_string(),
+                            album: item.get("album").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            duration: item.get("duration").and_then(|v| v.as_u64()).unwrap_or(0),
+                            lyrics: lyrics.to_string(),
+                            synced: item.get("synced").and_then(|v| v.as_bool()).unwrap_or(false),
+                        });
+                    }
+                }
+            }
+        }
+
+        if results.is_empty() {
+            if let Some(lyrics) = data.get("lyrics").and_then(|v| v.as_str()) {
+                if !lyrics.trim().is_empty() {
+                    results.push(crate::app::LyricSearchResult {
+                        artist: data.get("artist").and_then(|v| v.as_str()).unwrap_or(artist).to_string(),
+                        title: data.get("title").and_then(|v| v.as_str()).unwrap_or(title).to_string(),
+                        album: data.get("album").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        duration: data.get("duration").and_then(|v| v.as_u64()).unwrap_or(0),
+                        lyrics: lyrics.to_string(),
+                        synced: data.get("synced").and_then(|v| v.as_bool()).unwrap_or(false),
+                    });
+                }
             }
         }
         results
     }
 
-    /// Download lyrics for a track via LRCLIB API and save .lrc file next to it.
+    /// Fetch lyrics from LRCLIB API for artist/title. Returns matching results.
+    pub fn fetch_lyrics_from_api(&self, artist: &str, title: &str) -> Vec<crate::app::LyricSearchResult> {
+        Self::run_lyric_search_blocking(artist, title, "", 0, None, false)
+    }
+
+    /// Opens the interactive LRCLIB lyric search modal (`g`) and starts a non-blocking background search.
+    pub fn open_lyric_search_modal(&mut self) {
+        let mut song_path = self.get_selected_path().or_else(|| self.current_playing_path.clone());
+        if song_path.as_ref().is_some_and(|p| p.is_dir()) {
+            song_path = self.current_playing_path.clone();
+        }
+        let Some(path) = song_path else {
+            self.set_toast("Select or play a song first to search lyrics".to_string());
+            return;
+        };
+
+        let meta = self.song_meta(&path);
+        let (artist, title) = if !meta.title.is_empty() {
+            (meta.artist.clone(), meta.title.clone())
+        } else {
+            let (a, t, _) = crate::meta::track_meta(&path);
+            (a, t)
+        };
+        let album = meta.album;
+        let duration_secs = meta.duration.map(|d| d.as_secs()).unwrap_or(0);
+        let query = if artist.is_empty() {
+            title.clone()
+        } else {
+            format!("{artist} - {title}")
+        };
+
+        let audio_clone = path.clone();
+        self.lyric_search_modal = Some(LyricSearchModal {
+            query: query.clone(),
+            results: Vec::new(),
+            selected: 0,
+            song_path: Some(path.clone()),
+            is_loading: true,
+            editing_query: false,
+        });
+        if !self.lyric_verify_cache.contains_key(&path) {
+            self.verify_lyrics_for_path(&path, false, false);
+        }
+
+        let tx = self.lyric_tx.clone();
+        std::thread::spawn(move || {
+            let results = Self::run_lyric_search_blocking(
+                &artist,
+                &title,
+                &album,
+                duration_secs,
+                Some(&audio_clone),
+                false,
+            );
+            let _ = tx.send(LyricSearchEvent::ModalResults { query, results });
+        });
+    }
+
+    /// Triggers a new background LRCLIB search using the edited query string in `lyric_search_modal`.
+    pub fn start_modal_lyric_query_search(&mut self) {
+        let Some(modal) = &mut self.lyric_search_modal else {
+            return;
+        };
+        let query = modal.query.trim().to_string();
+        if query.is_empty() {
+            modal.editing_query = false;
+            return;
+        }
+        modal.query = query.clone();
+        modal.is_loading = true;
+        modal.editing_query = false;
+        modal.results.clear();
+        modal.selected = 0;
+        let audio_clone = modal.song_path.clone();
+
+        let (artist, title) = if let Some((a, t)) = query.split_once(" - ") {
+            (a.trim().to_string(), t.trim().to_string())
+        } else {
+            (String::new(), query.clone())
+        };
+        let tx = self.lyric_tx.clone();
+        std::thread::spawn(move || {
+            let results = Self::run_lyric_search_blocking(
+                &artist,
+                &title,
+                "",
+                0,
+                audio_clone.as_deref(),
+                false,
+            );
+            let _ = tx.send(LyricSearchEvent::ModalResults { query, results });
+        });
+    }
+
+    /// Triggers Groq Whisper AI transcription (`a` key inside `lyric_search_modal`) for the active audio file.
+    pub fn start_modal_lyric_ai_transcribe(&mut self) {
+        let Some(modal) = &mut self.lyric_search_modal else {
+            return;
+        };
+        let Some(audio_path) = modal.song_path.clone() else {
+            self.set_toast("No audio file selected for AI transcription".to_string());
+            return;
+        };
+        let query = modal.query.clone();
+        modal.is_loading = true;
+        modal.editing_query = false;
+        modal.results.clear();
+        modal.selected = 0;
+
+        let (artist, title) = if let Some((a, t)) = query.split_once(" - ") {
+            (a.trim().to_string(), t.trim().to_string())
+        } else {
+            (String::new(), query.clone())
+        };
+        let tx = self.lyric_tx.clone();
+        std::thread::spawn(move || {
+            let results = Self::run_lyric_search_blocking(
+                &artist,
+                &title,
+                "",
+                0,
+                Some(&audio_path),
+                true,
+            );
+            let _ = tx.send(LyricSearchEvent::ModalResults { query, results });
+        });
+    }
+
+    /// Download lyrics for a track via LRCLIB API on a background thread and save .lrc file next to it.
     /// Called automatically after download completes if `lyric_download` config is enabled.
     pub fn download_lyrics_for_track(&mut self, mp3_path: &PathBuf) -> Result<()> {
-        let artist = mp3_path.file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_string();
-        let title = artist.clone();
-        
-        let results = self.fetch_lyrics_from_api(&artist, &title);
-        if let Some(result) = results.into_iter().next() {
-            if result.synced && !result.lyrics.is_empty() {
-                let lrc_path = mp3_path.with_extension("lrc");
-                std::fs::write(&lrc_path, &result.lyrics)?;
-                self.set_toast(format!("Lyrics saved for {}", result.title));
+        let meta = self.song_meta(mp3_path);
+        let (artist, title) = if !meta.title.is_empty() {
+            (meta.artist, meta.title)
+        } else {
+            let (a, t, _) = crate::meta::track_meta(mp3_path);
+            (a, t)
+        };
+        let album = meta.album;
+        let duration_secs = meta.duration.map(|d| d.as_secs()).unwrap_or(0);
+        let song_path = mp3_path.clone();
+        let tx = self.lyric_tx.clone();
+
+        std::thread::spawn(move || {
+            let results = Self::run_lyric_search_blocking(
+                &artist,
+                &title,
+                &album,
+                duration_secs,
+                Some(&song_path),
+                false,
+            );
+            let best = results
+                .iter()
+                .find(|r| r.synced && !r.lyrics.is_empty())
+                .cloned()
+                .or_else(|| results.into_iter().find(|r| !r.lyrics.is_empty()));
+            let _ = tx.send(LyricSearchEvent::AutoTrackDone {
+                song_path,
+                result: best,
+            });
+        });
+        Ok(())
+    }
+
+    /// Drains background LRCLIB search events every main-loop tick.
+    pub fn check_lyric_search_events(&mut self) {
+        while let Ok(ev) = self.lyric_rx.try_recv() {
+            match ev {
+                LyricSearchEvent::ModalResults { query, results } => {
+                    if let Some(modal) = &mut self.lyric_search_modal {
+                        if modal.query == query {
+                            modal.is_loading = false;
+                            modal.results = results;
+                            modal.selected = 0;
+                        }
+                    }
+                }
+                LyricSearchEvent::AutoTrackDone { song_path, result } => {
+                    if let Some(res) = result {
+                        if !res.lyrics.is_empty() {
+                            let lrc_path = song_path.with_extension("lrc");
+                            if std::fs::write(&lrc_path, &res.lyrics).is_ok() {
+                                self.lyric_verify_cache.remove(&song_path);
+                                if self.current_playing_path.as_ref() == Some(&song_path) && self.plugin_enabled("lyrics") {
+                                    self.lyrics = crate::lyrics::Lyrics::load_for_song(&song_path);
+                                }
+                                self.verify_lyrics_for_path(&song_path, false, true);
+                                self.set_toast(format!("Lyrics saved for {}", res.title));
+                            }
+                        }
+                    }
+                }
+                LyricSearchEvent::Verified { song_path, status, manual } => {
+                    self.lyric_verify_cache.insert(song_path.clone(), status.clone());
+                    let is_active = self.current_playing_path.as_ref() == Some(&song_path)
+                        || self.lyric_search_modal.as_ref().and_then(|m| m.song_path.as_ref()) == Some(&song_path);
+                    match &status {
+                        LyricVerifyStatus::Mismatch { confidence, heard } if is_active || manual => {
+                            let snippet: String = heard.chars().take(42).collect();
+                            let heard_msg = if snippet.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" (heard: \"{snippet}\")")
+                            };
+                            self.set_toast(format!(
+                                "⚠️ Lyrics mismatch ({confidence}%){heard_msg} — Press 'g' to fix"
+                            ));
+                        }
+                        LyricVerifyStatus::Plain { confidence } if manual => {
+                            self.set_toast(format!(
+                                "Lyrics match ({confidence}%), but untimed [Plain] — Press 'g' for synced"
+                            ));
+                        }
+                        LyricVerifyStatus::Verified { confidence } if manual => {
+                            self.set_toast(format!("✓ Lyrics verified ({confidence}% match with audio)"));
+                        }
+                        LyricVerifyStatus::Missing if manual => {
+                            self.set_toast("No .lrc file found for this track (press 'g' to search/AI)".to_string());
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
-        Ok(())
+    }
+
+    /// Blocking call to `python3 main.py lyric-verify` comparing existing `.lrc` against audio vocals.
+    pub fn run_lyric_verify_blocking(song_path: &Path, lrc_path: &Path) -> LyricVerifyStatus {
+        let script = Self::find_lyric_script();
+        let Ok(output) = Command::new("python3")
+            .arg(&script)
+            .arg("lyric-verify")
+            .arg("--audio-file")
+            .arg(song_path)
+            .arg("--lrc-file")
+            .arg(lrc_path)
+            .arg("--json")
+            .output()
+        else {
+            return LyricVerifyStatus::Missing;
+        };
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let Ok(data) = serde_json::from_str::<serde_json::Value>(stdout.trim()) else {
+            return LyricVerifyStatus::Missing;
+        };
+        let status_str = data.get("status").and_then(|v| v.as_str()).unwrap_or("missing");
+        let conf_f = data.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let conf_pct = (conf_f * 100.0).round().clamp(0.0, 100.0) as u8;
+        let heard = data.get("heard").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+        match status_str {
+            "ok" => LyricVerifyStatus::Verified { confidence: conf_pct },
+            "plain" => LyricVerifyStatus::Plain { confidence: conf_pct },
+            "mismatch" => LyricVerifyStatus::Mismatch { confidence: conf_pct, heard },
+            _ => LyricVerifyStatus::Missing,
+        }
+    }
+
+    /// Starts non-blocking background verification of a track's `.lrc` file against its audio.
+    pub fn verify_lyrics_for_path(&mut self, song_path: &Path, manual: bool, force: bool) {
+        if !force {
+            if let Some(existing) = self.lyric_verify_cache.get(song_path) {
+                if manual {
+                    let _ = self.lyric_tx.send(LyricSearchEvent::Verified {
+                        song_path: song_path.to_path_buf(),
+                        status: existing.clone(),
+                        manual: true,
+                    });
+                }
+                return;
+            }
+        }
+        let Some(lrc_path) = crate::lyrics::Lyrics::find_lrc_path_for_song(song_path) else {
+            self.lyric_verify_cache.insert(song_path.to_path_buf(), LyricVerifyStatus::Missing);
+            if manual {
+                self.set_toast("No .lrc file found for this track (press 'g' to search/AI)".to_string());
+            }
+            return;
+        };
+
+        self.lyric_verify_cache.insert(song_path.to_path_buf(), LyricVerifyStatus::Checking);
+        if manual {
+            self.set_toast("Checking .lrc lyrics against audio…".to_string());
+        }
+        let song_owned = song_path.to_path_buf();
+        let tx = self.lyric_tx.clone();
+        std::thread::spawn(move || {
+            let status = Self::run_lyric_verify_blocking(&song_owned, &lrc_path);
+            let _ = tx.send(LyricSearchEvent::Verified {
+                song_path: song_owned,
+                status,
+                manual,
+            });
+        });
+    }
+
+    /// `V`: Verify current song's (or selected song's) `.lrc` against its audio on demand.
+    pub fn verify_selected_or_playing_lyrics(&mut self) {
+        let target = self
+            .current_playing_path
+            .clone()
+            .or_else(|| self.get_selected_path())
+            .filter(|p| p.is_file());
+        let Some(song_path) = target else {
+            self.set_toast("Play or select a song first to verify its lyrics".to_string());
+            return;
+        };
+        self.verify_lyrics_for_path(&song_path, true, true);
     }
 
     /// Cycle sleep timer: off -> 15 -> 30 -> 60 -> 90 -> 120 -> off.
@@ -657,6 +1054,12 @@ impl App {
             }
         }
         // 5. Check standard user data / config directories
+        if let Some(xdg_data) = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from) {
+            let p = xdg_data.join("lyra/scripts/main.py");
+            if p.exists() {
+                return p;
+            }
+        }
         if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
             let user_paths = [
                 home.join(".local/share/lyra/scripts/main.py"),
@@ -670,6 +1073,11 @@ impl App {
                 }
             }
         }
+        // 6. Auto-extract embedded Python scripts for standalone binary execution
+        #[cfg(feature = "download")]
+        if let Some(extracted) = crate::download::embed::ensure_extracted_scripts() {
+            return extracted;
+        }
         PathBuf::from("main.py")
     }
 
@@ -679,26 +1087,26 @@ impl App {
         match self.view_mode {
             ViewMode::Playlist => {
                 #[cfg(feature = "genre")]
-                {
-                    let filtered = self.playlist.filtered_indices(&self.search_query, &self.genre_filters, &mut self.genre_db);
-                    filtered.get(self.playlist.selected).and_then(|&i| {
-                        self.playlist.songs.get(i).cloned()
-                    })
-                }
+                let filtered = self.playlist.filtered_indices(&self.search_query, &self.genre_filters, &mut self.genre_db);
                 #[cfg(not(feature = "genre"))]
-                {
-                    let filtered = self.playlist.filtered_indices(&self.search_query);
-                    filtered.get(self.playlist.selected).and_then(|&i| {
-                        self.playlist.songs.get(i).cloned()
-                    })
-                }
+                let filtered = self.playlist.filtered_indices(&self.search_query);
+
+                let idx = if filtered.contains(&self.playlist.selected) {
+                    Some(self.playlist.selected)
+                } else {
+                    filtered.first().copied()
+                };
+                idx.and_then(|i| self.playlist.songs.get(i).cloned())
             }
             ViewMode::Queue => self.queue.items.get(self.queue.selected).cloned(),
             ViewMode::Browser => {
                 let filtered = self.browser.filtered_indices(&self.search_query);
-                filtered.get(self.browser.selected).and_then(|&i| {
-                    self.browser.entries.get(i).cloned()
-                })
+                let idx = if filtered.contains(&self.browser.selected) {
+                    Some(self.browser.selected)
+                } else {
+                    filtered.first().copied()
+                };
+                idx.and_then(|i| self.browser.entries.get(i).cloned())
             }
             _ => None,
         }
