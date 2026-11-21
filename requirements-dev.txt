@@ -1,2 +1,2 @@
 # Development and CI dependencies (runtime packages live in requirements.txt).
-pytest>=8.0
+pytest>=9.2.0
