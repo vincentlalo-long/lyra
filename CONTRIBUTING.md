@@ -4,6 +4,9 @@ Thank you for your interest in contributing to Lyra.
 
 Lyra is a modular, pluggable terminal music player. Contributions—ranging from bug fixes and documentation improvements to new audio format decoders and modular plugins—are welcome.
 
+By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). Report
+security problems privately as described in [SECURITY.md](SECURITY.md).
+
 ---
 
 ## Repository Structure
@@ -37,7 +40,7 @@ When creating a new built-in feature or modular subsystem, follow the convention
 1. **Feature definition**: Add your feature to `MusicPlayer/Cargo.toml` under `[features]`:
    ```toml
    [features]
-   default = ["download", "mpris", "notify", "genre"]
+   default = ["download", "mpris", "notify", "genre", "update"]
    myfeature = ["dep:optional_crate"]
    ```
    Always mark new external dependencies with `optional = true`.
@@ -100,7 +103,9 @@ Community plugins extend Lyra's capabilities via external scripts or stand-alone
 ## Coding Standards
 
 ### Zero Warnings Policy
-All code must compile warning-free across all feature configurations:
+All code must compile warning-free across all feature configurations. CI enforces
+this for rustc diagnostics; `rustfmt` and `clippy` run as advisory checks until
+the lint backlog is cleared.
 ```bash
 # 1. Full features
 cargo check --manifest-path MusicPlayer/Cargo.toml
@@ -110,6 +115,11 @@ cargo check --manifest-path MusicPlayer/Cargo.toml --no-default-features
 
 # 3. Individual feature test
 cargo check --manifest-path MusicPlayer/Cargo.toml --no-default-features --features myfeature
+
+# 4. Every shipped feature on its own
+for f in download mpris notify genre update; do
+  cargo check --manifest-path MusicPlayer/Cargo.toml --no-default-features --features "$f"
+done
 ```
 
 ### No Hardcoded Paths
@@ -124,7 +134,8 @@ Never hardcode personal or platform-specific home paths (e.g., `/home/username`)
   ```
 - If modifying Python utilities:
   ```bash
-  pytest
+  python3 -m pip install -r requirements-dev.txt
+  python3 -m pytest -q
   ```
 
 ---
@@ -144,12 +155,57 @@ Never hardcode personal or platform-specific home paths (e.g., `/home/username`)
 
 3. Implement your changes following the rules above.
 
-4. Run formatting and verification:
+4. Verify before opening a pull request:
    ```bash
-   cargo fmt --manifest-path MusicPlayer/Cargo.toml -- --check
-   cargo clippy --manifest-path MusicPlayer/Cargo.toml --all-targets -- -D warnings
-   cargo test --manifest-path MusicPlayer/Cargo.toml
-   cargo test --manifest-path MusicPlayer/Cargo.toml --no-default-features
+   make verify   # zero-warning matrix + Rust (default/minimal) and Python tests
+   make lint     # rustfmt --check and clippy -D warnings (needs rustfmt/clippy)
    ```
+   `make help` lists the other shortcuts (`run`, `build`, `fmt`, `install`).
+   `make verify` runs the same `scripts/check.sh` gate as CI, so a green local
+   run means green `rust`/`python` checks.
 
-5. Commit with a clear, concise commit message and open a Pull Request against `main`.
+5. Commit with a clear, concise commit message.
+
+## Branch & Commit Conventions
+
+- Branch from `main`: `feat/<topic>`, `fix/<topic>`, `docs/<topic>`, `chore/<topic>`.
+- Use Conventional Commits: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`, `release:`.
+- Keep commits focused. Do not mix formatting-only changes with behaviour changes.
+- Reference issues in the PR description (`Fixes #123`), not in every commit.
+
+## Pull Requests
+
+`main` is protected: changes land through a pull request with green `rust` and
+Python (`3.11`/`3.12`) CI checks, and the branch must be up to date. A PR is ready when:
+
+- CI is green.
+- The PR template checklist is complete.
+- New behaviour has a test, or the PR explains why a test is not practical.
+- Docs (`README.md`, `plugins.md`, `CHANGELOG.md`) are updated when keys,
+  config, plugin contracts, or user-visible behaviour change.
+- No secrets, personal paths, or build artifacts are included.
+
+## Releases
+
+1. Bump `version` in `MusicPlayer/Cargo.toml` and update `CHANGELOG.md`.
+2. Update `min_lyra_version` in `registry.json` only when plugins require it.
+3. Merge to `main`, then push a signed tag `vX.Y.Z`. The tag must match the
+   Cargo version; `release.yml` refuses mismatches.
+4. The release workflow runs the test suite, builds all three flavors, writes
+   `SHA256SUMS` and `latest.json`, and publishes the GitHub release.
+
+## Maintainer: Branch Protection
+
+`main` is protected. The classic protection payload lives in
+[`.github/branch-protection.json`](.github/branch-protection.json):
+
+```bash
+gh api -X PUT repos/vincentlalo-long/lyra/branches/main/protection \
+  -H "Accept: application/vnd.github+json" \
+  --input .github/branch-protection.json
+```
+
+Required checks are `rust`, `python (3.11)` and `python (3.12)`; `rust-lint` is
+advisory until the lint backlog is cleared. Raise `required_approving_review_count` to `1` once a second
+maintainer exists — GitHub does not allow self-approval. Protect `v*` tags in
+Settings → Rules so only maintainers can publish a release tag.

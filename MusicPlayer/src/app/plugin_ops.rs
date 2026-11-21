@@ -25,6 +25,7 @@ impl App {
     /// the configurable paths and before the store button.
     /// Only meaningful with the `download` feature (the row is hidden
     /// otherwise, and the store button takes its index).
+    #[cfg(feature = "download")]
     pub fn search_limit_row_idx(&self) -> usize {
         self.plugins.len() + self.config_paths.len()
     }
@@ -32,11 +33,6 @@ impl App {
     #[cfg(feature = "download")]
     pub fn is_search_limit_row(&self) -> bool {
         self.plugin_selected == self.search_limit_row_idx()
-    }
-
-    #[cfg(not(feature = "download"))]
-    pub fn is_search_limit_row(&self) -> bool {
-        false
     }
 
     /// Runtime state of a plugin: enabled flag AND not removed.
@@ -394,6 +390,8 @@ impl App {
     /// Adjusts the selected setting in the Plugins view:
     /// plugins toggle, the Search Limit row steps presets, paths open edit.
     pub fn adjust_selected_plugin(&mut self, increase: bool) {
+        #[cfg(not(feature = "download"))]
+        let _ = increase;
         #[cfg(feature = "download")]
         let on_settings_row = self.is_search_limit_row();
         #[cfg(not(feature = "download"))]

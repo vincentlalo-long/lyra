@@ -1,0 +1,57 @@
+name: Feature request
+description: Suggest a capability or improvement for Lyra
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Lyra prefers small, removable features. Explain the workflow problem
+        first; the implementation is negotiable.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that is awkward or impossible today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: Keys, views, config keys, or commands you expect
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Playlist / queue / browser
+        - Playback or audio output
+        - Download and music search
+        - Cover art
+        - Lyrics
+        - Theme or visualizer
+        - Plugins / Plugin Store
+        - CLI pipeline
+        - Packaging, build, or docs
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Existing tools or workarounds you tried
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This can be built as a removable feature or plugin rather than core
+        - label: I searched existing issues and discussions first

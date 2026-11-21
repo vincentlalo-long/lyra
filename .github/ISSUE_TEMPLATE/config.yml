@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/vincentlalo-long/lyra/security/advisories/new
+    about: Report security issues privately; do not open a public issue.
+  - name: Plugin authoring guide
+    url: https://github.com/vincentlalo-long/lyra/blob/main/plugins/README.md
+    about: Read the plugin contract before submitting a plugin.

@@ -162,7 +162,7 @@ impl Downloader {
 
     fn try_aux_task(&self) -> Option<AuxTaskPermit> {
         self.active_aux_tasks
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |active| {
                 (active < MAX_AUX_TASKS).then_some(active + 1)
             })
             .ok()

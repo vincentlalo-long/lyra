@@ -1,0 +1,67 @@
+name: Plugin submission
+description: Propose a community plugin for plugins/ and registry.json
+title: "[plugin] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read [plugins/README.md](../plugins/README.md) first. Plugins run as
+        ordinary local Python with user privileges, so source clarity matters
+        more than feature count.
+
+  - type: input
+    id: plugin_id
+    attributes:
+      label: Plugin id
+      description: Lowercase letters, digits, and hyphens
+      placeholder: "my-plugin"
+    validations:
+      required: true
+
+  - type: input
+    id: source
+    attributes:
+      label: Source URL
+      description: Repository or archive containing `plugin.py` at its root
+      placeholder: "https://github.com/user/my-lyra-plugin"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Semantic version, for example v1.0.0
+      placeholder: "v1.0.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What it does
+      description: One or two sentences for the Plugin Store entry
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: System and Python dependencies
+      description: External tools, packages, and network services it needs
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: 'Exposes `run(payload: dict) -> dict` and answers `{"action": "list"}`'
+          required: true
+        - label: Source is readable; no obfuscation, hidden downloads, or credential access
+          required: true
+        - label: Includes a README with dependencies and usage
+          required: true
+        - label: Licensed compatibly with MIT
+          required: true
