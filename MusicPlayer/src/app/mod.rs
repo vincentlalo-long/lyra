@@ -9,7 +9,6 @@ use anyhow::Result;
 use crate::{
     audio::AudioPlayer,
     browser::FileBrowser,
-    config::Config,
     cover::AlbumArt,
     lyrics::Lyrics,
     playlist::Playlist,
@@ -241,7 +240,10 @@ pub fn short_name(path: &Path) -> String {
 impl App {
     pub fn new(music_folder: &Path) -> Result<Self> {
         let config = crate::config::Config::load();
+        #[cfg(feature = "download")]
         let (download_dir, raw_download_dir) = config.resolve_download_dir(music_folder);
+        #[cfg(not(feature = "download"))]
+        let (_, raw_download_dir) = config.resolve_download_dir(music_folder);
         let mut config_paths = crate::plugin::ConfigPathItem::default_paths(music_folder);
         if let Some(item) = config_paths.iter_mut().find(|p| p.id == "download_dir") {
             item.path = raw_download_dir;
@@ -492,20 +494,6 @@ impl App {
         self.theme = t;
     }
 
-    /// Cycle through all available themes.
-    /// Used by the `X` keybinding.
-    pub fn cycle_theme(&mut self) {
-        let available = crate::theme::Theme::available();
-        let cur = available.iter().position(|n| n == &self.theme_name);
-        let next = match cur {
-            Some(i) => available[(i + 1) % available.len()],
-            None => "mocha",
-        };
-        self.set_theme(next);
-        self.set_toast(format!("Theme: {next}"));
-        let _ = Config::save_setting("theme", next);
-    }
-
     /// Search and download lyrics via LRCLIB API for the given result,
     /// saving a `.lrc` file next to the song and loading it into `app.lyrics`.
     pub fn download_lyrics(&mut self, result: &crate::app::LyricSearchResult, song_path: &Path) -> Result<()> {
@@ -556,6 +544,7 @@ impl App {
 
     /// Download lyrics for a track via LRCLIB API and save .lrc file next to it.
     /// Called automatically after download completes if `lyric_download` config is enabled.
+    #[cfg(feature = "download")]
     pub fn download_lyrics_for_track(&mut self, mp3_path: &PathBuf) -> Result<()> {
         let artist = mp3_path.file_stem()
             .and_then(|s| s.to_str())

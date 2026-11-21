@@ -326,8 +326,6 @@ pub fn post_render(app: &mut App) -> std::io::Result<()> {
     let is_download_cover_active = app.download.show_cover_picker_modal
         || (app.download.show_metadata_form && app.download.cover_preview_art.is_some())
         || (app.download.show_cover_file_picker && app.download.file_hover_preview.is_some());
-    #[cfg(not(feature = "download"))]
-    let is_download_cover_active = false;
 
     #[cfg(feature = "download")]
     let in_download_overlay = (app.view_mode == ViewMode::Extensions

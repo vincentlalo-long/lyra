@@ -1,7 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
-use std::io::{BufRead, BufReader};
-use crate::app::{App, PlaylistIoModal, PlaylistIoMode, ThemePickerModal, LyricSearchModal, LyricSearchResult, ViewMode};
+use crate::app::{App, PlaylistIoModal, PlaylistIoMode, ThemePickerModal, LyricSearchModal, ViewMode};
 use crate::playlist::{export_m3u, load_m3u};
 
 #[cfg(feature = "download")]
@@ -699,7 +698,7 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
             }
         }
 
-        // Theme picker (opens on `X`; also cycles via `cycle_theme()` if called elsewhere).
+        // Theme picker (opens on `X`).
         KeyCode::Char('X') => {
             let themes = crate::theme::Theme::available();
             let cur_idx = themes.iter().position(|n| n == &app.theme_name).unwrap_or(0);

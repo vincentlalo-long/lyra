@@ -3,15 +3,21 @@ name: Release
 on:
   push:
     tags:
-      - '*'
+      - 'v*'
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build-release:
     name: Build and Release Binaries
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -29,15 +35,34 @@ jobs:
         with:
           workspaces: MusicPlayer
 
+      # A tag must describe exactly the version in Cargo.toml; otherwise the
+      # updater would advertise a version the binary does not report.
+      - name: Verify tag matches Cargo version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cargo_version=$(sed -n 's/^version = "\(.*\)"/\1/p' MusicPlayer/Cargo.toml | head -1)
+          tag_version="${TAG#v}"
+          if [ "$cargo_version" != "$tag_version" ]; then
+            echo "::error::Tag $TAG does not match MusicPlayer/Cargo.toml version $cargo_version"
+            exit 1
+          fi
+
+      - name: Run test suite before publishing
+        run: |
+          cargo test --manifest-path MusicPlayer/Cargo.toml --locked
+          cargo test --manifest-path MusicPlayer/Cargo.toml --locked --no-default-features
+
       - name: Build Full TUI Binary
         run: |
-          cargo build --manifest-path MusicPlayer/Cargo.toml --release
+          cargo build --manifest-path MusicPlayer/Cargo.toml --release --locked
           strip MusicPlayer/target/release/lyra
           tar -czvf lyra-linux-x86_64.tar.gz -C MusicPlayer/target/release lyra
 
       - name: Build Minimal TUI Binary
         run: |
-          cargo build --manifest-path MusicPlayer/Cargo.toml --release --no-default-features
+          cargo build --manifest-path MusicPlayer/Cargo.toml --release --locked --no-default-features
           strip MusicPlayer/target/release/lyra
           tar -czvf lyra-minimal-linux-x86_64.tar.gz -C MusicPlayer/target/release lyra
 

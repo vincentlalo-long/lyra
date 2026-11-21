@@ -439,7 +439,7 @@ mod tests {
         // Mirrors our own bundled plugins (url empty, entry on disk).
         // cargo test runs with CWD = MusicPlayer/, so ../registry.json resolves.
         let base = std::env::temp_dir().join(format!("lyra_plugl_{}", std::process::id()));
-        let mut p = test_plugin("vi-vietnamese-support");
+        let p = test_plugin("vi-vietnamese-support");
         let Some(src) = plugin_entry_path(&p) else {
             let _ = std::fs::remove_dir_all(&base);
             return; // registry not reachable from this CWD; nothing to assert

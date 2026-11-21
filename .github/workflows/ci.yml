@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: rust
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev pkg-config
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: MusicPlayer
+
+      # The zero-warning policy is enforced for rustc diagnostics on every
+      # feature combination. The script is shared with `make check`, so CI and
+      # local verification cannot drift apart.
+      - name: Check warnings across feature combinations
+        run: bash scripts/check.sh
+
+      - name: Run tests (default features)
+        run: cargo test --manifest-path MusicPlayer/Cargo.toml
+
+      - name: Run tests (no default features)
+        run: cargo test --manifest-path MusicPlayer/Cargo.toml --no-default-features
+
+  python:
+    name: python
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest -q
+
+  # Advisory until the Phase-1 lint cleanup lands; the required checks are
+  # `rust` and `python`. Do not add this job to the protected-branch checks yet.
+  rust-lint:
+    name: rust-lint
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: MusicPlayer
+
+      - name: Check formatting
+        run: cargo fmt --manifest-path MusicPlayer/Cargo.toml -- --check
+
+      - name: Clippy
+        run: cargo clippy --manifest-path MusicPlayer/Cargo.toml --all-targets -- -D warnings

@@ -80,9 +80,12 @@ pub struct Config {
     pub music_folder: Option<String>,
     /// Raw `download_dir` value from the file, if present.
     pub download_dir: Option<String>,
-    /// Saved search result limit, if present.
+    /// Saved search result limit, if present. Consumed by the `download`
+    /// plugin; kept in the schema in minimal builds so configs round-trip.
+    #[cfg_attr(not(feature = "download"), allow(dead_code))]
     pub search_limit: Option<usize>,
     /// Search provider policy (auto/spotify/musicbrainz/deezer/itunes/youtube/all).
+    #[cfg_attr(not(feature = "download"), allow(dead_code))]
     pub search_source: Option<String>,
     /// Theme preset name, if present.
     pub theme: Option<String>,

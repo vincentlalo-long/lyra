@@ -78,9 +78,22 @@ Precompiled binaries for Linux (x86_64) are available on [GitHub Releases](https
 - **Minimal TUI** (`lyra-minimal-linux-x86_64.tar.gz`): Lean standalone binary, zero Python/network dependencies.
 - **CLI Only** (`lyra-cli.tar.gz`): Headless audio pipeline and cover tagger.
 
-Quick installation (extracts directly to `~/.local/bin`):
+Quick installation with the installer script (downloads to `~/.local/bin` and
+verifies the release SHA-256 checksum):
 ```bash
 # Full TUI (Recommended)
+curl -fsSL https://raw.githubusercontent.com/vincentlalo-long/lyra/main/scripts/install.sh | bash
+
+# Or Minimal TUI (no Python, no network)
+curl -fsSL https://raw.githubusercontent.com/vincentlalo-long/lyra/main/scripts/install.sh | bash -s -- --minimal
+```
+Pass `--dir <path>` to install elsewhere, `--version v0.3.4` to pin a release,
+or `--no-verify` to skip the checksum. To read the script before running it,
+download [`scripts/install.sh`](scripts/install.sh) and run `bash install.sh`.
+
+Or install manually:
+```bash
+# Full TUI
 curl -sSL https://github.com/vincentlalo-long/lyra/releases/latest/download/lyra-linux-x86_64.tar.gz | tar -xz -C ~/.local/bin/
 chmod +x ~/.local/bin/lyra
 
@@ -137,7 +150,7 @@ lyra --check-deps
 > archive.
 
 ### Requirements (Source Build)
-- **Rust toolchain** (1.80+)
+- **Rust toolchain** (1.85+; the crate uses edition 2024)
 - **ffmpeg** (required for audio conversion and thumbnail processing)
 - **Python 3.10+** (only needed for Full TUI / download & cover features)
   - `pip install yt-dlp pillow mutagen`
@@ -149,6 +162,10 @@ Clone the repository:
 git clone https://github.com/vincentlalo-long/lyra.git
 cd lyra
 ```
+
+For local development the repository ships a `Makefile`: `make help` lists the
+targets, `make run` launches the TUI, and `make verify` runs the zero-warning
+feature matrix plus the Rust and Python test suites (the same gate as CI).
 
 #### Build Full TUI (All features):
 ```bash
@@ -312,7 +329,10 @@ needed); choosing `spotify` explicitly shows a setup hint.
 ## Contributing & Extensions
 
 Lyra welcomes contributions, bug reports, and plugin pull requests.
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines, project layout, and testing rules. See [MusicPlayer/plugins.md](MusicPlayer/plugins.md) for compile-time Cargo plugins, and [plugins/](plugins/) with [registry.json](registry.json) for community script add-ons.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines, project layout, and testing rules,
+[SECURITY.md](SECURITY.md) to report vulnerabilities privately, and
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community standards. Lyra is released under the MIT
+license; see [LICENSE](LICENSE). See [MusicPlayer/plugins.md](MusicPlayer/plugins.md) for compile-time Cargo plugins, and [plugins/](plugins/) with [registry.json](registry.json) for community script add-ons.
 
 ---
 

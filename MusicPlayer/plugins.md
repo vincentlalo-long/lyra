@@ -16,8 +16,9 @@ cargo install --path MusicPlayer --no-default-features
 cargo install --path MusicPlayer --no-default-features --features download,mpris
 ```
 
-`--no-default-features` builds, tests (24 tests), and runs with zero
-warnings. Each single feature also builds warning-free on its own.
+`--no-default-features` builds, tests, and runs with zero warnings. Each single
+feature also builds warning-free on its own. CI checks this feature matrix on
+every pull request.
 
 ## Adding a new plugin (`myfeat`)
 
