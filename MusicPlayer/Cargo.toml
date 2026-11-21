@@ -15,15 +15,15 @@ genre = []
 update = []
 
 [dependencies]
-ratatui = "0.29"
-crossterm = "0.28"
-rodio = "0.19"
+ratatui = "0.30"
+crossterm = "0.29"
+rodio = "0.23"
 anyhow = "1.0"
 id3 = "1.17"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-mpris-server = { version = "0.10", features = ["tokio"], optional = true }
+mpris-server = { version = "0.11", features = ["tokio"], optional = true }
 tokio = { version = "1.53.2", features = ["rt"], optional = true }
 toml = "1.1.7"
 unicode-width = "0.2"
