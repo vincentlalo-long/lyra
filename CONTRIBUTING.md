@@ -176,7 +176,7 @@ Never hardcode personal or platform-specific home paths (e.g., `/home/username`)
 ## Pull Requests
 
 `main` is protected: changes land through a pull request with green `rust` and
-`python` CI checks, and the branch must be up to date. A PR is ready when:
+Python (`3.11`/`3.12`) CI checks, and the branch must be up to date. A PR is ready when:
 
 - CI is green.
 - The PR template checklist is complete.
@@ -205,7 +205,7 @@ gh api -X PUT repos/vincentlalo-long/lyra/branches/main/protection \
   --input .github/branch-protection.json
 ```
 
-Required checks are `rust` and `python`; `rust-lint` is advisory until the lint
-backlog is cleared. Raise `required_approving_review_count` to `1` once a second
+Required checks are `rust`, `python (3.11)` and `python (3.12)`; `rust-lint` is
+advisory until the lint backlog is cleared. Raise `required_approving_review_count` to `1` once a second
 maintainer exists — GitHub does not allow self-approval. Protect `v*` tags in
 Settings → Rules so only maintainers can publish a release tag.

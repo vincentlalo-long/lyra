@@ -71,8 +71,9 @@ jobs:
       - name: Run tests
         run: python -m pytest -q
 
-  # Advisory until the Phase-1 lint cleanup lands; the required checks are
-  # `rust` and `python`. Do not add this job to the protected-branch checks yet.
+  # Advisory until the Phase-1 lint cleanup lands: the required checks are
+  # `rust` and the Python matrix. Formatting/clippy failures stay in the log
+  # but must not turn the PR red or block merging yet.
   rust-lint:
     name: rust-lint
     runs-on: ubuntu-latest
@@ -92,7 +93,9 @@ jobs:
           workspaces: MusicPlayer
 
       - name: Check formatting
+        continue-on-error: true
         run: cargo fmt --manifest-path MusicPlayer/Cargo.toml -- --check
 
       - name: Clippy
+        continue-on-error: true
         run: cargo clippy --manifest-path MusicPlayer/Cargo.toml --all-targets -- -D warnings

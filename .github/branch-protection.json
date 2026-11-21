@@ -1,7 +1,7 @@
 {
   "required_status_checks": {
     "strict": true,
-    "contexts": ["rust", "python"]
+    "contexts": ["rust", "python (3.11)", "python (3.12)"]
   },
   "enforce_admins": false,
   "required_pull_request_reviews": {
