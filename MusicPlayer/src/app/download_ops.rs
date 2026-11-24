@@ -270,7 +270,7 @@ impl App {
     }
 
     pub fn handle_download_enter(&mut self) {
-        if !self.plugin_enabled("download") {
+        if !self.plugin_enabled(crate::plugin::PluginId::Download) {
             self.set_toast("Downloader plugin is disabled (enable it in [5] Plugins)".to_string());
             return;
         }

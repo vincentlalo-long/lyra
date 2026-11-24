@@ -25,6 +25,8 @@ every pull request.
 1. `Cargo.toml`: add `myfeat = []` to `[features]` (+ `dep:...` for new deps, always `optional = true`), and to `default` if it ships on.
 2. Code lives in `src/myfeat.rs` (or `src/myfeat/` when >200 lines):
    `mod.rs` (re-exports) + `types.rs` + `server.rs`/`worker.rs` + `view.rs` as needed.
+   Register it in `plugin.rs`: one `PluginId` variant (in `ALL` display order), its
+   `as_str()` id, the `is_compiled()` arm, and a `default_plugins()` row.
 3. `main.rs`: `#[cfg(feature = "myfeat")] mod myfeat;`
 4. State: `#[cfg]` fields + constructor lines in `app/mod.rs` (separate
    `#[cfg] use` statements — attributes are **not** allowed inside a
@@ -43,6 +45,8 @@ every pull request.
 ## Rules
 
 - Core must never import from a plugin (`mpris`/`notify` → `meta`, never back).
+- Runtime gates take a `PluginId` (`app.plugin_enabled(PluginId::X)`), never a
+  string literal; `plugins.json` keeps persisting the stable `as_str()` id.
 - `pub(crate)` for cross-module items inside a plugin; plain `pub` only at
   the `mod.rs` re-export boundary.
 - Zero-warning policy holds per feature combination in the matrix above.

@@ -170,7 +170,7 @@ fn run_loop(terminal: &mut terminal::Tui, app: &mut App) -> Result<()> {
         // Always drained (unbounded channel); only handled when enabled.
         #[cfg(feature = "mpris")]
         {
-            let mpris_on = app.plugin_enabled("mpris");
+            let mpris_on = app.plugin_enabled(crate::plugin::PluginId::Mpris);
             while let Ok(key) = app.media_rx.try_recv() {
                 if mpris_on {
                     app.handle_media_key(key);
@@ -183,7 +183,7 @@ fn run_loop(terminal: &mut terminal::Tui, app: &mut App) -> Result<()> {
 
         // Publish playing state + position to the dynamic island (MPRIS).
         #[cfg(feature = "mpris")]
-        if app.plugin_enabled("mpris") {
+        if app.plugin_enabled(crate::plugin::PluginId::Mpris) {
             app.mpris_tick();
         }
 

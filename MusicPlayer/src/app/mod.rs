@@ -372,7 +372,7 @@ impl App {
         // Derive runtime flags from saved plugin states (a plugin disabled
         // in a previous session stays off — no recompile needed).
         // Lyrics layout defaults ON when its plugin ships enabled.
-        let lyrics_on = app.plugin_enabled("lyrics");
+        let lyrics_on = app.plugin_enabled(crate::plugin::PluginId::Lyrics);
         app.sync_plugin_runtime_flags(lyrics_on);
         // Persisted search result limit (Plugins settings row / E).
         #[cfg(feature = "download")]
@@ -399,7 +399,7 @@ impl App {
     /// Toggle lyrics display mode (Studio Mode <-> Karaoke Mode).
     /// Refused while the lyrics plugin is disabled.
     pub fn toggle_lyrics(&mut self) {
-        if !self.plugin_enabled("lyrics") {
+        if !self.plugin_enabled(crate::plugin::PluginId::Lyrics) {
             self.set_toast("Lyrics plugin is disabled (enable it in [5] Plugins)".to_string());
             return;
         }
@@ -427,7 +427,7 @@ impl App {
         let filter_active = !self.search_query.is_empty() || {
             #[cfg(feature = "genre")]
             {
-                self.plugin_enabled("genre") && !self.genre_filters.is_empty()
+                self.plugin_enabled(crate::plugin::PluginId::Genre) && !self.genre_filters.is_empty()
             }
             #[cfg(not(feature = "genre"))]
             {
@@ -1043,20 +1043,26 @@ mod tests {
     #[test]
     fn test_plugin_disable_takes_effect_without_recompile() {
         if let Ok(mut app) = App::new(std::path::Path::new(".")) {
-            assert!(app.plugin_enabled("notify"));
+            assert!(app.plugin_enabled(crate::plugin::PluginId::Notify));
             // Disable notify like a user would in the Plugins view.
-            let idx = app.plugins.iter().position(|p| p.id == "notify").unwrap();
+            let idx = app.plugins
+                .iter()
+                .position(|p| p.plugin_id() == Some(crate::plugin::PluginId::Notify))
+                .unwrap();
             app.plugin_selected = idx;
             app.toggle_selected_plugin();
-            assert!(!app.plugin_enabled("notify"));
+            assert!(!app.plugin_enabled(crate::plugin::PluginId::Notify));
             assert!(!app.notifications_enabled);
             // Lyrics layout follows its plugin.
-            let lidx = app.plugins.iter().position(|p| p.id == "lyrics").unwrap();
+            let lidx = app.plugins
+                .iter()
+                .position(|p| p.plugin_id() == Some(crate::plugin::PluginId::Lyrics))
+                .unwrap();
             app.plugin_selected = lidx;
-            if app.plugin_enabled("lyrics") {
+            if app.plugin_enabled(crate::plugin::PluginId::Lyrics) {
                 app.toggle_selected_plugin();
             }
-            assert!(!app.plugin_enabled("lyrics"));
+            assert!(!app.plugin_enabled(crate::plugin::PluginId::Lyrics));
             assert!(!app.show_lyrics);
             app.toggle_lyrics();
             assert!(!app.show_lyrics, "manual toggle must not revive a disabled plugin");

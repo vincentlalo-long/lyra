@@ -51,6 +51,77 @@ pub struct DownloadablePlugin {
 /// Current binary version (`MusicPlayer/Cargo.toml`), e.g. `"0.2.6"`.
 pub const LYRA_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Stable identity for every built-in plugin.
+///
+/// Compile-time feature gates, the Plugin Manager metadata, and every runtime
+/// `App::plugin_enabled` check derive from this one enum, so an id can never
+/// silently drift from the feature that ships it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PluginId {
+    Download,
+    Mpris,
+    Notify,
+    Genre,
+    Lyrics,
+    Daylists,
+    Artwork,
+    Visualizer,
+    Updater,
+}
+
+impl PluginId {
+    /// Every built-in plugin, in Plugin Manager display order.
+    pub const ALL: [Self; 9] = [
+        Self::Download,
+        Self::Mpris,
+        Self::Notify,
+        Self::Genre,
+        Self::Lyrics,
+        Self::Daylists,
+        Self::Artwork,
+        Self::Visualizer,
+        Self::Updater,
+    ];
+
+    /// Stable id persisted in `plugins.json`; never rename an existing one.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Download => "download",
+            Self::Mpris => "mpris",
+            Self::Notify => "notify",
+            Self::Genre => "genre",
+            Self::Lyrics => "lyrics",
+            Self::Daylists => "daylists",
+            Self::Artwork => "artwork",
+            Self::Visualizer => "visualizer",
+            Self::Updater => "updater",
+        }
+    }
+
+    /// True when the plugin's code was compiled into this binary.
+    pub const fn is_compiled(self) -> bool {
+        match self {
+            Self::Download => cfg!(feature = "download"),
+            Self::Mpris => cfg!(feature = "mpris"),
+            Self::Notify => cfg!(feature = "notify"),
+            Self::Genre => cfg!(feature = "genre"),
+            Self::Updater => cfg!(feature = "update"),
+            Self::Lyrics | Self::Daylists | Self::Artwork | Self::Visualizer => true,
+        }
+    }
+
+    /// Looks up a built-in plugin by persisted id (`None` for community ids).
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|id| id.as_str() == name)
+    }
+}
+
+impl std::fmt::Display for PluginId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 fn parse_version_numbers(v: &str) -> Vec<u64> {
     v.trim()
         .trim_start_matches(['v', 'V'])
@@ -95,89 +166,82 @@ pub fn check_min_version(min: &str) -> Result<(), String> {
 }
 
 impl ManagedPlugin {
+    /// Builds the Plugin Manager metadata row for a built-in plugin.
+    /// `enabled` follows the compile-time feature, so metadata and gates
+    /// cannot disagree.
+    fn builtin(id: PluginId, name: &str, version: &str, description: &str) -> Self {
+        Self {
+            id: id.as_str().to_string(),
+            name: name.to_string(),
+            version: version.to_string(),
+            description: description.to_string(),
+            enabled: id.is_compiled(),
+            is_removed: false,
+            is_builtin: true,
+        }
+    }
+
+    /// Typed id for built-in plugins; `None` for community plugins.
+    pub fn plugin_id(&self) -> Option<PluginId> {
+        PluginId::from_name(&self.id)
+    }
+
     pub fn default_plugins() -> Vec<Self> {
         vec![
-            Self {
-                id: "download".into(),
-                name: "YouTube Audio Downloader".into(),
-                version: "v0.6.0".into(),
-                description: "YouTube audio search, yt-dlp downloader & ID3 artwork embedder".into(),
-                enabled: cfg!(feature = "download"),
-                is_removed: false,
-                is_builtin: true,
-            },
-            Self {
-                id: "mpris".into(),
-                name: "MPRIS Dynamic Island Bridge".into(),
-                version: "v1.1.0".into(),
-                description: "Desktop media keys, playerctl and Dynamic Island D-Bus widget".into(),
-                enabled: cfg!(feature = "mpris"),
-                is_removed: false,
-                is_builtin: true,
-            },
-            Self {
-                id: "notify".into(),
-                name: "Desktop Notifications".into(),
-                version: "v0.8.5".into(),
-                description: "Native OS notification toasts on track change (dunst/mako/swaync)".into(),
-                enabled: cfg!(feature = "notify"),
-                is_removed: false,
-                is_builtin: true,
-            },
-            Self {
-                id: "genre".into(),
-                name: "Genre Classifier & Tagger".into(),
-                version: "v0.5.1".into(),
-                description: "Sidecar genre database and offline ID3 TCON tag classifier".into(),
-                enabled: cfg!(feature = "genre"),
-                is_removed: false,
-                is_builtin: true,
-            },
-            Self {
-                id: "lyrics".into(),
-                name: "LRC Karaoke Lyrics Engine".into(),
-                version: "v1.0.5".into(),
-                description: "LRC format parser & synchronized dual-panel karaoke lyrics renderer".into(),
-                enabled: true,
-                is_removed: false,
-                is_builtin: true,
-            },
-            Self {
-                id: "daylists".into(),
-                name: "Smart Daylists & Queue History".into(),
-                version: "v0.9.0".into(),
-                description: "Auto-saves daily listening queue and history snapshots to disk".into(),
-                enabled: true,
-                is_removed: false,
-                is_builtin: true,
-            },
-            Self {
-                id: "artwork".into(),
-                name: "Cover Art Engine".into(),
-                version: "v0.5.0".into(),
-                description: "Multi-source album artwork extraction, caching & kitty renderer".into(),
-                enabled: true,
-                is_removed: false,
-                is_builtin: true,
-            },
-            Self {
-                id: "visualizer".into(),
-                name: "Audio Visualizer".into(),
-                version: "v0.3.1".into(),
-                description: "Real-time audio waveform visualizer (ricing style) with multiple wave types and colors".into(),
-                enabled: true,
-                is_removed: false,
-                is_builtin: true,
-            },
-            Self {
-                id: "updater".into(),
-                name: "Update (GitHub Releases)".into(),
-                version: format!("v{}", LYRA_VERSION),
-                description: "Checks GitHub Releases for a newer Lyra; press U here to check/install (tarball builds)".into(),
-                enabled: cfg!(feature = "update"),
-                is_removed: false,
-                is_builtin: true,
-            },
+            Self::builtin(
+                PluginId::Download,
+                "YouTube Audio Downloader",
+                "v0.6.0",
+                "YouTube audio search, yt-dlp downloader & ID3 artwork embedder",
+            ),
+            Self::builtin(
+                PluginId::Mpris,
+                "MPRIS Dynamic Island Bridge",
+                "v1.1.0",
+                "Desktop media keys, playerctl and Dynamic Island D-Bus widget",
+            ),
+            Self::builtin(
+                PluginId::Notify,
+                "Desktop Notifications",
+                "v0.8.5",
+                "Native OS notification toasts on track change (dunst/mako/swaync)",
+            ),
+            Self::builtin(
+                PluginId::Genre,
+                "Genre Classifier & Tagger",
+                "v0.5.1",
+                "Sidecar genre database and offline ID3 TCON tag classifier",
+            ),
+            Self::builtin(
+                PluginId::Lyrics,
+                "LRC Karaoke Lyrics Engine",
+                "v1.0.5",
+                "LRC format parser & synchronized dual-panel karaoke lyrics renderer",
+            ),
+            Self::builtin(
+                PluginId::Daylists,
+                "Smart Daylists & Queue History",
+                "v0.9.0",
+                "Auto-saves daily listening queue and history snapshots to disk",
+            ),
+            Self::builtin(
+                PluginId::Artwork,
+                "Cover Art Engine",
+                "v0.5.0",
+                "Multi-source album artwork extraction, caching & kitty renderer",
+            ),
+            Self::builtin(
+                PluginId::Visualizer,
+                "Audio Visualizer",
+                "v0.3.1",
+                "Real-time audio waveform visualizer (ricing style) with multiple wave types and colors",
+            ),
+            Self::builtin(
+                PluginId::Updater,
+                "Update (GitHub Releases)",
+                &format!("v{LYRA_VERSION}"),
+                "Checks GitHub Releases for a newer Lyra; press U here to check/install (tarball builds)",
+            ),
         ]
     }
 
@@ -454,7 +518,10 @@ mod tests {
     #[test]
     fn test_merge_plugins_preserves_user_settings_and_updates_version() {
         let defaults = ManagedPlugin::default_plugins();
-        let download_def = defaults.iter().find(|p| p.id == "download").unwrap();
+        let download_def = defaults
+            .iter()
+            .find(|p| p.plugin_id() == Some(PluginId::Download))
+            .unwrap();
         assert_eq!(download_def.version, "v0.6.0");
 
         // Simulate saved plugins from older version (download was v0.3.2 and user disabled it)
@@ -493,7 +560,10 @@ mod tests {
             }
         }
 
-        let download_merged = merged.iter().find(|p| p.id == "download").unwrap();
+        let download_merged = merged
+            .iter()
+            .find(|p| p.plugin_id() == Some(PluginId::Download))
+            .unwrap();
         // Version is upgraded to v0.6.0 from new binary:
         assert_eq!(download_merged.version, "v0.6.0");
         // But user preference (enabled = false) is strictly preserved!
@@ -501,5 +571,28 @@ mod tests {
 
         // Custom plugin is completely preserved:
         assert!(merged.iter().any(|p| p.id == "custom-plugin-123" && p.name == "Custom Addon"));
+    }
+
+    #[test]
+    fn test_plugin_registry_is_consistent() {
+        let defaults = ManagedPlugin::default_plugins();
+        assert_eq!(defaults.len(), PluginId::ALL.len());
+        for (plugin, id) in defaults.iter().zip(PluginId::ALL) {
+            assert_eq!(plugin.id, id.as_str());
+            assert_eq!(plugin.enabled, id.is_compiled());
+            assert_eq!(plugin.plugin_id(), Some(id));
+            assert!(plugin.is_builtin && !plugin.is_removed);
+        }
+    }
+
+    #[test]
+    fn test_plugin_id_round_trip_and_uniqueness() {
+        let unique: std::collections::HashSet<&str> =
+            PluginId::ALL.iter().map(|id| id.as_str()).collect();
+        assert_eq!(unique.len(), PluginId::ALL.len());
+        for id in PluginId::ALL {
+            assert_eq!(PluginId::from_name(id.as_str()), Some(id));
+        }
+        assert_eq!(PluginId::from_name("community-plugin"), None);
     }
 }

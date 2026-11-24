@@ -7,7 +7,7 @@ impl App {
     /// When the genre plugin is disabled, genre filters are ignored entirely.
     pub fn visible_playlist_indices(&mut self) -> Vec<usize> {
         let query = self.search_query.clone();
-        let genres = if self.plugin_enabled("genre") {
+        let genres = if self.plugin_enabled(crate::plugin::PluginId::Genre) {
             self.genre_filters.clone()
         } else {
             Vec::new()
@@ -18,7 +18,7 @@ impl App {
 
     /// `f`: open the genre picker (reloads sidecar so external edits show up).
     pub fn open_genre_picker(&mut self) {
-        if !self.plugin_enabled("genre") {
+        if !self.plugin_enabled(crate::plugin::PluginId::Genre) {
             self.set_toast("Genre plugin is disabled (enable it in [5] Plugins)".to_string());
             return;
         }
@@ -121,7 +121,7 @@ impl App {
 
     /// `t`: Opens the interactive Genre Tagger / Editor for the selected song
     pub fn open_genre_tagger(&mut self) {
-        if !self.plugin_enabled("genre") {
+        if !self.plugin_enabled(crate::plugin::PluginId::Genre) {
             self.set_toast("Genre plugin is disabled (enable it in [5] Plugins)".to_string());
             return;
         }

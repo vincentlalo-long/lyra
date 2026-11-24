@@ -16,7 +16,7 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         let is_download_enabled = app
             .plugins
             .iter()
-            .find(|p| p.id == "download")
+            .find(|p| p.plugin_id() == Some(crate::plugin::PluginId::Download))
             .map(|p| p.enabled && !p.is_removed)
             .unwrap_or(true);
 

@@ -14,7 +14,7 @@ impl App {
         };
         // Mirror repeat mode as MPRIS loop status for the island.
         #[cfg(feature = "mpris")]
-        if self.plugin_enabled("mpris") {
+        if self.plugin_enabled(crate::plugin::PluginId::Mpris) {
             self.sync_mpris_loop();
         }
     }
@@ -43,7 +43,7 @@ impl App {
         self.queue.set_loop(on);
         self.queue.persist();
         #[cfg(feature = "mpris")]
-        if self.plugin_enabled("mpris") {
+        if self.plugin_enabled(crate::plugin::PluginId::Mpris) {
             self.sync_mpris_loop();
         }
         self.set_toast(if on {
@@ -243,12 +243,12 @@ impl App {
                 // playlist instead of playing invisibly.
                 self.set_toast(format!("Added to library: {}", short_name(song_path)));
             }
-            self.lyrics = if self.plugin_enabled("lyrics") {
+            self.lyrics = if self.plugin_enabled(crate::plugin::PluginId::Lyrics) {
                 Lyrics::load_for_song(song_path)
             } else {
                 None
             };
-            self.cover = if self.plugin_enabled("artwork") {
+            self.cover = if self.plugin_enabled(crate::plugin::PluginId::Artwork) {
                 Some(AlbumArt::load_for_song(song_path))
             } else {
                 None
@@ -261,7 +261,7 @@ impl App {
             }
             // Publish track to the dynamic island via MPRIS (no-op without D-Bus).
             #[cfg(feature = "mpris")]
-            if self.plugin_enabled("mpris") {
+            if self.plugin_enabled(crate::plugin::PluginId::Mpris) {
                 let track = crate::mpris::track_for_song(
                     song_path,
                     self.audio.duration,
@@ -270,7 +270,7 @@ impl App {
                 self.mpris.set_track(track);
             }
             #[cfg(feature = "mpris")]
-            if self.plugin_enabled("mpris") {
+            if self.plugin_enabled(crate::plugin::PluginId::Mpris) {
                 self.sync_mpris_loop();
             }
         }
@@ -476,7 +476,7 @@ impl App {
         }
         #[cfg(feature = "genre")]
         {
-            self.plugin_enabled("genre") && !self.genre_filters.is_empty()
+            self.plugin_enabled(crate::plugin::PluginId::Genre) && !self.genre_filters.is_empty()
         }
         #[cfg(not(feature = "genre"))]
         {

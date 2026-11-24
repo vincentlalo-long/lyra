@@ -160,7 +160,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     if app.view_mode == ViewMode::Extensions {
         extensions::render(frame, app, layout_chunks[1]);
-    } else if app.show_lyrics && app.plugin_enabled("lyrics") && app.view_mode != ViewMode::Plugins {
+    } else if app.show_lyrics && app.plugin_enabled(crate::plugin::PluginId::Lyrics) && app.view_mode != ViewMode::Plugins {
         // Karaoke Mode (Lyric ON): Cover art and compact playlist on the left,
         // lyrics and optional visualizer on the right (scoped to the lyrics column width).
         let body_chunks = Layout::default()

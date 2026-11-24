@@ -98,7 +98,7 @@ pub fn is_enabled() -> bool {
     let plugins = crate::plugin::ManagedPlugin::load_and_merge_plugins();
     plugins
         .iter()
-        .find(|p| p.id == "updater")
+        .find(|p| p.plugin_id() == Some(crate::plugin::PluginId::Updater))
         .is_some_and(|p| p.enabled && !p.is_removed)
 }
 

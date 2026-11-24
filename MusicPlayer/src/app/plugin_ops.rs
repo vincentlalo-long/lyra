@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use crate::browser::FileBrowser;
+use crate::plugin::PluginId;
 use super::App;
 
 /// Search result-count presets for the Plugins settings row.
@@ -38,10 +39,11 @@ impl App {
     /// Runtime state of a plugin: enabled flag AND not removed.
     /// This is the single source of truth every feature gate must use —
     /// no recompile needed, toggling here takes effect immediately.
-    pub fn plugin_enabled(&self, id: &str) -> bool {
+    /// Takes a typed [`PluginId`] so a typo cannot silently disable a plugin.
+    pub fn plugin_enabled(&self, id: PluginId) -> bool {
         self.plugins
             .iter()
-            .find(|p| p.id == id)
+            .find(|p| p.id == id.as_str())
             .is_some_and(|p| p.enabled && !p.is_removed)
     }
 
@@ -50,15 +52,15 @@ impl App {
     /// `preserve_lyrics_choice`: when true (interactive toggle), turning the
     /// lyrics plugin back ON restores the karaoke layout.
     pub fn sync_plugin_runtime_flags(&mut self, preserve_lyrics_choice: bool) {
-        self.notifications_enabled = self.plugin_enabled("notify");
-        self.visualizer = self.plugin_enabled("visualizer");
-        if !self.plugin_enabled("lyrics") {
+        self.notifications_enabled = self.plugin_enabled(PluginId::Notify);
+        self.visualizer = self.plugin_enabled(PluginId::Visualizer);
+        if !self.plugin_enabled(PluginId::Lyrics) {
             self.show_lyrics = false;
         } else if preserve_lyrics_choice {
             self.show_lyrics = true;
         }
         // A disabled genre plugin must not keep filtering the library.
-        if !self.plugin_enabled("genre") {
+        if !self.plugin_enabled(PluginId::Genre) {
             #[cfg(feature = "genre")]
             {
                 self.genre_filters.clear();

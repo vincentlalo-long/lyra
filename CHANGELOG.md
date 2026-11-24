@@ -22,6 +22,12 @@ All notable changes to Lyra are documented here. The format follows
 
 ### Changed
 
+- `app/browser_ops` (1.2k lines) is split into focused submodules: caret
+  helpers, modal entry points, cover/move filesystem ops, and one file per
+  modal's key handler. Behavior is unchanged.
+- Built-in plugin identity is now a typed `PluginId` registry: feature gates,
+  Plugin Manager metadata, and runtime checks share one source of truth, and
+  `App::plugin_enabled` takes a `PluginId` instead of a string.
 - Releases now only run for `v*` tags, verify the tag matches
   `MusicPlayer/Cargo.toml`, and run the test suite before publishing.
 

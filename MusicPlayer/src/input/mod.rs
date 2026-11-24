@@ -240,7 +240,7 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         let is_download_enabled = app
             .plugins
             .iter()
-            .find(|p| p.id == "download")
+            .find(|p| p.plugin_id() == Some(crate::plugin::PluginId::Download))
             .map(|p| p.enabled && !p.is_removed)
             .unwrap_or(true);
         if is_download_enabled {
@@ -658,7 +658,7 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         // Set/replace embedded cover art of the selected track (Browser).
         KeyCode::Char('B') => {
             if app.view_mode == ViewMode::Browser {
-                if app.plugin_enabled("artwork") {
+                if app.plugin_enabled(crate::plugin::PluginId::Artwork) {
                     app.browser_set_cover_prompt();
                 } else {
                     app.set_toast("Artwork plugin is disabled (enable it in [5] Plugins)".to_string());
@@ -666,14 +666,14 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
             }
         }
         KeyCode::Char('w') => {
-            if app.plugin_enabled("daylists") {
+            if app.plugin_enabled(crate::plugin::PluginId::Daylists) {
                 app.save_daylist();
             } else {
                 app.set_toast("Daylists plugin is disabled (enable it in [5] Plugins)".to_string());
             }
         }
         KeyCode::Char('o') => {
-            if app.plugin_enabled("daylists") {
+            if app.plugin_enabled(crate::plugin::PluginId::Daylists) {
                 app.load_daylist();
             } else {
                 app.set_toast("Daylists plugin is disabled (enable it in [5] Plugins)".to_string());
@@ -683,7 +683,7 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         // Genre picker (f: filter/queue) & Genre tagger (t: tag/edit genre)
         #[cfg(feature = "genre")]
         KeyCode::Char('f') | KeyCode::Char('F') => {
-            if app.plugin_enabled("genre") {
+            if app.plugin_enabled(crate::plugin::PluginId::Genre) {
                 app.open_genre_picker()
             } else {
                 app.set_toast("Genre plugin is disabled (enable it in [5] Plugins)".to_string())
@@ -691,7 +691,7 @@ pub fn handle_key(app: &mut App, event: KeyEvent) -> bool {
         }
         #[cfg(feature = "genre")]
         KeyCode::Char('t') | KeyCode::Char('T') => {
-            if app.plugin_enabled("genre") {
+            if app.plugin_enabled(crate::plugin::PluginId::Genre) {
                 app.open_genre_tagger()
             } else {
                 app.set_toast("Genre plugin is disabled (enable it in [5] Plugins)".to_string())
